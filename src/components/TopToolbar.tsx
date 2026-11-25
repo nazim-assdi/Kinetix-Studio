@@ -30,7 +30,7 @@ import {
   Upload,
   FileText,
 } from 'lucide-react';
-import { MediaKind, ToolMode, WorkspacePreset } from '../types/editor';
+import { LeftDockTab, MediaKind, ToolMode, ViewLayoutMode, WorkspacePreset } from '../types/editor';
 
 interface TopToolbarProps {
   workspace: WorkspacePreset;
@@ -163,6 +163,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 
   return (
     <header className="h-12 shrink-0 bg-[#181A1F] border-b border-[#2B303A] px-2.5 flex items-center justify-between gap-2 select-none relative z-40">
+      <input ref={loadInputRef} type="file" accept=".json,.kinetix,.kinetix.json" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) onLoadProjectFile(file); e.currentTarget.value = ''; }} />
+      <input ref={mediaInputRef} type="file" multiple accept="video/*,image/*,audio/*,.psd,.ai,.svg" className="hidden" onChange={(e) => { if (e.currentTarget.files?.length) onImportMedia(e.currentTarget.files); e.currentTarget.value = ''; }} />
+
       {/* Left: Brand & Workspaces */}
       <div className="flex items-center gap-2 min-w-0">
         <div className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
@@ -181,8 +184,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             <button type="button" onClick={() => setOpenMenu((m) => m === 'file' ? null : 'file')} aria-expanded={openMenu === 'file'} className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${openMenu === 'file' ? 'bg-[#303642] text-white' : 'text-[#C8CDD6] hover:bg-[#252932] hover:text-white'}`}>File</button>
             {openMenu === 'file' && (
               <div role="menu" aria-label="File Menu" className="absolute left-0 top-full mt-1 w-52 rounded-md border border-[#303744] bg-[#181A1F] p-1 shadow-2xl z-[80]">
-                <input ref={loadInputRef} type="file" accept=".json,.kinetix,.kinetix.json" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) onLoadProjectFile(file); e.currentTarget.value = ''; }} />
-                <input ref={mediaInputRef} type="file" multiple accept="video/*,image/*,audio/*,.psd,.ai,.svg" className="hidden" onChange={(e) => { if (e.currentTarget.files?.length) onImportMedia(e.currentTarget.files); e.currentTarget.value = ''; }} />
                 <button type="button" role="menuitem" onClick={() => { onSaveProject(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Save className="h-3.5 w-3.5 text-[#14B8A6]" />Save Project</button>
                 <button type="button" role="menuitem" onClick={() => { loadInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FolderUp className="h-3.5 w-3.5 text-[#60A5FA]" />Import Project</button>
                 <button type="button" role="menuitem" onClick={() => { mediaInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Upload className="h-3.5 w-3.5 text-[#60A5FA]" />Import Media / PSD / AI / SVG</button>
