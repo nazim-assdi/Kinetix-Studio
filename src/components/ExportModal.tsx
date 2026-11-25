@@ -75,6 +75,172 @@ function createSafeMediaRecorder(
   }
 }
 
+interface ExportAudioChannel {
+  clip: TimelineClip;
+  element: HTMLAudioElement | HTMLVideoElement;
+  gain: GainNode;
+  track: TimelineTrack;
+}
+
+interface ExportAudioSession {
+  destination: MediaStreamAudioDestinationNode;
+  updateAt: (time: number) => void;
+  dispose: () => Promise<void>;
+}
+
+async function createExportAudioSession(
+  clips: TimelineClip[],
+  tracks: TimelineTrack[]
+): Promise<ExportAudioSession | null> {
+  const soundClips = clips.filter(
+    (clip) => (clip.kind === 'audio' || clip.kind === 'video') && Boolean(clip.src)
+  );
+  if (soundClips.length === 0) return null;
+
+  const AudioContextConstructor =
+    window.AudioContext ||
+    (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextConstructor) {
+    throw new Error('This browser does not support audio mixing for video export.');
+  }
+
+  const context = new AudioContextConstructor();
+  const destination = context.createMediaStreamDestination();
+  const hasSolo = tracks.some((track) => track.solo);
+  const channels: ExportAudioChannel[] = [];
+
+  try {
+    for (const clip of soundClips) {
+      const track = tracks.find((item) => item.id === clip.trackId);
+      if (!track || track.muted || (hasSolo && !track.solo)) continue;
+
+      const element =
+        clip.kind === 'video'
+          ? document.createElement('video')
+          : new Audio();
+      element.preload = 'auto';
+      element.crossOrigin = 'anonymous';
+      element.src = clip.src!;
+      if (element instanceof HTMLVideoElement) {
+        element.playsInline = true;
+        element.muted = false;
+      }
+      element.volume = 1;
+      element.playbackRate = Math.max(0.25, Math.min(4, clip.speed ?? 1));
+
+      const source = context.createMediaElementSource(element);
+      const low = context.createBiquadFilter();
+      low.type = 'lowshelf';
+      low.frequency.value = 120;
+      low.gain.value = track.eqLow ?? 0;
+
+      const mid = context.createBiquadFilter();
+      mid.type = 'peaking';
+      mid.frequency.value = 1000;
+      mid.Q.value = 1;
+      mid.gain.value = track.eqMid ?? 0;
+
+      const high = context.createBiquadFilter();
+      high.type = 'highshelf';
+      high.frequency.value = 6000;
+      high.gain.value = track.eqHigh ?? 0;
+
+      const compressor = context.createDynamicsCompressor();
+      compressor.threshold.value = track.compressor ? -20 : 0;
+      compressor.ratio.value = track.compressor ? 4 : 1;
+
+      const pan = context.createStereoPanner();
+      pan.pan.value = track.pan ?? 0;
+      const gain = context.createGain();
+      gain.gain.value = 0;
+
+      source.connect(low);
+      low.connect(mid);
+      mid.connect(high);
+      high.connect(compressor);
+      compressor.connect(pan);
+      pan.connect(gain);
+      gain.connect(destination);
+
+      channels.push({ clip, element, gain, track });
+    }
+
+    if (channels.length === 0) {
+      await context.close();
+      return null;
+    }
+    await context.resume();
+  } catch (error) {
+    channels.forEach(({ element }) => {
+      element.pause();
+      element.removeAttribute('src');
+      element.load();
+    });
+    await context.close();
+    throw error;
+  }
+
+  let disposed = false;
+  return {
+    destination,
+    updateAt(time: number) {
+      if (disposed) return;
+      for (const { clip, element, gain, track } of channels) {
+        const clipEnd = clip.start + clip.duration;
+        const active = time >= clip.start && time < clipEnd;
+        if (!active) {
+          if (!element.paused) element.pause();
+          gain.gain.setTargetAtTime(0, context.currentTime, 0.015);
+          continue;
+        }
+
+        const speed = Math.max(0.25, Math.min(4, clip.speed ?? 1));
+        const targetTime = Math.max(0, clip.sourceIn + (time - clip.start) * speed);
+        element.playbackRate = speed;
+        if (Number.isFinite(element.duration) && element.duration > 0) {
+          const safeTime = Math.min(targetTime, Math.max(0, element.duration - 0.04));
+          if (Math.abs(element.currentTime - safeTime) > 0.22) {
+            try {
+              element.currentTime = safeTime;
+            } catch {
+              // Metadata may not be ready yet; the next frame will retry.
+            }
+          }
+        } else if (Math.abs(element.currentTime - targetTime) > 0.22) {
+          try {
+            element.currentTime = targetTime;
+          } catch {
+            // Metadata may not be ready yet; the next frame will retry.
+          }
+        }
+
+        let level = (clip.volume / 100) * Math.pow(10, (track.volumeDb ?? 0) / 20);
+        if (clip.fadeIn > 0) level *= Math.min(1, Math.max(0, (time - clip.start) / clip.fadeIn));
+        if (clip.fadeOut > 0) level *= Math.min(1, Math.max(0, (clipEnd - time) / clip.fadeOut));
+        gain.gain.setTargetAtTime(Math.max(0, Math.min(1.6, level)), context.currentTime, 0.015);
+
+        if (element.paused) {
+          void element.play().catch(() => {
+            // Media can be unavailable due to an unsupported codec or remote CORS policy.
+          });
+        }
+      }
+    },
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      channels.forEach(({ element, gain }) => {
+        element.pause();
+        gain.disconnect();
+        element.removeAttribute('src');
+        element.load();
+      });
+      destination.stream.getTracks().forEach((track) => track.stop());
+      await context.close().catch(() => {});
+    },
+  };
+}
+
 export const ExportModal: React.FC<ExportModalProps> = ({
   isOpen,
   onClose,
@@ -101,6 +267,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const abortRef = useRef(false);
   const activeRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioSessionRef = useRef<ExportAudioSession | null>(null);
 
   useEffect(() => {
     setExportFps(composition.fps);
@@ -117,6 +284,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         }
       }
       if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+      void audioSessionRef.current?.dispose();
     };
   }, [downloadUrl]);
 
@@ -179,7 +347,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     }
 
     let stream: MediaStream | null = null;
+    let audioSession: ExportAudioSession | null = null;
     try {
+      audioSession = await createExportAudioSession(clips, tracks);
+      audioSessionRef.current = audioSession;
+
       const offscreen = document.createElement('canvas');
       offscreen.width = outW;
       offscreen.height = outH;
@@ -192,6 +364,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         manualStream.getTracks().forEach((t) => t.stop());
       }
       stream = supportsRequestFrame ? manualStream : offscreen.captureStream(exportFps);
+      audioSession?.destination.stream.getAudioTracks().forEach((track) => stream?.addTrack(track));
       const activeVideoTrack = stream.getVideoTracks()[0] as CaptureVideoTrack | undefined;
 
       const { recorder, mimeType, ext } = createSafeMediaRecorder(
@@ -226,6 +399,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         const t = Math.min(endSec, startSec + f / exportFps);
         await awaitMediaReadyForFrame(mediaCache, clips, t);
         if (abortRef.current) break;
+        audioSession?.updateAt(t);
 
         renderCompositionFrame({
           canvas: offscreen,
@@ -248,10 +422,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         await new Promise((r) => setTimeout(r, Math.min(32, Math.max(8, Math.round(frameIntervalMs)))));
       }
 
+      audioSession?.updateAt(endSec);
       if (recorder.state === 'recording') {
         recorder.stop();
       }
       const blob = await donePromise;
+      await audioSession?.dispose();
+      audioSessionRef.current = null;
       stream.getTracks().forEach((tr) => tr.stop());
       activeRecorderRef.current = null;
 
@@ -264,6 +441,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       }
     } catch (err) {
       stream?.getTracks().forEach((tr) => tr.stop());
+      await audioSession?.dispose();
+      audioSessionRef.current = null;
       activeRecorderRef.current = null;
       setErrorMsg(
         err instanceof Error ? err.message : 'Browser MediaRecorder failed.'
@@ -274,6 +453,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const handleClose = () => {
     abortRef.current = true;
+    void audioSessionRef.current?.dispose();
+    audioSessionRef.current = null;
     if (activeRecorderRef.current && activeRecorderRef.current.state === 'recording') {
       try {
         activeRecorderRef.current.stop();
