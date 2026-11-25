@@ -72,7 +72,7 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
   useEffect(() => {
     if (!clip) return;
     const keys = Object.keys(clip.keyframes) as AnimatableProperty[];
-    const firstWithKfs = keys.find((k) => (clip.keyframes[k]?.length ?? 0) >= 2);
+    const firstWithKfs = keys.find((k) => (clip.keyframes[k]?.length ?? 0) >= 1);
     if (firstWithKfs) {
       setSelectedProp(firstWithKfs);
       setSegmentIdx(0);
