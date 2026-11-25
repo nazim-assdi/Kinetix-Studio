@@ -2162,6 +2162,8 @@ export default function App() {
                 tool={tool}
                 mediaCache={mediaCache}
                 previewPreset={previewPreset}
+                viewLayout={viewLayout}
+                onChangeViewLayout={setViewLayout}
                 onTogglePlay={() => setIsPlaying((p) => !p)}
                 onSeek={handleSeek}
                 onStepFrame={handleStepFrame}
