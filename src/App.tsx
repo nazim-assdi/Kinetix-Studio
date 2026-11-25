@@ -53,6 +53,7 @@ import {
 import { applyTrackPointsToTargetClip } from './engine/motionTracker';
 import { clamp, snapToFrame } from './engine/timecode';
 import { createMediaCache } from './renderer/canvasRenderer';
+import { loadProjectFromIndexedDb, saveProjectToIndexedDb } from './engine/projectStorage';
 import { audioEngine } from './audio/audioEngine';
 import { TopToolbar } from './components/TopToolbar';
 import { LeftDockTab, ProjectBinPanel } from './components/ProjectBinPanel';
@@ -84,6 +85,87 @@ function readAutosaveProject(): SavedProjectPayload | null {
     // ignore corrupt cache
   }
   return null;
+}
+
+async function makePortableMediaUrl(
+  url: string | undefined,
+  cache: Map<string, string>
+): Promise<string | undefined> {
+  if (!url || !url.startsWith('blob:')) return url;
+  const cached = cache.get(url);
+  if (cached) return cached;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('A media file could not be read while saving the project.');
+  }
+  const blob = await response.blob();
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('Could not package an imported media file.'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read imported media.'));
+    reader.readAsDataURL(blob);
+  });
+  cache.set(url, dataUrl);
+  return dataUrl;
+}
+
+async function createPortableProjectPayload(
+  project: Omit<SavedProjectPayload, 'version' | 'savedAt' | 'assets'> & {
+    assets: ProjectAsset[];
+  }
+): Promise<SavedProjectPayload> {
+  const mediaCache = new Map<string, string>();
+  const savedAssets = await Promise.all(
+    project.assets.map(async (asset) => {
+      const src = await makePortableMediaUrl(asset.src, mediaCache);
+      const thumbnail =
+        asset.thumbnail === asset.src
+          ? undefined
+          : await makePortableMediaUrl(asset.thumbnail, mediaCache);
+      return { ...asset, src, thumbnail };
+    })
+  );
+
+  // The media bytes are stored once in the asset bin. Clips reconnect through assetId.
+  const savedClips = project.clips.map(({ src: _src, ...clip }) => clip);
+  return {
+    version: 2,
+    savedAt: new Date().toISOString(),
+    composition: project.composition,
+    tracks: project.tracks,
+    clips: savedClips,
+    assets: savedAssets,
+    markers: project.markers,
+    workArea: project.workArea,
+  };
+}
+
+function restoreProjectMedia(payload: SavedProjectPayload): SavedProjectPayload {
+  const assets = (payload.assets ?? []).map((asset) => ({
+    ...asset,
+    thumbnail: asset.thumbnail ?? asset.src,
+  }));
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  return {
+    ...payload,
+    assets,
+    clips: payload.clips.map((clip) => ({
+      ...clip,
+      src: assetById.get(clip.assetId)?.src ?? clip.src,
+    })),
+  };
+}
+
+function createCompactAutosave(payload: SavedProjectPayload): SavedProjectPayload {
+  return {
+    ...payload,
+    assets: payload.assets?.map(({ src: _src, thumbnail: _thumbnail, ...asset }) => asset),
+    clips: payload.clips.map(({ src: _src, ...clip }) => clip),
+  };
 }
 
 interface TimelineSnapshot {
@@ -121,7 +203,7 @@ export default function App() {
   const [composition, setComposition] = useState<CompositionSettings>(
     initialSave?.composition ?? INITIAL_COMPOSITION
   );
-  const [assets, setAssets] = useState<ProjectAsset[]>(INITIAL_ASSETS);
+  const [assets, setAssets] = useState<ProjectAsset[]>(initialSave?.assets ?? INITIAL_ASSETS);
   const [tracks, setTracks] = useState<TimelineTrack[]>(
     initialSave?.tracks ?? INITIAL_TRACKS
   );
@@ -167,6 +249,40 @@ export default function App() {
   const [panelsSwapped, setPanelsSwapped] = useState(false);
 
   const mediaCache = useMemo(() => createMediaCache(), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadProjectFromIndexedDb()
+      .then((stored) => {
+        if (
+          cancelled ||
+          !stored ||
+          !stored.composition ||
+          !Array.isArray(stored.tracks) ||
+          !Array.isArray(stored.clips)
+        ) {
+          return;
+        }
+        const storedTime = Date.parse(stored.savedAt || '');
+        const localTime = Date.parse(initialSave?.savedAt || '');
+        if (initialSave && Number.isFinite(localTime) && storedTime < localTime) return;
+
+        const restored = restoreProjectMedia(stored);
+        setComposition(restored.composition);
+        setAssets(restored.assets ?? INITIAL_ASSETS);
+        setTracks(restored.tracks);
+        setClips(restored.clips);
+        if (Array.isArray(restored.markers)) setMarkers(restored.markers);
+        if (restored.workArea) setWorkArea(restored.workArea);
+        setSelectedClipId(restored.clips[0]?.id ?? null);
+      })
+      .catch((error) => {
+        console.warn('Kinetix Studio autosave could not be restored:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const playheadRef = useRef(playheadTime);
   playheadRef.current = playheadTime;
@@ -1185,54 +1301,74 @@ export default function App() {
     handleApplyMotionPreset(baseId);
   };
 
-  // Project Save & Load (.kinetix.json + LocalStorage Auto-Save)
-  const handleSaveProject = () => {
-    const payload: SavedProjectPayload = {
-      version: 1,
-      savedAt: new Date().toISOString(),
-      composition,
-      tracks,
-      clips,
-      markers,
-      workArea,
-    };
+  // Project Save & Load: portable project files plus durable IndexedDB autosave.
+  const handleSaveProject = async () => {
     try {
-      window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(payload));
-    } catch {
-      // ignore quota errors
+      const payload = await createPortableProjectPayload({
+        composition,
+        tracks,
+        clips,
+        assets,
+        markers,
+        workArea,
+      });
+
+      let autosaved = false;
+      try {
+        await saveProjectToIndexedDb(payload);
+        autosaved = true;
+      } catch (error) {
+        console.warn('IndexedDB autosave failed; the portable project file is still being created:', error);
+      }
+
+      try {
+        window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(payload)));
+      } catch {
+        // IndexedDB remains the primary storage for large projects.
+      }
+
+      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${composition.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.kinetix.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      setSaveBadgeText(autosaved ? 'Saved' : 'File Saved');
+    } catch (error) {
+      console.error('Project save failed:', error);
+      setSaveBadgeText('Save Failed');
     }
-
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${composition.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.kinetix.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-
-    setSaveBadgeText('Saved');
     setTimeout(() => setSaveBadgeText(null), 2500);
   };
 
   const handleLoadProjectFile = (file: File) => {
-    file.text().then((raw) => {
+    void file.text().then(async (raw) => {
       try {
         const parsed = JSON.parse(raw) as SavedProjectPayload;
-        if (parsed.composition && Array.isArray(parsed.tracks) && Array.isArray(parsed.clips)) {
-          setComposition(parsed.composition);
-          commitHistory(parsed.tracks, parsed.clips);
-          if (Array.isArray(parsed.markers)) setMarkers(parsed.markers);
-          if (parsed.workArea) setWorkArea(parsed.workArea);
-          setSelectedClipId(parsed.clips[0]?.id ?? null);
-          window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(parsed));
-          setSaveBadgeText('Loaded');
-          setTimeout(() => setSaveBadgeText(null), 2500);
+        if (!parsed.composition || !Array.isArray(parsed.tracks) || !Array.isArray(parsed.clips)) {
+          throw new Error('This is not a valid Kinetix Studio project file.');
         }
-      } catch {
-        // ignore invalid json
+        const restored = restoreProjectMedia(parsed);
+        setComposition(restored.composition);
+        setAssets(restored.assets ?? INITIAL_ASSETS);
+        commitHistory(restored.tracks, restored.clips);
+        if (Array.isArray(restored.markers)) setMarkers(restored.markers);
+        if (restored.workArea) setWorkArea(restored.workArea);
+        setSelectedClipId(restored.clips[0]?.id ?? null);
+        try {
+          await saveProjectToIndexedDb(restored);
+          window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(restored)));
+        } catch (error) {
+          console.warn('Loaded project could not be stored for the next session:', error);
+        }
+        setSaveBadgeText('Loaded');
+      } catch (error) {
+        console.error('Project load failed:', error);
+        setSaveBadgeText('Load Failed');
       }
+      setTimeout(() => setSaveBadgeText(null), 2500);
     });
   };
 
@@ -1270,20 +1406,46 @@ export default function App() {
   // Real Server-Side AI Director Integration
   const handleRunAiPrompt = async (prompt: string) => {
     const selected = clips.find((c) => c.id === selectedClipId) ?? null;
-    const response = await fetch('/api/ai-edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt,
-        context: {
-          playheadTime,
-          selectedClipName: selected?.name ?? null,
-          selectedClipKind: selected?.kind ?? null,
-          clipCount: clips.length,
-          duration: composition.duration,
-        },
-      }),
+    const requestBody = JSON.stringify({
+      prompt,
+      context: {
+        playheadTime,
+        selectedClipName: selected?.name ?? null,
+        selectedClipKind: selected?.kind ?? null,
+        clipCount: clips.length,
+        duration: composition.duration,
+      },
     });
+    const sendRequest = (accessKey = '') =>
+      fetch('/api/ai-edit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessKey ? { 'X-Kinetix-Access-Key': accessKey } : {}),
+        },
+        body: requestBody,
+      });
+
+    let accessKey = '';
+    try {
+      accessKey = window.sessionStorage.getItem('kinetix_ai_access_key') ?? '';
+    } catch {
+      // Session storage may be disabled in private browser contexts.
+    }
+    let response = await sendRequest(accessKey);
+    if (response.status === 401) {
+      const enteredKey = window.prompt('This Kinetix Studio server requires an AI access key. Enter the key provided by the server owner:');
+      if (!enteredKey?.trim()) {
+        throw new Error('AI access key is required by this server.');
+      }
+      accessKey = enteredKey.trim();
+      try {
+        window.sessionStorage.setItem('kinetix_ai_access_key', accessKey);
+      } catch {
+        // The key is still used for this request if session storage is unavailable.
+      }
+      response = await sendRequest(accessKey);
+    }
 
     const data = await response.json();
     if (!response.ok) {
