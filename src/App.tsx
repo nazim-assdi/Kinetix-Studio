@@ -54,6 +54,7 @@ import {
 } from './engine/layerImporter';
 import { applyTrackPointsToTargetClip } from './engine/motionTracker';
 import { clamp, snapToFrame } from './engine/timecode';
+import { parseSrtSubtitles } from './engine/srt';
 import { createMediaCache } from './renderer/canvasRenderer';
 import { loadProjectFromIndexedDb, saveProjectToIndexedDb } from './engine/projectStorage';
 import { audioEngine } from './audio/audioEngine';
@@ -813,9 +814,55 @@ export default function App() {
     [insertAssetToTimeline]
   );
 
+  const handleImportSrt = (file: File) => {
+    void file.text().then((source) => {
+      try {
+        const cues = parseSrtSubtitles(source);
+        if (cues.length === 0) {
+          throw new Error('No valid subtitle cues were found in this SRT file.');
+        }
+
+        const duration = Math.max(0.1, ...cues.map((cue) => cue.end));
+        const baseName = file.name.replace(/\.srt$/i, '').trim() || 'Imported Subtitles';
+        const asset: ProjectAsset = {
+          id: `asset_srt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name: `${baseName} · Subtitles`,
+          kind: 'caption',
+          duration: Number(duration.toFixed(3)),
+          defaultCaption: {
+            cues,
+            fontSize: 28,
+            color: '#FFFFFF',
+            highlightColor: '#3B82F6',
+            bgColor: 'rgba(11, 13, 18, 0.84)',
+            position: 'bottom',
+          },
+        };
+
+        const importStart = playheadRef.current;
+        setAssets((prev) => [asset, ...prev]);
+        insertAssetToTimeline(asset, undefined, importStart);
+        setLeftTab('captions');
+        setSaveBadgeText(`Imported ${cues.length} subtitle cues`);
+        window.setTimeout(() => setSaveBadgeText(null), 2500);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Subtitle import failed.';
+        window.alert(message);
+      }
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : 'Could not read the subtitle file.';
+      window.alert(message);
+    });
+  };
+
   const handleImportFiles = (fileList: FileList) => {
     Array.from(fileList).forEach((file) => {
       const lower = file.name.toLowerCase();
+
+      if (lower.endsWith('.srt')) {
+        handleImportSrt(file);
+        return;
+      }
 
       // Layer-by-Layer Vector / PSD / AI Importers
       if (lower.endsWith('.svg')) {
@@ -1885,6 +1932,7 @@ export default function App() {
         }}
         onOpenShortcuts={() => setShortcutsOpen(true)}
         onImportMedia={handleImportFiles}
+        onImportSrt={handleImportSrt}
         autoSaveEnabled={autoSaveEnabled}
         onToggleAutoSave={() => setAutoSaveEnabled((enabled) => !enabled)}
         onChangeLeftTab={setLeftTab}
