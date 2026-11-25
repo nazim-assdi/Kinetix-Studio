@@ -461,7 +461,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
           </div>
         )}
 
-        {activeTab === 'packs' && (
+        {(['packs', 'sfx', 'transitions'] as LeftDockTab[]).includes(activeTab) && (
           <div className="space-y-1.5">
             {filteredPacks.slice(0, packLimit).map((preset) => (
               <div key={preset.id} onMouseEnter={() => onPreviewCatalogPreset(preset)} onMouseLeave={() => onPreviewCatalogPreset(null)} className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2">
