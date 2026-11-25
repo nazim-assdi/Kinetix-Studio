@@ -15,6 +15,7 @@ import {
   Video,
   Sun,
   Crosshair,
+  Scan,
   Box,
   Save,
   FolderUp,
@@ -97,6 +98,18 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       label: 'Pen Bezier Path Tool (G)',
       shortcut: 'G',
       icon: <PenTool className="w-3.5 h-3.5" />,
+    },
+    {
+      id: 'pin',
+      label: 'Anchor / Pin Tool (Y)',
+      shortcut: 'Y',
+      icon: <Crosshair className="w-3.5 h-3.5" />,
+    },
+    {
+      id: 'mask',
+      label: 'Mask Tool (M)',
+      shortcut: 'M',
+      icon: <Scan className="w-3.5 h-3.5" />,
     },
     {
       id: 'text',
