@@ -16,7 +16,7 @@ import {
   projectLayerThroughCamera,
   resolveWorldTransform,
 } from '../engine/math3d';
-import { getClipLocalTime } from '../engine/keyframes';
+import { evaluateClipTransform, getClipLocalTime } from '../engine/keyframes';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -597,6 +597,14 @@ function drawVectorPathPoints(
     }
   }
   if (closed && trimStart <= 1 && trimEnd >= 99) {
+    const last = points[totalPts - 1];
+    const first = points[0];
+    if (
+      last.handleOutX !== undefined && last.handleOutY !== undefined &&
+      first.handleInX !== undefined && first.handleInY !== undefined
+    ) {
+      ctx.bezierCurveTo(last.handleOutX, last.handleOutY, first.handleInX, first.handleInY, first.x, first.y);
+    }
     ctx.closePath();
   }
 }
@@ -1209,11 +1217,14 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       }
     } else if (clip.kind === 'shape' && clip.shapeProps) {
       const sp = clip.shapeProps;
-      baseW = sp.width;
-      baseH = sp.height;
+      const shapeTransform = evaluateClipTransform(clip, playheadTime);
+      const shapeWidth = Math.max(1, shapeTransform.shapeWidth ?? sp.width);
+      const shapeHeight = Math.max(1, shapeTransform.shapeHeight ?? sp.height);
+      baseW = shapeWidth;
+      baseH = shapeHeight;
 
       if (sp.shapeType === 'circle' || sp.shapeType === 'ring') {
-        const r = Math.min(sp.width, sp.height) / 2;
+        const r = Math.min(shapeWidth, shapeHeight) / 2;
         targetCtx.beginPath();
         targetCtx.arc(0, 0, r, 0, Math.PI * 2);
         if (sp.shapeType === 'circle' && sp.fillColor !== 'transparent') {
@@ -1229,7 +1240,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         }
       } else if (sp.shapeType === 'polygon') {
         const sides = Math.max(3, sp.sides ?? 6);
-        const r = Math.min(sp.width, sp.height) / 2;
+        const r = Math.min(shapeWidth, shapeHeight) / 2;
         targetCtx.beginPath();
         for (let i = 0; i < sides; i++) {
           const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
@@ -1251,10 +1262,10 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       } else {
         targetCtx.beginPath();
         targetCtx.roundRect(
-          -sp.width / 2,
-          -sp.height / 2,
-          sp.width,
-          sp.height,
+          -shapeWidth / 2,
+          -shapeHeight / 2,
+          shapeWidth,
+          shapeHeight,
           sp.cornerRadius
         );
         if (sp.fillColor !== 'transparent') {
@@ -1364,6 +1375,25 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       }
       targetCtx.stroke();
       targetCtx.setLineDash([]);
+      targetCtx.fillStyle = '#FFFFFF';
+      const maskHandle = 9 / Math.max(0.01, Math.abs(effScaleX));
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          targetCtx.fillRect(mx + sx * mw / 2 - maskHandle / 2, my + sy * mh / 2 - maskHandle / 2, maskHandle, maskHandle);
+        }
+      }
+      targetCtx.restore();
+    }
+
+    if (drawGizmo && clip.id === selectedClipId) {
+      targetCtx.save();
+      targetCtx.fillStyle = '#FDE68A';
+      targetCtx.strokeStyle = '#111827';
+      targetCtx.lineWidth = 2;
+      targetCtx.beginPath();
+      targetCtx.arc(screenCx, screenCy, 5, 0, Math.PI * 2);
+      targetCtx.fill();
+      targetCtx.stroke();
       targetCtx.restore();
     }
 
@@ -1523,12 +1553,28 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     ctx.translate(width / 2, height / 2);
     ctx.strokeStyle = '#3B82F6';
     ctx.lineWidth = 3;
-    ctx.beginPath();
-    penDraftPoints.forEach((pt, idx) => {
-      if (idx === 0) ctx.moveTo(pt.x, pt.y);
-      else ctx.lineTo(pt.x, pt.y);
-    });
+    drawVectorPathPoints(ctx, penDraftPoints, false, 0, 100);
     ctx.stroke();
+
+    // Show tangent handles while a Bézier point is being shaped.
+    penDraftPoints.forEach((pt) => {
+      for (const handle of [
+        { x: pt.handleInX, y: pt.handleInY },
+        { x: pt.handleOutX, y: pt.handleOutY },
+      ]) {
+        if (handle.x === undefined || handle.y === undefined) continue;
+        ctx.strokeStyle = 'rgba(96, 165, 250, 0.75)';
+        ctx.lineWidth = 1.25;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(handle.x, handle.y);
+        ctx.stroke();
+        ctx.fillStyle = '#BFDBFE';
+        ctx.beginPath();
+        ctx.arc(handle.x, handle.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
 
     if (penDraftPoints.length >= 2) {
       const first = penDraftPoints[0];

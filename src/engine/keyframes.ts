@@ -150,7 +150,15 @@ export function evaluateClipTransform(
     rotationX: evalProp('rotationX', clip.transform.rotationX ?? 0, 8.5),
     rotationY: evalProp('rotationY', clip.transform.rotationY ?? 0, 9.9),
     opacity: clamp(evalProp('opacity', clip.transform.opacity, 11.2), 0, 100),
+    shapeWidth: evalProp('shapeWidth', clip.shapeProps?.width ?? 0, 12.1),
+    shapeHeight: evalProp('shapeHeight', clip.shapeProps?.height ?? 0, 13.7),
   };
+}
+
+function getAnimatableBaseValue(clip: TimelineClip, prop: AnimatableProperty): number {
+  if (prop === 'shapeWidth') return clip.shapeProps?.width ?? 0;
+  if (prop === 'shapeHeight') return clip.shapeProps?.height ?? 0;
+  return clip.transform[prop] ?? 0;
 }
 
 export function upsertKeyframe(
@@ -159,10 +167,12 @@ export function upsertKeyframe(
   localTime: number,
   value: number,
   easing: EasingType = 'ease-in-out',
-  tolerance: number = 0.04,
+  // Only replace a keyframe at effectively the same timestamp. The old 40ms
+  // window silently swallowed neighbouring-frame keys at 24/30/60fps.
+  tolerance: number = 0.000001,
   bezier?: [number, number, number, number]
 ): TimelineClip {
-  const clampedTime = clamp(Number(localTime.toFixed(3)), 0, clip.duration);
+  const clampedTime = clamp(Number(localTime.toFixed(6)), 0, clip.duration);
   const existing = [...(clip.keyframes[prop] ?? [])];
   const nearIdx = existing.findIndex((k) => Math.abs(k.time - clampedTime) <= tolerance);
 
@@ -203,16 +213,24 @@ export function togglePropertyKeyframing(
     const frozenValue = interpolateKeyframes(
       existing,
       localTime,
-      clip.transform[prop] ?? 0
+      getAnimatableBaseValue(clip, prop)
     );
     const nextKeyframes = { ...clip.keyframes };
     delete nextKeyframes[prop];
+    if (prop === 'shapeWidth' || prop === 'shapeHeight') {
+      if (!clip.shapeProps) return { ...clip, keyframes: nextKeyframes };
+      return {
+        ...clip,
+        shapeProps: {
+          ...clip.shapeProps,
+          [prop === 'shapeWidth' ? 'width' : 'height']: Number(frozenValue.toFixed(2)),
+        },
+        keyframes: nextKeyframes,
+      };
+    }
     return {
       ...clip,
-      transform: {
-        ...clip.transform,
-        [prop]: Number(frozenValue.toFixed(2)),
-      },
+      transform: { ...clip.transform, [prop]: Number(frozenValue.toFixed(2)) },
       keyframes: nextKeyframes,
     };
   }
@@ -221,7 +239,7 @@ export function togglePropertyKeyframing(
     clip,
     prop,
     localTime,
-    clip.transform[prop] ?? 0,
+    getAnimatableBaseValue(clip, prop),
     'ease-in-out'
   );
 }

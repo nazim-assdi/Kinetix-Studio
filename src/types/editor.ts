@@ -37,9 +37,24 @@ export type AnimatableProperty =
   | 'rotationY'
   | 'opacity'
   | 'anchorX'
-  | 'anchorY';
+  | 'anchorY'
+  | 'shapeWidth'
+  | 'shapeHeight';
 
-export type ToolMode = 'select' | 'razor' | 'pen' | 'text' | 'shape' | 'hand';
+export type ToolMode = 'select' | 'razor' | 'pen' | 'pin' | 'mask' | 'text' | 'shape' | 'hand';
+
+export type LeftDockTab =
+  | 'bin'
+  | 'effects'
+  | 'packs'
+  | 'sfx'
+  | 'transitions'
+  | 'color'
+  | 'audio'
+  | 'fusion'
+  | 'tracker'
+  | 'captions'
+  | 'ai';
 
 export type WorkspacePreset =
   | 'compositing'
@@ -117,6 +132,9 @@ export interface TransformState {
   rotationY: number;
   /** Percentage 0..100 */
   opacity: number;
+  /** Shape dimensions, animated independently from layer transform. */
+  shapeWidth?: number;
+  shapeHeight?: number;
 }
 
 export type KeyframeMap = Partial<Record<AnimatableProperty, Keyframe[]>>;
@@ -391,11 +409,7 @@ export interface EffectDefinition {
   defaultParams: Record<string, number>;
 }
 
-export type PresetPackVendor =
-  | 'Motion Bro'
-  | 'Mr Horse'
-  | 'AEJuice'
-  | 'Kinetix Pro';
+export type PresetPackVendor = 'FX';
 
 export type PresetCategory =
   | 'Animation'

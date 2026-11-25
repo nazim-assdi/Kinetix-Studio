@@ -31,6 +31,8 @@ const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
   rotationX: 'X Rotation',
   rotationY: 'Y Rotation',
   opacity: 'Opacity',
+  shapeWidth: 'Shape Width',
+  shapeHeight: 'Shape Height',
 };
 
 const PRESET_CURVES: { label: string; bezier: [number, number, number, number] }[] = [
@@ -70,7 +72,7 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
   useEffect(() => {
     if (!clip) return;
     const keys = Object.keys(clip.keyframes) as AnimatableProperty[];
-    const firstWithKfs = keys.find((k) => (clip.keyframes[k]?.length ?? 0) >= 2);
+    const firstWithKfs = keys.find((k) => (clip.keyframes[k]?.length ?? 0) >= 1);
     if (firstWithKfs) {
       setSelectedProp(firstWithKfs);
       setSegmentIdx(0);
@@ -491,14 +493,13 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
         <div className="flex items-center gap-2 pt-1">
           <button
             type="button"
-            disabled={!hasSegments}
             onClick={() =>
-              onApplyCurveToProperty(clip.id, selectedProp, segmentIdx, curve)
+              onApplyCurveToProperty(clip.id, selectedProp, hasSegments ? segmentIdx : 0, curve)
             }
             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-[#3B82F6] hover:bg-[#2563EB] disabled:opacity-45 text-xs font-semibold text-white transition-colors"
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>Apply to Segment</span>
+            <span>{hasSegments ? 'Apply to Segment' : 'Apply & Create Keys'}</span>
           </button>
           <button
             type="button"

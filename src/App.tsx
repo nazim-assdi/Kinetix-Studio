@@ -16,7 +16,9 @@ import {
   TimelineClip,
   TimelineMarker,
   TimelineTrack,
+  SynthPreset,
   ToolMode,
+  ViewLayoutMode,
   TrackMatteMode,
   WorkAreaRange,
   WorkspacePreset,
@@ -116,9 +118,9 @@ async function makePortableMediaUrl(
 async function createPortableProjectPayload(
   project: Omit<SavedProjectPayload, 'version' | 'savedAt' | 'assets'> & {
     assets: ProjectAsset[];
-  }
+  },
+  mediaCache: Map<string, string> = new Map()
 ): Promise<SavedProjectPayload> {
-  const mediaCache = new Map<string, string>();
   const savedAssets = await Promise.all(
     project.assets.map(async (asset) => {
       const src = await makePortableMediaUrl(asset.src, mediaCache);
@@ -226,6 +228,13 @@ export default function App() {
 
   const [workspace, setWorkspace] = useState<WorkspacePreset>('compositing');
   const [leftTab, setLeftTab] = useState<LeftDockTab>('bin');
+  const [viewLayout, setViewLayout] = useState<ViewLayoutMode>('1-view');
+  const [previewPreset, setPreviewPreset] = useState<MotionPresetItem | null>(null);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
+    try { return window.localStorage.getItem('kinetix_autosave_enabled_v1') !== 'false'; }
+    catch { return true; }
+  });
+  const [projectStorageReady, setProjectStorageReady] = useState(false);
   const [tool, setTool] = useState<ToolMode>('select');
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [loopEnabled, setLoopEnabled] = useState(true);
@@ -249,6 +258,7 @@ export default function App() {
   const [panelsSwapped, setPanelsSwapped] = useState(false);
 
   const mediaCache = useMemo(() => createMediaCache(), []);
+  const portableMediaCacheRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     let cancelled = false;
@@ -278,6 +288,9 @@ export default function App() {
       })
       .catch((error) => {
         console.warn('Kinetix Studio autosave could not be restored:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setProjectStorageReady(true);
       });
     return () => {
       cancelled = true;
@@ -290,6 +303,43 @@ export default function App() {
   clipsRef.current = clips;
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
+
+  useEffect(() => {
+    if (!projectStorageReady) return;
+    try {
+      window.localStorage.setItem('kinetix_autosave_enabled_v1', String(autoSaveEnabled));
+    } catch {
+      // The setting is session-local when browser storage is disabled.
+    }
+  }, [autoSaveEnabled, projectStorageReady]);
+
+  // Debounced project autosave. Imported media is embedded once and cached so
+  // repeated edits do not repeatedly decode large blob URLs.
+  useEffect(() => {
+    if (!projectStorageReady || !autoSaveEnabled) return;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const payload = await createPortableProjectPayload({
+            composition, tracks, clips, assets, markers, workArea,
+          }, portableMediaCacheRef.current);
+          await saveProjectToIndexedDb(payload);
+          try {
+            window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(payload)));
+          } catch {
+            // IndexedDB keeps the full project and media when localStorage is small.
+          }
+          setSaveBadgeText('Auto Saved');
+        } catch (error) {
+          console.warn('Automatic project save failed:', error);
+          setSaveBadgeText('Auto Save Failed');
+        }
+      })();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [
+    projectStorageReady, autoSaveEnabled, composition, tracks, clips, assets, markers, workArea,
+  ]);
 
   const commitHistory = useCallback(
     (nextTracks: TimelineTrack[], nextClips: TimelineClip[]) => {
@@ -956,21 +1006,53 @@ export default function App() {
   const handleUpdateProperty = useCallback(
     (clipId: string, prop: AnimatableProperty, value: number) => {
       updateClipById(clipId, (clip) => {
-        const kfs = clip.keyframes[prop];
-        if (kfs && kfs.length > 0) {
-          const localTime = clamp(
-            playheadRef.current - clip.start,
-            0,
-            clip.duration
-          );
+        const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
+        if ((clip.keyframes[prop]?.length ?? 0) > 0) {
           return upsertKeyframe(clip, prop, localTime, value);
         }
-        return {
-          ...clip,
-          transform: { ...clip.transform, [prop]: value },
-        };
+        if (prop === 'shapeWidth' || prop === 'shapeHeight') {
+          if (!clip.shapeProps) return clip;
+          return { ...clip, shapeProps: { ...clip.shapeProps, [prop === 'shapeWidth' ? 'width' : 'height']: value } };
+        }
+        return { ...clip, transform: { ...clip.transform, [prop]: value } };
       });
     },
+    [updateClipById]
+  );
+
+  const handleSetAnchorCanvas = useCallback(
+    (clipId: string, anchorX: number, anchorY: number) => {
+      updateClipById(clipId, (clip) => {
+        const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
+        let next = clip;
+        if ((clip.keyframes.anchorX?.length ?? 0) > 0) next = upsertKeyframe(next, 'anchorX', localTime, anchorX);
+        else next = { ...next, transform: { ...next.transform, anchorX } };
+        if ((clip.keyframes.anchorY?.length ?? 0) > 0) next = upsertKeyframe(next, 'anchorY', localTime, anchorY);
+        else next = { ...next, transform: { ...next.transform, anchorY } };
+        return next;
+      });
+    },
+    [updateClipById]
+  );
+
+  const handleResizeShapeCanvas = useCallback(
+    (clipId: string, width: number, height: number) => {
+      updateClipById(clipId, (clip) => {
+        if (!clip.shapeProps) return clip;
+        const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
+        let next = clip;
+        if ((clip.keyframes.shapeWidth?.length ?? 0) > 0) next = upsertKeyframe(next, 'shapeWidth', localTime, width);
+        else next = { ...next, shapeProps: { ...next.shapeProps!, width } };
+        if ((clip.keyframes.shapeHeight?.length ?? 0) > 0) next = upsertKeyframe(next, 'shapeHeight', localTime, height);
+        else next = { ...next, shapeProps: { ...next.shapeProps!, height } };
+        return next;
+      });
+    },
+    [updateClipById]
+  );
+
+  const handleUpdateMaskCanvas = useCallback(
+    (clipId: string, mask: LayerMask) => updateClipById(clipId, (clip) => ({ ...clip, mask })),
     [updateClipById]
   );
 
@@ -1022,7 +1104,7 @@ export default function App() {
       (clip) => {
         const localTime = clamp(playheadTime - clip.start, 0, clip.duration);
         const existing = clip.keyframes[prop] ?? [];
-        const near = existing.find((k) => Math.abs(k.time - localTime) <= 0.05);
+        const near = existing.find((k) => Math.abs(k.time - localTime) <= 0.0005);
         if (near) {
           return removeKeyframeAtTime(clip, prop, near.id);
         }
@@ -1185,17 +1267,31 @@ export default function App() {
     updateClipById(
       clipId,
       (clip) => {
-        const list = clip.keyframes[prop];
-        if (!list || list.length === 0) return clip;
-        const nextList = list.map((k, idx) =>
-          keyframeIndex === 'all' || idx === keyframeIndex
-            ? { ...k, easing: 'bezier' as const, bezier }
-            : k
+        let list = [...(clip.keyframes[prop] ?? [])].sort((a, b) => a.time - b.time);
+        const currentValue = evaluateClipTransform(clip, playheadRef.current)[prop] ?? 0;
+        if (list.length < 2) {
+          const idBase = `kf_graph_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          if (list.length === 0) {
+            const startValue = prop === 'scale' ? 25 : prop === 'opacity' ? 0 : prop === 'shapeWidth' || prop === 'shapeHeight' ? currentValue * 0.25 : prop === 'rotation' || prop === 'rotationX' || prop === 'rotationY' ? currentValue - 45 : currentValue - 160;
+            const endTime = Math.max(0.001, Math.min(1, clip.duration));
+            list = [
+              { id: `${idBase}_a`, time: 0, value: startValue, easing: 'bezier', bezier },
+              { id: `${idBase}_b`, time: endTime, value: currentValue, easing: 'linear' },
+            ];
+          } else {
+            const anchor = list[0];
+            const otherTime = anchor.time <= clip.duration / 2 ? clip.duration : 0;
+            if (Math.abs(otherTime - anchor.time) < 0.001) return clip;
+            list.push({ id: `${idBase}_b`, time: otherTime, value: currentValue, easing: 'linear' });
+            list.sort((a, b) => a.time - b.time);
+          }
+        }
+        const nextList = list.map((keyframe, index) =>
+          keyframeIndex === 'all' || index === keyframeIndex
+            ? { ...keyframe, easing: 'bezier' as const, bezier }
+            : keyframe
         );
-        return {
-          ...clip,
-          keyframes: { ...clip.keyframes, [prop]: nextList },
-        };
+        return { ...clip, keyframes: { ...clip.keyframes, [prop]: nextList } };
       },
       true
     );
@@ -1205,38 +1301,23 @@ export default function App() {
     clipId: string,
     prop: AnimatableProperty,
     bezier: [number, number, number, number]
-  ) => {
-    updateClipById(
-      clipId,
-      (clip) => {
-        const currentVal = clip.transform[prop] ?? 0;
-        const startVal =
-          prop === 'scale'
-            ? 25
-            : prop === 'opacity'
-            ? 0
-            : prop === 'rotation' || prop === 'rotationY'
-            ? -45
-            : currentVal - 160;
-        const idBase = `${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
-        return {
-          ...clip,
-          keyframes: {
-            ...clip.keyframes,
-            [prop]: [
-              { id: `kf_g1_${idBase}`, time: 0, value: startVal, easing: 'bezier', bezier },
-              {
-                id: `kf_g2_${idBase}`,
-                time: Math.min(1.0, clip.duration),
-                value: currentVal,
-                easing: 'linear',
-              },
-            ],
-          },
-        };
-      },
-      true
-    );
+  ) => handleApplyCurveToProperty(clipId, prop, 'all', bezier);
+
+  const handleAddSfxToTimeline = (preset: SynthPreset) => {
+    const asset: ProjectAsset = {
+      id: `asset_sfx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: preset.replace('sfx-', '').replace('-', ' ').toUpperCase(),
+      kind: 'audio',
+      duration: 0.75,
+      synthPreset: preset,
+      waveform: generateWaveformPeaks(Math.random() * 9, 48),
+    };
+    const audioTrack = tracks.find((track) => track.kind === 'audio');
+    const clip = buildClipFromAsset(asset, audioTrack?.id, playheadRef.current);
+    if (!clip) return;
+    setAssets((previous) => [asset, ...previous]);
+    commitHistory(tracks, [...clips, clip]);
+    setSelectedClipId(clip.id);
   };
 
   // Apply any item from 1000+ Mega Catalog (Presets, Transitions w/ SFX, Live Shaders, DaVinci LUTs)
@@ -1304,43 +1385,37 @@ export default function App() {
   // Project Save & Load: portable project files plus durable IndexedDB autosave.
   const handleSaveProject = async () => {
     try {
-      const payload = await createPortableProjectPayload({
-        composition,
-        tracks,
-        clips,
-        assets,
-        markers,
-        workArea,
-      });
-
-      let autosaved = false;
-      try {
-        await saveProjectToIndexedDb(payload);
-        autosaved = true;
-      } catch (error) {
-        console.warn('IndexedDB autosave failed; the portable project file is still being created:', error);
-      }
-
+      const payload = await createPortableProjectPayload({ composition, tracks, clips, assets, markers, workArea }, portableMediaCacheRef.current);
+      await saveProjectToIndexedDb(payload);
       try {
         window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(payload)));
       } catch {
-        // IndexedDB remains the primary storage for large projects.
+        // IndexedDB stores the full media-backed project.
       }
-
-      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${composition.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.kinetix.json`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-
-      setSaveBadgeText(autosaved ? 'Saved' : 'File Saved');
+      setSaveBadgeText('Saved');
     } catch (error) {
       console.error('Project save failed:', error);
       setSaveBadgeText('Save Failed');
     }
-    setTimeout(() => setSaveBadgeText(null), 2500);
+    window.setTimeout(() => setSaveBadgeText(null), 2500);
+  };
+
+  const handleExportProjectFile = async () => {
+    try {
+      const payload = await createPortableProjectPayload({ composition, tracks, clips, assets, markers, workArea }, portableMediaCacheRef.current);
+      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${composition.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.kinetix.json`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setSaveBadgeText('Project Exported');
+    } catch (error) {
+      console.error('Project export failed:', error);
+      setSaveBadgeText('Export Failed');
+    }
+    window.setTimeout(() => setSaveBadgeText(null), 2500);
   };
 
   const handleLoadProjectFile = (file: File) => {
@@ -1734,8 +1809,11 @@ export default function App() {
         handleQuickAddLayer('shape');
       } else if (e.key === 's' || e.key === 'S') {
         setSnapEnabled((s) => !s);
+      } else if (e.key === 'y' || e.key === 'Y') {
+        setTool('pin');
       } else if (e.key === 'm' || e.key === 'M') {
-        handleAddMarker(playheadRef.current);
+        if (e.altKey) handleAddMarker(playheadRef.current);
+        else setTool('mask');
       } else if (e.key === 'i' || e.key === 'I') {
         handleSetWorkArea('in', playheadRef.current);
       } else if (e.key === 'o' || e.key === 'O') {
@@ -1806,7 +1884,14 @@ export default function App() {
           setExportOpen(true);
         }}
         onOpenShortcuts={() => setShortcutsOpen(true)}
-      />
+        onImportMedia={handleImportFiles}
+        autoSaveEnabled={autoSaveEnabled}
+        onToggleAutoSave={() => setAutoSaveEnabled((enabled) => !enabled)}
+        onChangeLeftTab={setLeftTab}
+        viewLayout={viewLayout}
+        onChangeViewLayout={setViewLayout}
+        onExportProjectFile={handleExportProjectFile}
+        />
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
         {(() => {
@@ -1896,7 +1981,10 @@ export default function App() {
               onToggle3D={(clipId) =>
                 updateClipById(clipId, (c) => ({ ...c, is3D: !c.is3D }), true)
               }
-              onApplyCatalogPreset={handleApplyCatalogPreset}
+              onApplyCatalogPreset={(item) => { setPreviewPreset(null); handleApplyCatalogPreset(item); }}
+              onPreviewCatalogPreset={setPreviewPreset}
+              onPreviewSfx={(preset) => audioEngine.previewSfx(preset)}
+              onAddSfxToTimeline={handleAddSfxToTimeline}
               onUpdateColorGrade={(clipId, colorGrade: ColorWheelGrade) =>
                 updateClipById(clipId, (c) => ({ ...c, colorGrade }))
               }
@@ -2087,12 +2175,18 @@ export default function App() {
                 selectedClipId={selectedClipId}
                 tool={tool}
                 mediaCache={mediaCache}
+                previewPreset={previewPreset}
+                viewLayout={viewLayout}
+                onChangeViewLayout={setViewLayout}
                 onTogglePlay={() => setIsPlaying((p) => !p)}
                 onSeek={handleSeek}
                 onStepFrame={handleStepFrame}
                 onToggleLoop={() => setLoopEnabled((l) => !l)}
                 onSelectClip={setSelectedClipId}
                 onMoveClipCanvas={handleMoveClipCanvas}
+                onSetAnchorCanvas={handleSetAnchorCanvas}
+                onResizeShapeCanvas={handleResizeShapeCanvas}
+                onUpdateMaskCanvas={handleUpdateMaskCanvas}
                 onCreatePathClip={handleCreatePathClip}
                 onUpdateComposition={(patch) =>
                   setComposition((prev) => ({ ...prev, ...patch }))

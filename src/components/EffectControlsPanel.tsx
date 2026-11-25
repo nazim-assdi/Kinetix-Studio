@@ -109,22 +109,25 @@ interface EffectControlsPanelProps {
 const BASE_ROWS: {
   prop: AnimatableProperty;
   label: string;
-  min: number;
-  max: number;
+  min?: number;
+  max?: number;
   step: number;
   unit: string;
   only3D?: boolean;
+  onlyShape?: boolean;
 }[] = [
-  { prop: 'x', label: 'Position X', min: -800, max: 800, step: 1, unit: 'px' },
-  { prop: 'y', label: 'Position Y', min: -500, max: 500, step: 1, unit: 'px' },
-  { prop: 'z', label: 'Position Z (Depth)', min: -600, max: 600, step: 1, unit: 'px', only3D: true },
-  { prop: 'anchorX', label: 'Anchor Point X', min: -400, max: 400, step: 1, unit: 'px' },
-  { prop: 'anchorY', label: 'Anchor Point Y', min: -300, max: 300, step: 1, unit: 'px' },
-  { prop: 'scale', label: 'Scale', min: 10, max: 300, step: 1, unit: '%' },
-  { prop: 'rotationX', label: 'X Rotation', min: -180, max: 180, step: 1, unit: '°', only3D: true },
-  { prop: 'rotationY', label: 'Y Rotation', min: -180, max: 180, step: 1, unit: '°', only3D: true },
-  { prop: 'rotation', label: 'Z Rotation', min: -360, max: 360, step: 1, unit: '°' },
+  { prop: 'x', label: 'Position X', step: 1, unit: 'px' },
+  { prop: 'y', label: 'Position Y', step: 1, unit: 'px' },
+  { prop: 'z', label: 'Position Z (Depth)', step: 1, unit: 'px', only3D: true },
+  { prop: 'anchorX', label: 'Anchor Point X', step: 1, unit: 'px' },
+  { prop: 'anchorY', label: 'Anchor Point Y', step: 1, unit: 'px' },
+  { prop: 'scale', label: 'Scale', step: 1, unit: '%' },
+  { prop: 'rotationX', label: 'X Rotation', step: 1, unit: '°', only3D: true },
+  { prop: 'rotationY', label: 'Y Rotation', step: 1, unit: '°', only3D: true },
+  { prop: 'rotation', label: 'Z Rotation', step: 1, unit: '°' },
   { prop: 'opacity', label: 'Opacity', min: 0, max: 100, step: 1, unit: '%' },
+  { prop: 'shapeWidth', label: 'Shape Width', min: 1, step: 1, unit: 'px', onlyShape: true },
+  { prop: 'shapeHeight', label: 'Shape Height', min: 1, step: 1, unit: 'px', onlyShape: true },
 ];
 
 export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
@@ -213,7 +216,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
     selectedClip.kind !== 'light';
   const showTransform = selectedClip.kind !== 'audio' && selectedClip.kind !== 'adjustment';
   const visibleRows = BASE_ROWS.filter(
-    (r) => !r.only3D || selectedClip.is3D || selectedClip.kind === 'camera' || selectedClip.kind === 'light'
+    (r) => (!r.only3D || selectedClip.is3D || selectedClip.kind === 'camera' || selectedClip.kind === 'light') && (!r.onlyShape || selectedClip.kind === 'shape')
   );
   const parentCandidates = allClips.filter(
     (c) => c.id !== selectedClip.id && c.kind !== 'audio'
@@ -403,20 +406,18 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                     </div>
 
                     <input
-                      type="range"
+                      type="number"
                       aria-label={row.label}
                       min={row.min}
                       max={row.max}
                       step={row.step}
-                      value={Math.max(row.min, Math.min(row.max, val))}
-                      onChange={(e) =>
-                        onUpdateProperty(
-                          selectedClip.id,
-                          row.prop,
-                          Number(e.target.value)
-                        )
-                      }
-                      className="w-full studio-slider"
+                      value={val}
+                      onChange={(e) => {
+                        if (e.target.value !== '' && Number.isFinite(Number(e.target.value))) {
+                          onUpdateProperty(selectedClip.id, row.prop, Number(e.target.value));
+                        }
+                      }}
+                      className="w-full bg-[#0E1013] border border-[#2B303A] rounded px-2 py-1 text-xs font-mono-tabular text-[#E6E8EC] focus:border-[#3B82F6] focus:outline-none"
                     />
 
                     {expr !== undefined && (
@@ -1189,15 +1190,14 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                             Width ({mask.width}%)
                           </label>
                           <input
-                            type="range"
+                            type="number"
                             aria-label="Mask Width"
-                            min={10}
-                            max={100}
+                            min={1}
                             value={mask.width}
                             onChange={(e) =>
                               patchMask({ width: Number(e.target.value) })
                             }
-                            className="w-full studio-slider"
+                            className="w-full bg-[#0E1013] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
                           />
                         </div>
                         <div>
@@ -1205,7 +1205,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                             Height ({mask.height}%)
                           </label>
                           <input
-                            type="range"
+                            type="number"
                             aria-label="Mask Height"
                             min={10}
                             max={100}
@@ -1221,10 +1221,9 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                             Offset X ({mask.x}%)
                           </label>
                           <input
-                            type="range"
+                            type="number"
                             aria-label="Mask Offset X"
-                            min={-50}
-                            max={50}
+                            
                             value={mask.x}
                             onChange={(e) =>
                               patchMask({ x: Number(e.target.value) })
@@ -1237,10 +1236,9 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                             Feather ({mask.feather}px)
                           </label>
                           <input
-                            type="range"
+                            type="number"
                             aria-label="Mask Feather"
                             min={0}
-                            max={80}
                             value={mask.feather}
                             onChange={(e) =>
                               patchMask({ feather: Number(e.target.value) })

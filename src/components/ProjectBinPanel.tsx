@@ -28,10 +28,12 @@ import {
   Sliders,
   Sparkle,
   BarChart2,
+  ArrowLeftRight,
 } from 'lucide-react';
 import {
   ColorWheelGrade,
   EffectType,
+  LeftDockTab,
   MotionPresetItem,
   MotionTrackData,
   PresetCategory,
@@ -48,16 +50,14 @@ import { FairlightMixerPanel } from './FairlightMixerPanel';
 import { FusionNodesPanel } from './FusionNodesPanel';
 import { CaptionsPanel } from './CaptionsPanel';
 
-export type LeftDockTab =
-  | 'bin'
-  | 'effects'
-  | 'packs'
-  | 'color'
-  | 'audio'
-  | 'fusion'
-  | 'tracker'
-  | 'captions'
-  | 'ai';
+export type { LeftDockTab } from '../types/editor';
+
+const SFX_LIBRARY: MotionPresetItem[] = [
+  { id: 'sfx-whoosh', name: 'Cinematic Whoosh', vendor: 'FX', category: 'Effects', description: 'Short sweeping transition sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-whoosh' },
+  { id: 'sfx-glitch', name: 'Digital Glitch', vendor: 'FX', category: 'Effects', description: 'Electronic glitch and data stutter sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-glitch' },
+  { id: 'sfx-boom', name: 'Impact Boom', vendor: 'FX', category: 'Effects', description: 'Low cinematic impact sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-boom' },
+  { id: 'sfx-shimmer', name: 'Light Shimmer', vendor: 'FX', category: 'Effects', description: 'Bright shimmer and sparkle sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-shimmer' },
+];
 
 interface ProjectBinPanelProps {
   assets: ProjectAsset[];
@@ -77,6 +77,9 @@ interface ProjectBinPanelProps {
   onToggleColorGrade: (clipId: string) => void;
   onToggle3D: (clipId: string) => void;
   onApplyCatalogPreset: (item: MotionPresetItem) => void;
+  onPreviewCatalogPreset: (item: MotionPresetItem | null) => void;
+  onPreviewSfx: (preset: NonNullable<MotionPresetItem['sfxPreset']>) => void;
+  onAddSfxToTimeline: (preset: NonNullable<MotionPresetItem['sfxPreset']>) => void;
   onUpdateColorGrade: (clipId: string, grade: ColorWheelGrade) => void;
   onUpdateTrackData: (clipId: string, data: MotionTrackData) => void;
   onApplyTrackToLayer: (sourceClipId: string, targetClipId: string) => void;
@@ -122,6 +125,9 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   onToggleColorGrade,
   onToggle3D,
   onApplyCatalogPreset,
+  onPreviewCatalogPreset,
+  onPreviewSfx,
+  onAddSfxToTimeline,
   onUpdateColorGrade,
   onUpdateTrackData,
   onApplyTrackToLayer,
@@ -155,17 +161,21 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   );
 
   const filteredPacks = useMemo(() => {
-    return MEGA_CATALOG.filter(
+    const source = activeTab === 'sfx' ? SFX_LIBRARY : MEGA_CATALOG;
+    return source.filter(
       (p) =>
+        (activeTab !== 'sfx' || Boolean(p.sfxPreset)) &&
+        (activeTab !== 'transitions' || p.category === 'Transition') &&
+        (activeTab !== 'packs' || p.category !== 'Transition') &&
         (vendorFilter === 'All' || p.vendor === vendorFilter) &&
-        (categoryFilter === 'All' || p.category === categoryFilter) &&
+        (activeTab !== 'packs' || categoryFilter === 'All' || p.category === categoryFilter) &&
         (!q ||
           p.name.toLowerCase().includes(q) ||
           p.vendor.toLowerCase().includes(q) ||
           p.category.toLowerCase().includes(q) ||
           p.description.toLowerCase().includes(q))
     );
-  }, [vendorFilter, categoryFilter, q]);
+  }, [vendorFilter, categoryFilter, q, activeTab]);
 
   const handleAiSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,7 +230,9 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   const tabs: { id: LeftDockTab; label: string; icon: React.ReactNode }[] = [
     { id: 'bin', label: 'Project', icon: <FolderOpen className="w-3 h-3" /> },
     { id: 'effects', label: 'Effects', icon: <Sparkles className="w-3 h-3" /> },
-    { id: 'packs', label: '1000+ FX', icon: <Package className="w-3 h-3" /> },
+    { id: 'packs', label: 'FX', icon: <Package className="w-3 h-3" /> },
+    { id: 'sfx', label: 'SFX', icon: <Volume2 className="w-3 h-3" /> },
+    { id: 'transitions', label: 'Trans.', icon: <ArrowLeftRight className="w-3 h-3" /> },
     { id: 'color', label: 'Color', icon: <Palette className="w-3 h-3" /> },
     { id: 'audio', label: 'Audio', icon: <Sliders className="w-3 h-3" /> },
     { id: 'fusion', label: 'Fusion', icon: <GitMerge className="w-3 h-3" /> },
@@ -248,7 +260,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
           }
         }}
         title="Drag tab bar to swap panel side"
-        className="grid grid-cols-5 border-b border-[#2B303A] px-1 pt-1 pb-0.5 gap-0.5 bg-[#14161A] cursor-grab"
+        className="grid grid-cols-4 border-b border-[#2B303A] px-1 pt-1 pb-0.5 gap-0.5 bg-[#14161A] cursor-grab"
       >
         {tabs.map((tab) => (
           <button
@@ -268,7 +280,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
       </div>
 
       {/* Search Bar for Bin / Effects / Packs */}
-      {(activeTab === 'bin' || activeTab === 'effects' || activeTab === 'packs') && (
+      {(['bin', 'effects', 'packs', 'sfx', 'transitions'] as LeftDockTab[]).includes(activeTab) && (
         <div className="p-2.5 border-b border-[#242831] flex flex-col gap-2">
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-[#6E7685] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -284,7 +296,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                   ? 'Search media, PSD, AI, SVG layers...'
                   : activeTab === 'effects'
                   ? `Search ${EFFECT_LIBRARY.length} core AE effects...`
-                  : `Search ${MEGA_CATALOG.length}+ FX, Transitions & LUTs...`
+                  : activeTab === 'sfx' ? 'Search SFX presets...' : activeTab === 'transitions' ? 'Search transitions...' : `Search ${MEGA_CATALOG.length}+ FX & LUTs...`
               }
               aria-label="Search dock items"
               className="w-full bg-[#111215] border border-[#2B303A] rounded pl-8 pr-2.5 py-1.5 text-xs text-[#E6E8EC] placeholder:text-[#6E7685] focus:outline-none focus:border-[#3B82F6]"
@@ -322,13 +334,13 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
               <div className="flex items-center justify-between text-[10px] text-[#8D95A5]">
                 <span>
                   Showing {Math.min(packLimit, filteredPacks.length)} of{' '}
-                  {filteredPacks.length} ({MEGA_CATALOG.length} Total)
+                  {filteredPacks.length} presets
                 </span>
                 <GripVertical className="w-3 h-3 text-[#4B5261]" />
               </div>
 
               <div className="flex items-center gap-1 bg-[#111215] p-0.5 rounded border border-[#262B34] overflow-x-auto">
-                {(['All', 'Motion Bro', 'Mr Horse', 'AEJuice', 'Kinetix Pro'] as const).map(
+                {(['All', 'FX'] as const).map(
                   (v) => (
                     <button
                       key={v}
@@ -340,13 +352,13 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                           : 'text-[#8D95A5] hover:text-white'
                       }`}
                     >
-                      {v === 'Kinetix Pro' ? 'Pro' : v}
+                      {v}
                     </button>
                   )
                 )}
               </div>
 
-              <select
+              {activeTab === 'packs' && <select
                 aria-label="Filter Pack Category"
                 value={categoryFilter}
                 onChange={(e) =>
@@ -361,7 +373,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                 <option value="Color LUT">DaVinci Color LUTs</option>
                 <option value="Graphics">HUD &amp; Lower-Third Graphics</option>
                 <option value="3D Rig">3D Camera &amp; Light Rigs</option>
-              </select>
+              </select>}
             </div>
           )}
         </div>
@@ -432,21 +444,24 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                 selectedClip.kind === 'audio' ||
                 selectedClip.kind === 'camera' ||
                 selectedClip.kind === 'light';
+              const previewItem: MotionPresetItem = {
+                id: `core_${fx.type}`, name: fx.name, vendor: 'FX', category: 'Effects',
+                description: fx.description, accentColor: '#8B5CF6', effectType: fx.type,
+              };
               return (
                 <button
                   key={fx.type}
                   type="button"
                   disabled={disabled}
-                  onClick={() => onApplyEffectToSelected(fx.type)}
+                  onMouseEnter={() => onPreviewCatalogPreset(previewItem)}
+                  onMouseLeave={() => onPreviewCatalogPreset(null)}
+                  onClick={() => { onPreviewCatalogPreset(null); onApplyEffectToSelected(fx.type); }}
                   className="w-full text-left p-2 rounded bg-[#14161A] hover:bg-[#21252E] border border-[#262B34] hover:border-[#8B5CF6]/50 disabled:opacity-45 disabled:pointer-events-none transition-colors flex items-start justify-between gap-2"
                 >
                   <div className="min-w-0">
-                    <div className="text-xs font-medium text-[#E6E8EC]">
-                      {fx.name}
-                    </div>
-                    <div className="text-[11px] text-[#7E8594] truncate">
-                      {fx.category} · {fx.description}
-                    </div>
+                    <div className="text-xs font-medium text-[#E6E8EC]">{fx.name}</div>
+                    <div className="text-[11px] text-[#7E8594] truncate">{fx.category} · {fx.description}</div>
+                    <div className="text-[10px] text-[#60A5FA] mt-1">Live canvas preview · Click to apply</div>
                   </div>
                   <Plus className="w-3.5 h-3.5 text-[#A78BFA] shrink-0 mt-0.5" />
                 </button>
@@ -455,38 +470,35 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
           </div>
         )}
 
-        {activeTab === 'packs' && (
+        {(['packs', 'sfx', 'transitions'] as LeftDockTab[]).includes(activeTab) && (
           <div className="space-y-1.5">
             {filteredPacks.slice(0, packLimit).map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => onApplyCatalogPreset(preset)}
-                className="w-full text-left p-2 rounded bg-[#14161A] hover:bg-[#21252E] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors flex items-start justify-between gap-2"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-[#E6E8EC] truncate">
-                      {preset.name}
-                    </span>
-                    {preset.sfxPreset && (
-                      <Volume2
-                        className="w-3 h-3 text-[#14B8A6] shrink-0"
-                        aria-label="Includes SFX"
-                      />
-                    )}
+              <div key={preset.id} onMouseEnter={() => { if (activeTab !== 'sfx') onPreviewCatalogPreset(preset); }} onMouseLeave={() => onPreviewCatalogPreset(null)} className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-[#E6E8EC] truncate">{preset.name}</span>
+                      {preset.sfxPreset && <Volume2 className="w-3 h-3 text-[#14B8A6] shrink-0" aria-label="Includes SFX" />}
+                    </div>
+                    <div className="text-[10px] text-[#8D95A5]">{preset.vendor} · {preset.category}</div>
+                    <div className="text-[10px] text-[#6E7685] mt-0.5 leading-snug">{preset.description}</div>
                   </div>
-                  <div className="text-[10px] text-[#8D95A5]">
-                    {preset.vendor} · {preset.category}
-                  </div>
-                  <div className="text-[10px] text-[#6E7685] mt-0.5 leading-snug truncate">
-                    {preset.description}
-                  </div>
+                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-[#232730] text-[#93C5FD] shrink-0">LIVE</span>
                 </div>
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[#232730] text-[#93C5FD] shrink-0">
-                  Apply
-                </span>
-              </button>
+                <div className="flex items-center gap-1.5 mt-2">
+                  {activeTab === 'sfx' ? (
+                    <>
+                      <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play</button>
+                      <button type="button" onClick={() => onAddSfxToTimeline(preset.sfxPreset!)} className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE]">Add to Timeline</button>
+                    </>
+                  ) : (
+                    <>
+                      {preset.sfxPreset && <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play SFX</button>}
+                      <button type="button" onClick={() => { onPreviewCatalogPreset(null); onApplyCatalogPreset(preset); }} className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE]">Apply</button>
+                    </>
+                  )}
+                </div>
+              </div>
             ))}
 
             {filteredPacks.length > packLimit && (

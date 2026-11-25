@@ -2,11 +2,11 @@ import { MotionPresetItem, TimelineClip } from '../types/editor';
 import { createEffectInstance } from '../engine/timelineOps';
 
 export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
-  // Mr Horse — Animation Composer style
+  // Core animation presets — Animation Composer style
   {
     id: 'elastic_pop_in',
     name: 'Elastic Pop In',
-    vendor: 'Mr Horse',
+    vendor: 'FX',
     category: 'Animation',
     description: 'Bouncy elastic scale pop from 0% to 100% with fade.',
     accentColor: '#3B82F6',
@@ -14,7 +14,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'smooth_slide_in',
     name: 'Overshoot Slide In',
-    vendor: 'Mr Horse',
+    vendor: 'FX',
     category: 'Animation',
     description: 'Snappy horizontal slide with subtle overshoot settle.',
     accentColor: '#3B82F6',
@@ -22,7 +22,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'flip_3d_in',
     name: '3D Card Flip In',
-    vendor: 'Mr Horse',
+    vendor: 'FX',
     category: 'Animation',
     description: 'Enables 3D layer and flips Y-axis from -90° to 0°.',
     accentColor: '#8B5CF6',
@@ -30,7 +30,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'kinetic_scale_drop',
     name: 'Kinetic Impact Drop',
-    vendor: 'Mr Horse',
+    vendor: 'FX',
     category: 'Animation',
     description: 'High-impact slam from 240% scale down to 100%.',
     accentColor: '#6366F1',
@@ -38,17 +38,17 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'parallax_float',
     name: '3D Parallax Float',
-    vendor: 'Mr Horse',
+    vendor: 'FX',
     category: 'Animation',
     description: 'Gentle 3D Z-drift + Y-tilt continuous depth motion.',
     accentColor: '#0EA5E9',
   },
 
-  // Motion Bro — Transitions & Glitch Packs
+  // FX transitions — Transitions & Glitch Packs
   {
     id: 'whip_pan_transition',
     name: 'Whip Pan Blur',
-    vendor: 'Motion Bro',
+    vendor: 'FX',
     category: 'Transition',
     description: 'Fast horizontal whip slide + directional motion blur.',
     accentColor: '#EC4899',
@@ -56,7 +56,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'zoom_punch_transition',
     name: 'Zoom Punch Cut',
-    vendor: 'Motion Bro',
+    vendor: 'FX',
     category: 'Transition',
     description: 'Punch-in scale surge with chromatic aberration burst.',
     accentColor: '#EC4899',
@@ -64,7 +64,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'glitch_flicker_in',
     name: 'Cyber Glitch Reveal',
-    vendor: 'Motion Bro',
+    vendor: 'FX',
     category: 'Transition',
     description: 'Digital scanline glitch + RGB chromatic reveal.',
     accentColor: '#F43F5E',
@@ -72,17 +72,17 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'film_burn_flash',
     name: 'Anamorphic Flash Cut',
-    vendor: 'Motion Bro',
+    vendor: 'FX',
     category: 'Transition',
     description: 'High-exposure flare bloom transition punch.',
     accentColor: '#F59E0B',
   },
 
-  // AEJuice — Motion Graphics, Callouts & 3D Rigs
+  // FX motion graphics — Motion Graphics, Callouts & 3D Rigs
   {
     id: 'cyber_neon_title',
     name: 'Cyber Glow Title',
-    vendor: 'AEJuice',
+    vendor: 'FX',
     category: 'Graphics',
     description: 'Cinema glow + anamorphic flare + kinetic scale reveal.',
     accentColor: '#14B8A6',
@@ -90,7 +90,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'lower_third_pack',
     name: 'Broadcast Lower-Third',
-    vendor: 'AEJuice',
+    vendor: 'FX',
     category: 'Graphics',
     description: 'Clean news/documentary lower-third plate & title.',
     accentColor: '#14B8A6',
@@ -98,7 +98,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'hud_callout_pack',
     name: 'HUD Telemetry Reticle',
-    vendor: 'AEJuice',
+    vendor: 'FX',
     category: 'Graphics',
     description: 'Rotating tactical orbital ring with glow.',
     accentColor: '#10B981',
@@ -106,7 +106,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'camera_3d_push',
     name: '3D Dolly Push Rig',
-    vendor: 'AEJuice',
+    vendor: 'FX',
     category: '3D Rig',
     description: 'Spawns an animated 3D Camera dolly push-in.',
     accentColor: '#F59E0B',
@@ -114,7 +114,7 @@ export const MOTION_PRESET_PACKS: MotionPresetItem[] = [
   {
     id: 'three_point_light',
     name: 'Studio Rim Light Rig',
-    vendor: 'AEJuice',
+    vendor: 'FX',
     category: '3D Rig',
     description: 'Spawns a warm key + cool rim 3D Light setup.',
     accentColor: '#F59E0B',

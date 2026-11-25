@@ -15,14 +15,22 @@ import {
   Video,
   Sun,
   Crosshair,
+  Scan,
   Box,
   Save,
   FolderUp,
   Sparkles,
   BarChart2,
   Captions,
+  Eye,
+  Grid,
+  Columns2,
+  Rows2,
+  LayoutGrid,
+  Upload,
+  FileText,
 } from 'lucide-react';
-import { MediaKind, ToolMode, WorkspacePreset } from '../types/editor';
+import { LeftDockTab, MediaKind, ToolMode, ViewLayoutMode, WorkspacePreset } from '../types/editor';
 
 interface TopToolbarProps {
   workspace: WorkspacePreset;
@@ -37,10 +45,17 @@ interface TopToolbarProps {
   onToggleSnap: () => void;
   onQuickAddLayer: (kind: MediaKind) => void;
   onSaveProject: () => void;
+  onExportProjectFile: () => void;
   onLoadProjectFile: (file: File) => void;
   saveBadgeText?: string | null;
   onOpenExport: () => void;
   onOpenShortcuts: () => void;
+  onImportMedia: (files: FileList) => void;
+  autoSaveEnabled: boolean;
+  onToggleAutoSave: () => void;
+  onChangeLeftTab: (tab: LeftDockTab) => void;
+  viewLayout: ViewLayoutMode;
+  onChangeViewLayout: (layout: ViewLayoutMode) => void;
 }
 
 export const TopToolbar: React.FC<TopToolbarProps> = ({
@@ -56,13 +71,22 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleSnap,
   onQuickAddLayer,
   onSaveProject,
+  onExportProjectFile,
   onLoadProjectFile,
   saveBadgeText,
   onOpenExport,
   onOpenShortcuts,
+  onImportMedia,
+  autoSaveEnabled,
+  onToggleAutoSave,
+  onChangeLeftTab,
+  viewLayout,
+  onChangeViewLayout,
 }) => {
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<'file' | 'effect' | 'view' | null>(null);
   const loadInputRef = React.useRef<HTMLInputElement>(null);
+  const mediaInputRef = React.useRef<HTMLInputElement>(null);
 
   const workspaces: { id: WorkspacePreset; label: string }[] = [
     { id: 'compositing', label: 'Compositing' },
@@ -99,6 +123,18 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       icon: <PenTool className="w-3.5 h-3.5" />,
     },
     {
+      id: 'pin',
+      label: 'Anchor / Pin Tool (Y)',
+      shortcut: 'Y',
+      icon: <Crosshair className="w-3.5 h-3.5" />,
+    },
+    {
+      id: 'mask',
+      label: 'Mask Tool (M)',
+      shortcut: 'M',
+      icon: <Scan className="w-3.5 h-3.5" />,
+    },
+    {
       id: 'text',
       label: 'Add Kinetic Text Layer (T)',
       shortcut: 'T',
@@ -129,6 +165,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 
   return (
     <header className="h-12 shrink-0 bg-[#181A1F] border-b border-[#2B303A] px-2.5 flex items-center justify-between gap-2 select-none relative z-40">
+      <input ref={loadInputRef} type="file" accept=".json,.kinetix,.kinetix.json" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) onLoadProjectFile(file); e.currentTarget.value = ''; }} />
+      <input ref={mediaInputRef} type="file" multiple accept="video/*,image/*,audio/*,.psd,.ai,.svg" className="hidden" onChange={(e) => { if (e.currentTarget.files?.length) onImportMedia(e.currentTarget.files); e.currentTarget.value = ''; }} />
+
       {/* Left: Brand & Workspaces */}
       <div className="flex items-center gap-2 min-w-0">
         <div className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
@@ -139,6 +178,53 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             Kinetix Studio
           </span>
         </div>
+
+        <div className="h-4 w-px bg-[#2B303A] shrink-0" />
+
+        <nav aria-label="Application Menus" className="flex items-center gap-0.5 shrink-0">
+          <div className="relative">
+            <button type="button" onClick={() => setOpenMenu((m) => m === 'file' ? null : 'file')} aria-expanded={openMenu === 'file'} className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${openMenu === 'file' ? 'bg-[#303642] text-white' : 'text-[#C8CDD6] hover:bg-[#252932] hover:text-white'}`}>File</button>
+            {openMenu === 'file' && (
+              <div role="menu" aria-label="File Menu" className="absolute left-0 top-full mt-1 w-52 rounded-md border border-[#303744] bg-[#181A1F] p-1 shadow-2xl z-[80]">
+                <button type="button" role="menuitem" onClick={() => { onSaveProject(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Save className="h-3.5 w-3.5 text-[#14B8A6]" />Save Project</button>
+                <button type="button" role="menuitem" onClick={() => { loadInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FolderUp className="h-3.5 w-3.5 text-[#60A5FA]" />Import Project</button>
+                <button type="button" role="menuitem" onClick={() => { mediaInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Upload className="h-3.5 w-3.5 text-[#60A5FA]" />Import Media / PSD / AI / SVG</button>
+                <div className="my-1 border-t border-[#2B303A]" />
+                <button type="button" role="menuitem" onClick={() => { onExportProjectFile(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FileText className="h-3.5 w-3.5 text-[#A78BFA]" />Export Project File</button>
+                <button type="button" role="menuitem" onClick={() => { onOpenExport(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Film className="h-3.5 w-3.5 text-[#3B82F6]" />Render Video</button>
+                <div className="my-1 border-t border-[#2B303A]" />
+                <button type="button" role="menuitemcheckbox" aria-checked={autoSaveEnabled} onClick={onToggleAutoSave} className="w-full flex items-center justify-between rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><span>Auto Save</span><span className={autoSaveEnabled ? 'text-[#34D399]' : 'text-[#9BA1AD]'}>{autoSaveEnabled ? 'On' : 'Off'}</span></button>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button type="button" onClick={() => setOpenMenu((m) => m === 'effect' ? null : 'effect')} aria-expanded={openMenu === 'effect'} className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${openMenu === 'effect' ? 'bg-[#303642] text-white' : 'text-[#C8CDD6] hover:bg-[#252932] hover:text-white'}`}>Effect</button>
+            {openMenu === 'effect' && (
+              <div role="menu" aria-label="Effect Menu" className="absolute left-0 top-full mt-1 w-48 rounded-md border border-[#303744] bg-[#181A1F] p-1 shadow-2xl z-[80]">
+                {([
+                  ['effects', 'Core Effects'], ['packs', 'FX Library'], ['sfx', 'SFX Library'], ['transitions', 'Transitions'],
+                ] as [LeftDockTab, string][]).map(([tab, label]) => (
+                  <button key={tab} type="button" role="menuitem" onClick={() => { onChangeLeftTab(tab); setOpenMenu(null); }} className="w-full rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]">{label}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button type="button" onClick={() => setOpenMenu((m) => m === 'view' ? null : 'view')} aria-expanded={openMenu === 'view'} className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${openMenu === 'view' ? 'bg-[#303642] text-white' : 'text-[#C8CDD6] hover:bg-[#252932] hover:text-white'}`}>View</button>
+            {openMenu === 'view' && (
+              <div role="menu" aria-label="View Menu" className="absolute left-0 top-full mt-1 w-48 rounded-md border border-[#303744] bg-[#181A1F] p-1 shadow-2xl z-[80]">
+                {([
+                  ['1-view', 'Single View', <Eye className="h-3.5 w-3.5" />],
+                  ['2-views-h', 'Two Views Horizontal', <Columns2 className="h-3.5 w-3.5" />],
+                  ['2-views-v', 'Two Views Vertical', <Rows2 className="h-3.5 w-3.5" />],
+                  ['4-views', 'Quad View', <LayoutGrid className="h-3.5 w-3.5" />],
+                ] as [ViewLayoutMode, string, React.ReactNode][]).map(([layout, label, icon]) => (
+                  <button key={layout} type="button" role="menuitemradio" aria-checked={viewLayout === layout} onClick={() => { onChangeViewLayout(layout); setOpenMenu(null); }} className={`w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs hover:bg-[#252B35] ${viewLayout === layout ? 'text-[#93C5FD]' : 'text-[#E6E8EC]'}`}>{icon}{label}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        </nav>
 
         <div className="h-4 w-px bg-[#2B303A] shrink-0" />
 
@@ -273,66 +359,11 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         </div>
       </div>
 
-      {/* Right: Save, Load, Shortcuts & Export */}
+      {/* Right: Save status and shortcuts */}
       <div className="flex items-center gap-1.5 shrink-0">
-        <input
-          ref={loadInputRef}
-          type="file"
-          accept=".json,.kinetix,.kinetix.json"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) {
-              onLoadProjectFile(f);
-              e.target.value = '';
-            }
-          }}
-        />
-        {saveBadgeText && (
-          <span className="text-[10px] font-mono-tabular text-[#14B8A6] px-1.5 hidden xl:inline">
-            {saveBadgeText}
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={onSaveProject}
-          title="Save Project (.kinetix.json + Browser Save)"
-          aria-label="Save Project"
-          className="flex items-center gap-1 px-2 py-1 rounded bg-[#232730] hover:bg-[#2C313D] border border-[#323845] text-xs font-medium text-[#E6E8EC] transition-colors whitespace-nowrap"
-        >
-          <Save className="w-3.5 h-3.5 text-[#14B8A6]" />
-          <span className="hidden md:inline">Save</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => loadInputRef.current?.click()}
-          title="Load Project (.kinetix.json)"
-          aria-label="Load Project"
-          className="flex items-center gap-1 px-2 py-1 rounded bg-[#232730] hover:bg-[#2C313D] border border-[#323845] text-xs font-medium text-[#E6E8EC] transition-colors whitespace-nowrap"
-        >
-          <FolderUp className="w-3.5 h-3.5 text-[#60A5FA]" />
-          <span className="hidden md:inline">Load</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenShortcuts}
-          title="Keyboard Shortcuts"
-          aria-label="Keyboard Shortcuts"
-          className="p-1.5 rounded text-[#9BA1AD] hover:text-white hover:bg-[#252932] transition-colors"
-        >
-          <HelpCircle className="w-4 h-4" />
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenExport}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#3B82F6] hover:bg-[#2563EB] text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Export 8K</span>
-        </button>
-      </div>
+        {saveBadgeText && <span className="text-[10px] font-mono-tabular text-[#14B8A6] px-1.5 hidden xl:inline">{saveBadgeText}</span>}
+        <button type="button" onClick={onOpenShortcuts} title="Keyboard Shortcuts" aria-label="Keyboard Shortcuts" className="p-1.5 rounded text-[#9BA1AD] hover:text-white hover:bg-[#252932] transition-colors"><HelpCircle className="w-4 h-4" /></button>
+            </div>
     </header>
   );
 };
