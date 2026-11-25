@@ -593,7 +593,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewLayout('2-views-h')}
+              onClick={() => onChangeViewLayout('2-views-h')}
               title="2 Views Horizontal"
               aria-label="2 Views Horizontal"
               aria-pressed={viewLayout === '2-views-h'}
