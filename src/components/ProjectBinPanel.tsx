@@ -28,6 +28,7 @@ import {
   Sliders,
   Sparkle,
   BarChart2,
+  ArrowLeftRight,
 } from 'lucide-react';
 import {
   ColorWheelGrade,
@@ -36,6 +37,7 @@ import {
   MotionTrackData,
   PresetCategory,
   PresetPackVendor,
+  SynthPreset,
   ProjectAsset,
   TimelineClip,
   TimelineTrack,
