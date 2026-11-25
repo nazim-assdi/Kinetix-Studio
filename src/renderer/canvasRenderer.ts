@@ -1210,8 +1210,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     } else if (clip.kind === 'shape' && clip.shapeProps) {
       const sp = clip.shapeProps;
       const shapeTransform = evaluateClipTransform(clip, playheadTime);
-      const shapeWidth = Math.max(1, shapeTransform.shapeWidth ?? shapeWidth);
-      const shapeHeight = Math.max(1, shapeTransform.shapeHeight ?? shapeHeight);
+      const shapeWidth = Math.max(1, shapeTransform.shapeWidth ?? sp.width);
+      const shapeHeight = Math.max(1, shapeTransform.shapeHeight ?? sp.height);
       baseW = shapeWidth;
       baseH = shapeHeight;
 
