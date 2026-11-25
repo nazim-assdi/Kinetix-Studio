@@ -1196,24 +1196,58 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     } else if (clip.kind === 'caption' && clip.captionProps) {
       const cp = clip.captionProps;
       const activeCue = cp.cues.find(
-        (q) => playheadTime >= q.start && playheadTime <= q.end
+        (q) => localPlayT >= q.start && localPlayT <= q.end
       );
       baseW = 680;
       baseH = 72;
       if (activeCue) {
         const yPos = cp.position === 'bottom' ? height * 0.34 : 0;
+        const maxTextWidth = Math.max(80, width - 120);
         targetCtx.font = `700 ${cp.fontSize}px "Plus Jakarta Sans", sans-serif`;
         targetCtx.textAlign = 'center';
         targetCtx.textBaseline = 'middle';
-        const tw = targetCtx.measureText(activeCue.text).width;
-        const boxW = tw + 36;
-        const boxH = cp.fontSize * 1.55;
+
+        const lines: string[] = [];
+        for (const paragraph of activeCue.text.split(/\\r?\\n/)) {
+          const words = paragraph.split(/\\s+/).filter(Boolean);
+          if (words.length === 0) {
+            lines.push('');
+            continue;
+          }
+          let line = '';
+          for (const word of words) {
+            const candidate = line ? `${line} ${word}` : word;
+            if (line && targetCtx.measureText(candidate).width > maxTextWidth) {
+              lines.push(line);
+              line = word;
+            } else {
+              line = candidate;
+            }
+          }
+          if (line) lines.push(line);
+        }
+
+        const visibleLines = lines.length > 0 ? lines : [''];
+        const lineHeight = cp.fontSize * 1.28;
+        const textWidth = Math.max(...visibleLines.map((line) => targetCtx.measureText(line).width));
+        const boxW = Math.min(width - 48, Math.max(80, Math.min(maxTextWidth, textWidth) + 36));
+        const boxH = visibleLines.length * lineHeight + 18;
+        baseW = boxW;
+        baseH = boxH;
+
         targetCtx.fillStyle = cp.bgColor;
         targetCtx.beginPath();
         targetCtx.roundRect(-boxW / 2, yPos - boxH / 2, boxW, boxH, 8);
         targetCtx.fill();
         targetCtx.fillStyle = cp.color;
-        targetCtx.fillText(activeCue.text, 0, yPos);
+        visibleLines.forEach((line, index) => {
+          targetCtx.fillText(
+            line,
+            0,
+            yPos + (index - (visibleLines.length - 1) / 2) * lineHeight,
+            maxTextWidth
+          );
+        });
       }
     } else if (clip.kind === 'shape' && clip.shapeProps) {
       const sp = clip.shapeProps;
