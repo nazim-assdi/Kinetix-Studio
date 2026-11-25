@@ -1733,8 +1733,11 @@ export default function App() {
         handleQuickAddLayer('shape');
       } else if (e.key === 's' || e.key === 'S') {
         setSnapEnabled((s) => !s);
+      } else if (e.key === 'y' || e.key === 'Y') {
+        setTool('pin');
       } else if (e.key === 'm' || e.key === 'M') {
-        handleAddMarker(playheadRef.current);
+        if (e.altKey) handleAddMarker(playheadRef.current);
+        else setTool('mask');
       } else if (e.key === 'i' || e.key === 'I') {
         handleSetWorkArea('in', playheadRef.current);
       } else if (e.key === 'o' || e.key === 'O') {
