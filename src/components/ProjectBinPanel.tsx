@@ -33,6 +33,7 @@ import {
 import {
   ColorWheelGrade,
   EffectType,
+  LeftDockTab,
   MotionPresetItem,
   MotionTrackData,
   PresetCategory,
@@ -50,18 +51,7 @@ import { FairlightMixerPanel } from './FairlightMixerPanel';
 import { FusionNodesPanel } from './FusionNodesPanel';
 import { CaptionsPanel } from './CaptionsPanel';
 
-export type LeftDockTab =
-  | 'bin'
-  | 'effects'
-  | 'packs'
-  | 'sfx'
-  | 'transitions'
-  | 'color'
-  | 'audio'
-  | 'fusion'
-  | 'tracker'
-  | 'captions'
-  | 'ai';
+export type { LeftDockTab } from '../types/editor';
 
 interface ProjectBinPanelProps {
   assets: ProjectAsset[];
