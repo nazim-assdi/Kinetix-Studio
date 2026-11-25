@@ -425,7 +425,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         const handleX = dx;
         const handleY = dy;
         setPenDraftPoints((pts) => pts.map((p, index) => index === penHandleRef.current?.index
-          ? { ...p, handleOutX: handleX, handleOutY: handleY, handleInX: -handleX, handleInY: -handleY }
+          ? { ...p, handleOutX: p.x + handleX, handleOutY: p.y + handleY, handleInX: p.x - handleX, handleInY: p.y - handleY }
           : p));
       }
       return;
