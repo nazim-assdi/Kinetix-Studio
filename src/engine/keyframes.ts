@@ -169,10 +169,10 @@ export function upsertKeyframe(
   easing: EasingType = 'ease-in-out',
   // Only replace a keyframe at effectively the same timestamp. The old 40ms
   // window silently swallowed neighbouring-frame keys at 24/30/60fps.
-  tolerance: number = 0.001,
+  tolerance: number = 0.000001,
   bezier?: [number, number, number, number]
 ): TimelineClip {
-  const clampedTime = clamp(Number(localTime.toFixed(3)), 0, clip.duration);
+  const clampedTime = clamp(Number(localTime.toFixed(6)), 0, clip.duration);
   const existing = [...(clip.keyframes[prop] ?? [])];
   const nearIdx = existing.findIndex((k) => Math.abs(k.time - clampedTime) <= tolerance);
 
