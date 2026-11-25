@@ -1,7 +1,8 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, dialog, shell } from 'electron';
 import { config as loadEnv } from 'dotenv';
 import path from 'node:path';
-import type { AddressInfo, Server } from 'node:net';
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
 import { startServer } from '../server';
 
 let localServer: Server | null = null;
@@ -68,7 +69,7 @@ app.whenReady().then(async () => {
     await createMainWindow();
   } catch (error) {
     console.error('Kinetix Studio desktop startup failed:', error);
-    app.showExitPrompt?.();
+    dialog.showErrorBox('Kinetix Studio could not start', error instanceof Error ? error.message : String(error));
     app.quit();
   }
 });
