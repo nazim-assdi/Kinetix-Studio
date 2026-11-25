@@ -23,12 +23,16 @@ import {
   PathPoint,
   TimelineClip,
   TimelineTrack,
+  MotionPresetItem,
   ToolMode,
   ViewLayoutMode,
   ViewportCameraAngle,
 } from '../types/editor';
 import { formatTimecode } from '../engine/timecode';
 import { evaluateClipTransform } from '../engine/keyframes';
+import { applyMotionPresetToClip } from '../data/motionPresets';
+import { DAVINCI_LUTS } from '../data/megaCatalog';
+import { createEffectInstance } from '../engine/timelineOps';
 import {
   computeAnchorScreenCenter,
   projectLayerThroughCamera,
@@ -58,6 +62,9 @@ interface ProgramMonitorProps {
   selectedClipId: string | null;
   tool: ToolMode;
   mediaCache: MediaCache;
+  previewPreset: MotionPresetItem | null;
+  viewLayout: ViewLayoutMode;
+  onChangeViewLayout: (layout: ViewLayoutMode) => void;
   onTogglePlay: () => void;
   onSeek: (t: number) => void;
   onStepFrame: (dir: -1 | 1) => void;
@@ -180,6 +187,9 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   selectedClipId,
   tool,
   mediaCache,
+  previewPreset,
+  viewLayout,
+  onChangeViewLayout,
   onTogglePlay,
   onSeek,
   onStepFrame,
@@ -193,13 +203,32 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   onUpdateComposition,
 }) => {
   const [zoomMode, setZoomMode] = useState<'fit' | '50' | '100'>('fit');
-  const [viewLayout, setViewLayout] = useState<ViewLayoutMode>('1-view');
   const [singleAngle, setSingleAngle] = useState<ViewportCameraAngle>('active');
   const [showSafeMargins, setShowSafeMargins] = useState(false);
   const [showTransparencyGrid, setShowTransparencyGrid] = useState(false);
   const [showWireframes, setShowWireframes] = useState(false);
   const [penDraftPoints, setPenDraftPoints] = useState<PathPoint[]>([]);
   const [renderTick, setRenderTick] = useState(0);
+
+  const previewClips = React.useMemo(() => {
+    if (!previewPreset || !selectedClipId) return clips;
+    const selectedIndex = clips.findIndex((clip) => clip.id === selectedClipId);
+    if (selectedIndex < 0) return clips;
+    const original = clips[selectedIndex];
+    let preview = original;
+    if (previewPreset.effectType) {
+      const effect = createEffectInstance(previewPreset.effectType);
+      effect.name = previewPreset.name;
+      effect.params = { ...effect.params, ...(previewPreset.effectParams ?? {}) };
+      preview = { ...original, effects: [...original.effects, effect] };
+    } else if (previewPreset.lutName) {
+      const lut = DAVINCI_LUTS.find((entry) => entry.name === previewPreset.lutName);
+      if (lut) preview = { ...original, colorGrade: { ...lut.grade, enabled: true } };
+    } else if (previewPreset.basePresetId) {
+      preview = applyMotionPresetToClip(original, previewPreset.basePresetId);
+    }
+    return clips.map((clip, index) => index === selectedIndex ? preview : clip);
+  }, [clips, selectedClipId, previewPreset]);
 
   type CanvasDrag =
     | { mode: 'move'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number }
@@ -550,7 +579,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           >
             <button
               type="button"
-              onClick={() => setViewLayout('1-view')}
+              onClick={() => onChangeViewLayout('1-view')}
               title="1 View"
               aria-label="1 View"
               aria-pressed={viewLayout === '1-view'}
