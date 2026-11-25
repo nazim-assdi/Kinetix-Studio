@@ -956,21 +956,38 @@ export default function App() {
   const handleUpdateProperty = useCallback(
     (clipId: string, prop: AnimatableProperty, value: number) => {
       updateClipById(clipId, (clip) => {
-        const kfs = clip.keyframes[prop];
-        if (kfs && kfs.length > 0) {
-          const localTime = clamp(
-            playheadRef.current - clip.start,
-            0,
-            clip.duration
-          );
+        const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
+        if ((clip.keyframes[prop]?.length ?? 0) > 0) {
           return upsertKeyframe(clip, prop, localTime, value);
         }
-        return {
-          ...clip,
-          transform: { ...clip.transform, [prop]: value },
-        };
+        if (prop === 'shapeWidth' || prop === 'shapeHeight') {
+          if (!clip.shapeProps) return clip;
+          return { ...clip, shapeProps: { ...clip.shapeProps, [prop === 'shapeWidth' ? 'width' : 'height']: value } };
+        }
+        return { ...clip, transform: { ...clip.transform, [prop]: value } };
       });
     },
+    [updateClipById]
+  );
+
+  const handleResizeShapeCanvas = useCallback(
+    (clipId: string, width: number, height: number) => {
+      updateClipById(clipId, (clip) => {
+        if (!clip.shapeProps) return clip;
+        const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
+        let next = clip;
+        if ((clip.keyframes.shapeWidth?.length ?? 0) > 0) next = upsertKeyframe(next, 'shapeWidth', localTime, width);
+        else next = { ...next, shapeProps: { ...next.shapeProps!, width } };
+        if ((clip.keyframes.shapeHeight?.length ?? 0) > 0) next = upsertKeyframe(next, 'shapeHeight', localTime, height);
+        else next = { ...next, shapeProps: { ...next.shapeProps!, height } };
+        return next;
+      });
+    },
+    [updateClipById]
+  );
+
+  const handleUpdateMaskCanvas = useCallback(
+    (clipId: string, mask: LayerMask) => updateClipById(clipId, (clip) => ({ ...clip, mask })),
     [updateClipById]
   );
 
@@ -1022,7 +1039,7 @@ export default function App() {
       (clip) => {
         const localTime = clamp(playheadTime - clip.start, 0, clip.duration);
         const existing = clip.keyframes[prop] ?? [];
-        const near = existing.find((k) => Math.abs(k.time - localTime) <= 0.05);
+        const near = existing.find((k) => Math.abs(k.time - localTime) <= 0.001);
         if (near) {
           return removeKeyframeAtTime(clip, prop, near.id);
         }
@@ -1185,17 +1202,31 @@ export default function App() {
     updateClipById(
       clipId,
       (clip) => {
-        const list = clip.keyframes[prop];
-        if (!list || list.length === 0) return clip;
-        const nextList = list.map((k, idx) =>
-          keyframeIndex === 'all' || idx === keyframeIndex
-            ? { ...k, easing: 'bezier' as const, bezier }
-            : k
+        let list = [...(clip.keyframes[prop] ?? [])].sort((a, b) => a.time - b.time);
+        const currentValue = evaluateClipTransform(clip, playheadRef.current)[prop] ?? 0;
+        if (list.length < 2) {
+          const idBase = `kf_graph_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          if (list.length === 0) {
+            const startValue = prop === 'scale' ? 25 : prop === 'opacity' ? 0 : prop === 'shapeWidth' || prop === 'shapeHeight' ? currentValue * 0.25 : prop === 'rotation' || prop === 'rotationX' || prop === 'rotationY' ? currentValue - 45 : currentValue - 160;
+            const endTime = Math.max(0.001, Math.min(1, clip.duration));
+            list = [
+              { id: `${idBase}_a`, time: 0, value: startValue, easing: 'bezier', bezier },
+              { id: `${idBase}_b`, time: endTime, value: currentValue, easing: 'linear' },
+            ];
+          } else {
+            const anchor = list[0];
+            const otherTime = anchor.time <= clip.duration / 2 ? clip.duration : 0;
+            if (Math.abs(otherTime - anchor.time) < 0.001) return clip;
+            list.push({ id: `${idBase}_b`, time: otherTime, value: currentValue, easing: 'linear' });
+            list.sort((a, b) => a.time - b.time);
+          }
+        }
+        const nextList = list.map((keyframe, index) =>
+          keyframeIndex === 'all' || index === keyframeIndex
+            ? { ...keyframe, easing: 'bezier' as const, bezier }
+            : keyframe
         );
-        return {
-          ...clip,
-          keyframes: { ...clip.keyframes, [prop]: nextList },
-        };
+        return { ...clip, keyframes: { ...clip.keyframes, [prop]: nextList } };
       },
       true
     );
@@ -1205,39 +1236,7 @@ export default function App() {
     clipId: string,
     prop: AnimatableProperty,
     bezier: [number, number, number, number]
-  ) => {
-    updateClipById(
-      clipId,
-      (clip) => {
-        const currentVal = clip.transform[prop] ?? 0;
-        const startVal =
-          prop === 'scale'
-            ? 25
-            : prop === 'opacity'
-            ? 0
-            : prop === 'rotation' || prop === 'rotationY'
-            ? -45
-            : currentVal - 160;
-        const idBase = `${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
-        return {
-          ...clip,
-          keyframes: {
-            ...clip.keyframes,
-            [prop]: [
-              { id: `kf_g1_${idBase}`, time: 0, value: startVal, easing: 'bezier', bezier },
-              {
-                id: `kf_g2_${idBase}`,
-                time: Math.min(1.0, clip.duration),
-                value: currentVal,
-                easing: 'linear',
-              },
-            ],
-          },
-        };
-      },
-      true
-    );
-  };
+  ) => handleApplyCurveToProperty(clipId, prop, 'all', bezier);
 
   // Apply any item from 1000+ Mega Catalog (Presets, Transitions w/ SFX, Live Shaders, DaVinci LUTs)
   const handleApplyCatalogPreset = (item: MotionPresetItem) => {
@@ -2093,6 +2092,8 @@ export default function App() {
                 onToggleLoop={() => setLoopEnabled((l) => !l)}
                 onSelectClip={setSelectedClipId}
                 onMoveClipCanvas={handleMoveClipCanvas}
+                onResizeShapeCanvas={handleResizeShapeCanvas}
+                onUpdateMaskCanvas={handleUpdateMaskCanvas}
                 onCreatePathClip={handleCreatePathClip}
                 onUpdateComposition={(patch) =>
                   setComposition((prev) => ({ ...prev, ...patch }))
