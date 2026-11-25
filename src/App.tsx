@@ -1039,7 +1039,7 @@ export default function App() {
       (clip) => {
         const localTime = clamp(playheadTime - clip.start, 0, clip.duration);
         const existing = clip.keyframes[prop] ?? [];
-        const near = existing.find((k) => Math.abs(k.time - localTime) <= 0.001);
+        const near = existing.find((k) => Math.abs(k.time - localTime) <= 0.0005);
         if (near) {
           return removeKeyframeAtTime(clip, prop, near.id);
         }
