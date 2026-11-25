@@ -18,7 +18,6 @@ import {
   X,
 } from 'lucide-react';
 import {
-  AnimatableProperty,
   CompositionSettings,
   LayerMask,
   PathPoint,
@@ -65,7 +64,7 @@ interface ProgramMonitorProps {
   onToggleLoop: () => void;
   onSelectClip: (clipId: string | null) => void;
   onMoveClipCanvas: (clipId: string, x: number, y: number) => void;
-  onUpdatePropertyCanvas: (clipId: string, prop: AnimatableProperty, value: number) => void;
+  onSetAnchorCanvas: (clipId: string, anchorX: number, anchorY: number) => void;
   onResizeShapeCanvas: (clipId: string, width: number, height: number) => void;
   onUpdateMaskCanvas: (clipId: string, mask: LayerMask) => void;
   onCreatePathClip: (points: PathPoint[], closed: boolean) => void;
@@ -187,7 +186,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   onToggleLoop,
   onSelectClip,
   onMoveClipCanvas,
-  onUpdatePropertyCanvas,
+  onSetAnchorCanvas,
   onResizeShapeCanvas,
   onUpdateMaskCanvas,
   onCreatePathClip,
@@ -337,8 +336,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     if (tool === 'pin') {
       const nextAnchorX = (transform.anchorX ?? 0) + localX / (layerScaleX || 1);
       const nextAnchorY = (transform.anchorY ?? 0) + localY / (layerScaleY || 1);
-      onUpdatePropertyCanvas(hitClip.id, 'anchorX', nextAnchorX);
-      onUpdatePropertyCanvas(hitClip.id, 'anchorY', nextAnchorY);
+      onSetAnchorCanvas(hitClip.id, nextAnchorX, nextAnchorY);
       return;
     }
 
