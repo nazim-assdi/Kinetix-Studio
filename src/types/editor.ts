@@ -43,6 +43,19 @@ export type AnimatableProperty =
 
 export type ToolMode = 'select' | 'razor' | 'pen' | 'pin' | 'mask' | 'text' | 'shape' | 'hand';
 
+export type LeftDockTab =
+  | 'bin'
+  | 'effects'
+  | 'packs'
+  | 'sfx'
+  | 'transitions'
+  | 'color'
+  | 'audio'
+  | 'fusion'
+  | 'tracker'
+  | 'captions'
+  | 'ai';
+
 export type WorkspacePreset =
   | 'compositing'
   | 'editing'
