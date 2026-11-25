@@ -2092,6 +2092,7 @@ export default function App() {
                 onToggleLoop={() => setLoopEnabled((l) => !l)}
                 onSelectClip={setSelectedClipId}
                 onMoveClipCanvas={handleMoveClipCanvas}
+                onUpdatePropertyCanvas={handleUpdateProperty}
                 onResizeShapeCanvas={handleResizeShapeCanvas}
                 onUpdateMaskCanvas={handleUpdateMaskCanvas}
                 onCreatePathClip={handleCreatePathClip}
