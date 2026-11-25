@@ -45,6 +45,7 @@ interface TopToolbarProps {
   onToggleSnap: () => void;
   onQuickAddLayer: (kind: MediaKind) => void;
   onSaveProject: () => void;
+  onExportProjectFile: () => void;
   onLoadProjectFile: (file: File) => void;
   saveBadgeText?: string | null;
   onOpenExport: () => void;
@@ -70,6 +71,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleSnap,
   onQuickAddLayer,
   onSaveProject,
+  onExportProjectFile,
   onLoadProjectFile,
   saveBadgeText,
   onOpenExport,
@@ -188,7 +190,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                 <button type="button" role="menuitem" onClick={() => { loadInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FolderUp className="h-3.5 w-3.5 text-[#60A5FA]" />Import Project</button>
                 <button type="button" role="menuitem" onClick={() => { mediaInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Upload className="h-3.5 w-3.5 text-[#60A5FA]" />Import Media / PSD / AI / SVG</button>
                 <div className="my-1 border-t border-[#2B303A]" />
-                <button type="button" role="menuitem" onClick={() => { onSaveProject(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FileText className="h-3.5 w-3.5 text-[#A78BFA]" />Export Project File</button>
+                <button type="button" role="menuitem" onClick={() => { onExportProjectFile(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FileText className="h-3.5 w-3.5 text-[#A78BFA]" />Export Project File</button>
                 <button type="button" role="menuitem" onClick={() => { onOpenExport(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Film className="h-3.5 w-3.5 text-[#3B82F6]" />Render Video</button>
                 <div className="my-1 border-t border-[#2B303A]" />
                 <button type="button" role="menuitemcheckbox" aria-checked={autoSaveEnabled} onClick={onToggleAutoSave} className="w-full flex items-center justify-between rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><span>Auto Save</span><span className={autoSaveEnabled ? 'text-[#34D399]' : 'text-[#9BA1AD]'}>{autoSaveEnabled ? 'On' : 'Off'}</span></button>
