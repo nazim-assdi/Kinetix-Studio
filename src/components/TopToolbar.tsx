@@ -51,6 +51,7 @@ interface TopToolbarProps {
   onOpenExport: () => void;
   onOpenShortcuts: () => void;
   onImportMedia: (files: FileList) => void;
+  onImportSrt: (file: File) => void;
   autoSaveEnabled: boolean;
   onToggleAutoSave: () => void;
   onChangeLeftTab: (tab: LeftDockTab) => void;
@@ -77,6 +78,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onOpenExport,
   onOpenShortcuts,
   onImportMedia,
+  onImportSrt,
   autoSaveEnabled,
   onToggleAutoSave,
   onChangeLeftTab,
@@ -87,6 +89,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   const [openMenu, setOpenMenu] = useState<'file' | 'effect' | 'view' | null>(null);
   const loadInputRef = React.useRef<HTMLInputElement>(null);
   const mediaInputRef = React.useRef<HTMLInputElement>(null);
+  const subtitleInputRef = React.useRef<HTMLInputElement>(null);
 
   const workspaces: { id: WorkspacePreset; label: string }[] = [
     { id: 'compositing', label: 'Compositing' },
@@ -166,7 +169,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   return (
     <header className="h-12 shrink-0 bg-[#181A1F] border-b border-[#2B303A] px-2.5 flex items-center justify-between gap-2 select-none relative z-40">
       <input ref={loadInputRef} type="file" accept=".json,.kinetix,.kinetix.json" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) onLoadProjectFile(file); e.currentTarget.value = ''; }} />
-      <input ref={mediaInputRef} type="file" multiple accept="video/*,image/*,audio/*,.psd,.ai,.svg" className="hidden" onChange={(e) => { if (e.currentTarget.files?.length) onImportMedia(e.currentTarget.files); e.currentTarget.value = ''; }} />
+      <input ref={mediaInputRef} type="file" multiple accept="video/*,image/*,audio/*,.psd,.ai,.svg,.srt" className="hidden" onChange={(e) => { if (e.currentTarget.files?.length) onImportMedia(e.currentTarget.files); e.currentTarget.value = ''; }} />
+      <input ref={subtitleInputRef} type="file" accept=".srt,application/x-subrip,text/plain" className="hidden" onChange={(e) => { const file = e.currentTarget.files?.[0]; if (file) onImportSrt(file); e.currentTarget.value = ''; }} />
 
       {/* Left: Brand & Workspaces */}
       <div className="flex items-center gap-2 min-w-0">
@@ -189,6 +193,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
                 <button type="button" role="menuitem" onClick={() => { onSaveProject(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Save className="h-3.5 w-3.5 text-[#14B8A6]" />Save Project</button>
                 <button type="button" role="menuitem" onClick={() => { loadInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FolderUp className="h-3.5 w-3.5 text-[#60A5FA]" />Import Project</button>
                 <button type="button" role="menuitem" onClick={() => { mediaInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Upload className="h-3.5 w-3.5 text-[#60A5FA]" />Import Media / PSD / AI / SVG</button>
+                <button type="button" role="menuitem" onClick={() => { subtitleInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Captions className="h-3.5 w-3.5 text-[#93C5FD]" />Import SRT Subtitles</button>
                 <div className="my-1 border-t border-[#2B303A]" />
                 <button type="button" role="menuitem" onClick={() => { onExportProjectFile(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FileText className="h-3.5 w-3.5 text-[#A78BFA]" />Export Project File</button>
                 <button type="button" role="menuitem" onClick={() => { onOpenExport(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Film className="h-3.5 w-3.5 text-[#3B82F6]" />Render Video</button>
