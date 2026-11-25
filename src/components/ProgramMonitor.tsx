@@ -607,7 +607,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewLayout('2-views-v')}
+              onClick={() => onChangeViewLayout('2-views-v')}
               title="2 Views Vertical"
               aria-label="2 Views Vertical"
               aria-pressed={viewLayout === '2-views-v'}
@@ -621,7 +621,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewLayout('4-views')}
+              onClick={() => onChangeViewLayout('4-views')}
               title="4 Views Quad (Active Camera + Top + Front + Right)"
               aria-label="4 Views Quad"
               aria-pressed={viewLayout === '4-views'}
