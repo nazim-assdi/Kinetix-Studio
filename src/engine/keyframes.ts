@@ -213,16 +213,24 @@ export function togglePropertyKeyframing(
     const frozenValue = interpolateKeyframes(
       existing,
       localTime,
-      clip.transform[prop] ?? 0
+      getAnimatableBaseValue(clip, prop)
     );
     const nextKeyframes = { ...clip.keyframes };
     delete nextKeyframes[prop];
+    if (prop === 'shapeWidth' || prop === 'shapeHeight') {
+      if (!clip.shapeProps) return { ...clip, keyframes: nextKeyframes };
+      return {
+        ...clip,
+        shapeProps: {
+          ...clip.shapeProps,
+          [prop === 'shapeWidth' ? 'width' : 'height']: Number(frozenValue.toFixed(2)),
+        },
+        keyframes: nextKeyframes,
+      };
+    }
     return {
       ...clip,
-      transform: {
-        ...clip.transform,
-        [prop]: Number(frozenValue.toFixed(2)),
-      },
+      transform: { ...clip.transform, [prop]: Number(frozenValue.toFixed(2)) },
       keyframes: nextKeyframes,
     };
   }
