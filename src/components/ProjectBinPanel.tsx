@@ -328,7 +328,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
               </div>
 
               <div className="flex items-center gap-1 bg-[#111215] p-0.5 rounded border border-[#262B34] overflow-x-auto">
-                {(['All', 'Motion Bro', 'Mr Horse', 'AEJuice', 'Kinetix Pro'] as const).map(
+                {(['All', 'FX'] as const).map(
                   (v) => (
                     <button
                       key={v}
@@ -340,7 +340,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                           : 'text-[#8D95A5] hover:text-white'
                       }`}
                     >
-                      {v === 'Kinetix Pro' ? 'Pro' : v}
+                      {v}
                     </button>
                   )
                 )}
