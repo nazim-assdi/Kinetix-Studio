@@ -16,6 +16,7 @@ import {
   TimelineClip,
   TimelineMarker,
   TimelineTrack,
+  SynthPreset,
   ToolMode,
   ViewLayoutMode,
   TrackMatteMode,
@@ -1302,6 +1303,23 @@ export default function App() {
     bezier: [number, number, number, number]
   ) => handleApplyCurveToProperty(clipId, prop, 'all', bezier);
 
+  const handleAddSfxToTimeline = (preset: SynthPreset) => {
+    const asset: ProjectAsset = {
+      id: `asset_sfx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: preset.replace('sfx-', '').replace('-', ' ').toUpperCase(),
+      kind: 'audio',
+      duration: 0.75,
+      synthPreset: preset,
+      waveform: generateWaveformPeaks(Math.random() * 9, 48),
+    };
+    const audioTrack = tracks.find((track) => track.kind === 'audio');
+    const clip = buildClipFromAsset(asset, audioTrack?.id, playheadRef.current);
+    if (!clip) return;
+    setAssets((previous) => [asset, ...previous]);
+    commitHistory(tracks, [...clips, clip]);
+    setSelectedClipId(clip.id);
+  };
+
   // Apply any item from 1000+ Mega Catalog (Presets, Transitions w/ SFX, Live Shaders, DaVinci LUTs)
   const handleApplyCatalogPreset = (item: MotionPresetItem) => {
     if (item.lutName && selectedClipId) {
@@ -1966,6 +1984,7 @@ export default function App() {
               onApplyCatalogPreset={(item) => { setPreviewPreset(null); handleApplyCatalogPreset(item); }}
               onPreviewCatalogPreset={setPreviewPreset}
               onPreviewSfx={(preset) => audioEngine.previewSfx(preset)}
+              onAddSfxToTimeline={handleAddSfxToTimeline}
               onUpdateColorGrade={(clipId, colorGrade: ColorWheelGrade) =>
                 updateClipById(clipId, (c) => ({ ...c, colorGrade }))
               }
