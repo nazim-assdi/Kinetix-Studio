@@ -597,6 +597,14 @@ function drawVectorPathPoints(
     }
   }
   if (closed && trimStart <= 1 && trimEnd >= 99) {
+    const last = points[totalPts - 1];
+    const first = points[0];
+    if (
+      last.handleOutX !== undefined && last.handleOutY !== undefined &&
+      first.handleInX !== undefined && first.handleInY !== undefined
+    ) {
+      ctx.bezierCurveTo(last.handleOutX, last.handleOutY, first.handleInX, first.handleInY, first.x, first.y);
+    }
     ctx.closePath();
   }
 }
@@ -1559,11 +1567,11 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         ctx.lineWidth = 1.25;
         ctx.beginPath();
         ctx.moveTo(pt.x, pt.y);
-        ctx.lineTo(pt.x + handle.x, pt.y + handle.y);
+        ctx.lineTo(handle.x, handle.y);
         ctx.stroke();
         ctx.fillStyle = '#BFDBFE';
         ctx.beginPath();
-        ctx.arc(pt.x + handle.x, pt.y + handle.y, 3.5, 0, Math.PI * 2);
+        ctx.arc(handle.x, handle.y, 3.5, 0, Math.PI * 2);
         ctx.fill();
       }
     });
