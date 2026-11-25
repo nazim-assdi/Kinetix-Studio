@@ -1341,30 +1341,6 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       skewX
     );
 
-    if (drawGizmo && clip.id === selectedClipId && clip.kind === 'shape' && clip.shapeProps) {
-      targetCtx.save();
-      targetCtx.translate(cx, cy);
-      targetCtx.rotate(rotRad);
-      if (skewX !== 0) targetCtx.transform(1, 0, skewX, 1, 0, 0);
-      targetCtx.scale(effScaleX, effScaleY);
-      if (ax !== 0 || ay !== 0) targetCtx.translate(-ax, -ay);
-      targetCtx.strokeStyle = '#60A5FA';
-      targetCtx.lineWidth = 1.5 / Math.max(0.01, Math.abs(effScaleX));
-      targetCtx.setLineDash([7, 4]);
-      targetCtx.strokeRect(-baseW / 2, -baseH / 2, baseW, baseH);
-      targetCtx.setLineDash([]);
-      targetCtx.fillStyle = '#FFFFFF';
-      targetCtx.strokeStyle = '#3B82F6';
-      const handleSize = 9 / Math.max(0.01, Math.abs(effScaleX));
-      for (const sx of [-1, 1]) {
-        for (const sy of [-1, 1]) {
-          targetCtx.fillRect(sx * baseW / 2 - handleSize / 2, sy * baseH / 2 - handleSize / 2, handleSize, handleSize);
-          targetCtx.strokeRect(sx * baseW / 2 - handleSize / 2, sy * baseH / 2 - handleSize / 2, handleSize, handleSize);
-        }
-      }
-      targetCtx.restore();
-    }
-
     if (drawGizmo && clip.id === selectedClipId && clip.mask?.enabled) {
       targetCtx.save();
       targetCtx.translate(cx, cy);
@@ -1569,12 +1545,28 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     ctx.translate(width / 2, height / 2);
     ctx.strokeStyle = '#3B82F6';
     ctx.lineWidth = 3;
-    ctx.beginPath();
-    penDraftPoints.forEach((pt, idx) => {
-      if (idx === 0) ctx.moveTo(pt.x, pt.y);
-      else ctx.lineTo(pt.x, pt.y);
-    });
+    drawVectorPathPoints(ctx, penDraftPoints, false, 0, 100);
     ctx.stroke();
+
+    // Show tangent handles while a Bézier point is being shaped.
+    penDraftPoints.forEach((pt) => {
+      for (const handle of [
+        { x: pt.handleInX, y: pt.handleInY },
+        { x: pt.handleOutX, y: pt.handleOutY },
+      ]) {
+        if (handle.x === undefined || handle.y === undefined) continue;
+        ctx.strokeStyle = 'rgba(96, 165, 250, 0.75)';
+        ctx.lineWidth = 1.25;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(pt.x + handle.x, pt.y + handle.y);
+        ctx.stroke();
+        ctx.fillStyle = '#BFDBFE';
+        ctx.beginPath();
+        ctx.arc(pt.x + handle.x, pt.y + handle.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
 
     if (penDraftPoints.length >= 2) {
       const first = penDraftPoints[0];
