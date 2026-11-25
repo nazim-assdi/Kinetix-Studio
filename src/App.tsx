@@ -124,7 +124,7 @@ async function createPortableProjectPayload(
       const src = await makePortableMediaUrl(asset.src, mediaCache);
       const thumbnail =
         asset.thumbnail === asset.src
-          ? src
+          ? undefined
           : await makePortableMediaUrl(asset.thumbnail, mediaCache);
       return { ...asset, src, thumbnail };
     })
@@ -145,7 +145,10 @@ async function createPortableProjectPayload(
 }
 
 function restoreProjectMedia(payload: SavedProjectPayload): SavedProjectPayload {
-  const assets = payload.assets ?? [];
+  const assets = (payload.assets ?? []).map((asset) => ({
+    ...asset,
+    thumbnail: asset.thumbnail ?? asset.src,
+  }));
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
   return {
     ...payload,
