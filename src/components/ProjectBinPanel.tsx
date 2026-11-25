@@ -53,6 +53,13 @@ import { CaptionsPanel } from './CaptionsPanel';
 
 export type { LeftDockTab } from '../types/editor';
 
+const SFX_LIBRARY: MotionPresetItem[] = [
+  { id: 'sfx-whoosh', name: 'Cinematic Whoosh', vendor: 'FX', category: 'Effects', description: 'Short sweeping transition sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-whoosh' },
+  { id: 'sfx-glitch', name: 'Digital Glitch', vendor: 'FX', category: 'Effects', description: 'Electronic glitch and data stutter sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-glitch' },
+  { id: 'sfx-boom', name: 'Impact Boom', vendor: 'FX', category: 'Effects', description: 'Low cinematic impact sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-boom' },
+  { id: 'sfx-shimmer', name: 'Light Shimmer', vendor: 'FX', category: 'Effects', description: 'Bright shimmer and sparkle sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-shimmer' },
+];
+
 interface ProjectBinPanelProps {
   assets: ProjectAsset[];
   tracks: TimelineTrack[];
@@ -73,6 +80,7 @@ interface ProjectBinPanelProps {
   onApplyCatalogPreset: (item: MotionPresetItem) => void;
   onPreviewCatalogPreset: (item: MotionPresetItem | null) => void;
   onPreviewSfx: (preset: SynthPreset) => void;
+  onAddSfxToTimeline: (preset: SynthPreset) => void;
   onUpdateColorGrade: (clipId: string, grade: ColorWheelGrade) => void;
   onUpdateTrackData: (clipId: string, data: MotionTrackData) => void;
   onApplyTrackToLayer: (sourceClipId: string, targetClipId: string) => void;
@@ -120,6 +128,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   onApplyCatalogPreset,
   onPreviewCatalogPreset,
   onPreviewSfx,
+  onAddSfxToTimeline,
   onUpdateColorGrade,
   onUpdateTrackData,
   onApplyTrackToLayer,
@@ -153,13 +162,14 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   );
 
   const filteredPacks = useMemo(() => {
-    return MEGA_CATALOG.filter(
+    const source = activeTab === 'sfx' ? SFX_LIBRARY : MEGA_CATALOG;
+    return source.filter(
       (p) =>
         (activeTab !== 'sfx' || Boolean(p.sfxPreset)) &&
         (activeTab !== 'transitions' || p.category === 'Transition') &&
         (activeTab !== 'packs' || p.category !== 'Transition') &&
         (vendorFilter === 'All' || p.vendor === vendorFilter) &&
-        (categoryFilter === 'All' || p.category === categoryFilter) &&
+        (activeTab !== 'packs' || categoryFilter === 'All' || p.category === categoryFilter) &&
         (!q ||
           p.name.toLowerCase().includes(q) ||
           p.vendor.toLowerCase().includes(q) ||
@@ -464,7 +474,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
         {(['packs', 'sfx', 'transitions'] as LeftDockTab[]).includes(activeTab) && (
           <div className="space-y-1.5">
             {filteredPacks.slice(0, packLimit).map((preset) => (
-              <div key={preset.id} onMouseEnter={() => onPreviewCatalogPreset(preset)} onMouseLeave={() => onPreviewCatalogPreset(null)} className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2">
+              <div key={preset.id} onMouseEnter={() => { if (activeTab !== 'sfx') onPreviewCatalogPreset(preset); }} onMouseLeave={() => onPreviewCatalogPreset(null)} className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
@@ -477,8 +487,17 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                   <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-[#232730] text-[#93C5FD] shrink-0">LIVE</span>
                 </div>
                 <div className="flex items-center gap-1.5 mt-2">
-                  {preset.sfxPreset && <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play SFX</button>}
-                  <button type="button" onClick={() => { onPreviewCatalogPreset(null); onApplyCatalogPreset(preset); }} className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE]">Apply</button>
+                  {activeTab === 'sfx' ? (
+                    <>
+                      <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play</button>
+                      <button type="button" onClick={() => onAddSfxToTimeline(preset.sfxPreset!)} className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE]">Add to Timeline</button>
+                    </>
+                  ) : (
+                    <>
+                      {preset.sfxPreset && <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play SFX</button>}
+                      <button type="button" onClick={() => { onPreviewCatalogPreset(null); onApplyCatalogPreset(preset); }} className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE]">Apply</button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
