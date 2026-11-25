@@ -41,7 +41,7 @@ export type AnimatableProperty =
   | 'shapeWidth'
   | 'shapeHeight';
 
-export type ToolMode = 'select' | 'razor' | 'pen' | 'text' | 'shape' | 'hand';
+export type ToolMode = 'select' | 'razor' | 'pen' | 'pin' | 'mask' | 'text' | 'shape' | 'hand';
 
 export type WorkspacePreset =
   | 'compositing'
