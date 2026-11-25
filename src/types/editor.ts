@@ -428,6 +428,7 @@ export interface SavedProjectPayload {
   composition: CompositionSettings;
   tracks: TimelineTrack[];
   clips: TimelineClip[];
+  assets?: ProjectAsset[];
   markers?: TimelineMarker[];
   workArea?: WorkAreaRange;
 }
