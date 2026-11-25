@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
@@ -8,7 +9,61 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '32kb' }));
+
+const AI_RATE_WINDOW_MS = 60_000;
+const AI_RATE_MAX_REQUESTS = 12;
+const aiRequestBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function requireAiAccessKey(req: Request, res: Response, next: NextFunction) {
+  const expected = process.env.KINETIX_AI_ACCESS_KEY;
+  if (!expected) {
+    next();
+    return;
+  }
+
+  const supplied = req.header('x-kinetix-access-key') ?? '';
+  const expectedBuffer = Buffer.from(expected);
+  const suppliedBuffer = Buffer.from(supplied);
+  const valid =
+    suppliedBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(suppliedBuffer, expectedBuffer);
+
+  if (!valid) {
+    res.status(401).json({
+      error: 'This Kinetix Studio server requires an AI access key. Enter the key configured by the server owner.',
+    });
+    return;
+  }
+  next();
+}
+
+function rateLimitAiRequests(req: Request, res: Response, next: NextFunction) {
+  const now = Date.now();
+  const key = req.ip || req.socket.remoteAddress || 'unknown';
+  let bucket = aiRequestBuckets.get(key);
+
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 0, resetAt: now + AI_RATE_WINDOW_MS };
+    aiRequestBuckets.set(key, bucket);
+  }
+
+  if (bucket.count >= AI_RATE_MAX_REQUESTS) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))));
+    res.status(429).json({ error: 'AI request limit reached. Please wait one minute and try again.' });
+    return;
+  }
+
+  bucket.count += 1;
+  if (aiRequestBuckets.size > 4000) {
+    for (const [ip, entry] of aiRequestBuckets) {
+      if (entry.resetAt <= now) aiRequestBuckets.delete(ip);
+      if (aiRequestBuckets.size <= 3000) break;
+    }
+  }
+  next();
+}
 
 function getAiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -25,7 +80,7 @@ function getAiClient(): GoogleGenAI {
   });
 }
 
-app.post('/api/ai-edit', async (req, res) => {
+app.post('/api/ai-edit', requireAiAccessKey, rateLimitAiRequests, async (req, res) => {
   try {
     const { prompt, context } = req.body as {
       prompt?: string;
@@ -40,6 +95,14 @@ app.post('/api/ai-edit', async (req, res) => {
 
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       res.status(400).json({ error: 'Prompt is required.' });
+      return;
+    }
+    if (prompt.length > 4000) {
+      res.status(413).json({ error: 'Prompt is too long. Keep AI editing prompts under 4,000 characters.' });
+      return;
+    }
+    if (!process.env.GEMINI_API_KEY) {
+      res.status(503).json({ error: 'AI editing is not configured on this server.' });
       return;
     }
 
@@ -129,9 +192,8 @@ Timeline context: playhead=${context?.playheadTime ?? 0}s, selectedClip=${contex
     const parsed = JSON.parse(rawText);
     res.json(parsed);
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Failed to process AI editing request.';
-    res.status(500).json({ error: message });
+    console.error('AI editing request failed:', err);
+    res.status(500).json({ error: 'AI editing failed. Check the server configuration and try again.' });
   }
 });
 
@@ -148,7 +210,7 @@ async function startServer() {
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('/{*splat}', (_req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
