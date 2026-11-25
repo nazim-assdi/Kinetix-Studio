@@ -146,12 +146,7 @@ function buildMegaCatalog(): MotionPresetItem[] {
     }),
   ];
 
-  const vendors: PresetPackVendor[] = [
-    'Motion Bro',
-    'Mr Horse',
-    'AEJuice',
-    'Kinetix Pro',
-  ];
+  const vendors: PresetPackVendor[] = ['FX'];
 
   // 1. Transition Pack with SFX (240 items)
   const transitionBases: {
