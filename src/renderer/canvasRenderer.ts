@@ -1208,7 +1208,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         targetCtx.textBaseline = 'middle';
 
         const lines: string[] = [];
-        for (const paragraph of activeCue.text.split(/\\r?\\n/)) {
+        for (const paragraph of activeCue.text.split(/\r?\n/)) {
           const words = paragraph.split(/\\s+/).filter(Boolean);
           if (words.length === 0) {
             lines.push('');
