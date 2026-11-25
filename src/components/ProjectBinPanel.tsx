@@ -38,7 +38,6 @@ import {
   MotionTrackData,
   PresetCategory,
   PresetPackVendor,
-  SynthPreset,
   ProjectAsset,
   TimelineClip,
   TimelineTrack,
