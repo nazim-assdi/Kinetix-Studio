@@ -311,15 +311,15 @@ test('computeVideoScopes computes luma histogram/waveform/parade/vectorscope and
 
 test('parseSrtSubtitles imports numbered, multi-line and cue-settings SRT blocks', () => {
   const cues = parseSrtSubtitles(
-    '\\uFEFF1\\r\\n00:00:01,250 --> 00:00:03,500\\r\\n<i>Hello</i> &amp; welcome\\r\\nsecond line\\r\\n\\r\\n' +
-    '00:01:02.5 --> 00:01:04.000 align:start position:10%\\r\\nGoodbye\\r\\n\\r\\n' +
-    '3\\r\\n00:00:05,000 --> 00:00:04,000\\r\\nInvalid timing\\r\\n'
+    '\uFEFF1\r\n00:00:01,250 --> 00:00:03,500\r\n<i>Hello</i> &amp; welcome\r\nsecond line\r\n\r\n' +
+    '00:01:02.5 --> 00:01:04.000 align:start position:10%\r\nGoodbye\r\n\r\n' +
+    '3\r\n00:00:05,000 --> 00:00:04,000\r\nInvalid timing\r\n'
   );
 
   assert.equal(cues.length, 2);
   assert.equal(cues[0].start, 1.25);
   assert.equal(cues[0].end, 3.5);
-  assert.equal(cues[0].text, 'Hello & welcome\\nsecond line');
+  assert.equal(cues[0].text, 'Hello & welcome\nsecond line');
   assert.equal(cues[1].start, 62.5);
   assert.equal(cues[1].end, 64);
 });
