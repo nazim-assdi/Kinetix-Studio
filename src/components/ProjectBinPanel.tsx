@@ -79,8 +79,8 @@ interface ProjectBinPanelProps {
   onToggle3D: (clipId: string) => void;
   onApplyCatalogPreset: (item: MotionPresetItem) => void;
   onPreviewCatalogPreset: (item: MotionPresetItem | null) => void;
-  onPreviewSfx: (preset: SynthPreset) => void;
-  onAddSfxToTimeline: (preset: SynthPreset) => void;
+  onPreviewSfx: (preset: NonNullable<MotionPresetItem['sfxPreset']>) => void;
+  onAddSfxToTimeline: (preset: NonNullable<MotionPresetItem['sfxPreset']>) => void;
   onUpdateColorGrade: (clipId: string, grade: ColorWheelGrade) => void;
   onUpdateTrackData: (clipId: string, data: MotionTrackData) => void;
   onApplyTrackToLayer: (sourceClipId: string, targetClipId: string) => void;
