@@ -17,6 +17,7 @@ import {
   TimelineMarker,
   TimelineTrack,
   ToolMode,
+  ViewLayoutMode,
   TrackMatteMode,
   WorkAreaRange,
   WorkspacePreset,
@@ -116,9 +117,9 @@ async function makePortableMediaUrl(
 async function createPortableProjectPayload(
   project: Omit<SavedProjectPayload, 'version' | 'savedAt' | 'assets'> & {
     assets: ProjectAsset[];
-  }
+  },
+  mediaCache: Map<string, string> = new Map()
 ): Promise<SavedProjectPayload> {
-  const mediaCache = new Map<string, string>();
   const savedAssets = await Promise.all(
     project.assets.map(async (asset) => {
       const src = await makePortableMediaUrl(asset.src, mediaCache);
@@ -226,6 +227,13 @@ export default function App() {
 
   const [workspace, setWorkspace] = useState<WorkspacePreset>('compositing');
   const [leftTab, setLeftTab] = useState<LeftDockTab>('bin');
+  const [viewLayout, setViewLayout] = useState<ViewLayoutMode>('1-view');
+  const [previewPreset, setPreviewPreset] = useState<MotionPresetItem | null>(null);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
+    try { return window.localStorage.getItem('kinetix_autosave_enabled_v1') !== 'false'; }
+    catch { return true; }
+  });
+  const [projectStorageReady, setProjectStorageReady] = useState(false);
   const [tool, setTool] = useState<ToolMode>('select');
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [loopEnabled, setLoopEnabled] = useState(true);
@@ -249,6 +257,7 @@ export default function App() {
   const [panelsSwapped, setPanelsSwapped] = useState(false);
 
   const mediaCache = useMemo(() => createMediaCache(), []);
+  const portableMediaCacheRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     let cancelled = false;
@@ -278,6 +287,9 @@ export default function App() {
       })
       .catch((error) => {
         console.warn('Kinetix Studio autosave could not be restored:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setProjectStorageReady(true);
       });
     return () => {
       cancelled = true;
@@ -290,6 +302,43 @@ export default function App() {
   clipsRef.current = clips;
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
+
+  useEffect(() => {
+    if (!projectStorageReady) return;
+    try {
+      window.localStorage.setItem('kinetix_autosave_enabled_v1', String(autoSaveEnabled));
+    } catch {
+      // The setting is session-local when browser storage is disabled.
+    }
+  }, [autoSaveEnabled, projectStorageReady]);
+
+  // Debounced project autosave. Imported media is embedded once and cached so
+  // repeated edits do not repeatedly decode large blob URLs.
+  useEffect(() => {
+    if (!projectStorageReady || !autoSaveEnabled) return;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const payload = await createPortableProjectPayload({
+            composition, tracks, clips, assets, markers, workArea,
+          }, portableMediaCacheRef.current);
+          await saveProjectToIndexedDb(payload);
+          try {
+            window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(payload)));
+          } catch {
+            // IndexedDB keeps the full project and media when localStorage is small.
+          }
+          setSaveBadgeText('Auto Saved');
+        } catch (error) {
+          console.warn('Automatic project save failed:', error);
+          setSaveBadgeText('Auto Save Failed');
+        }
+      })();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [
+    projectStorageReady, autoSaveEnabled, composition, tracks, clips, assets, markers, workArea,
+  ]);
 
   const commitHistory = useCallback(
     (nextTracks: TimelineTrack[], nextClips: TimelineClip[]) => {
@@ -1325,7 +1374,7 @@ export default function App() {
         assets,
         markers,
         workArea,
-      });
+      }, portableMediaCacheRef.current);
 
       let autosaved = false;
       try {
@@ -1823,6 +1872,12 @@ export default function App() {
           setExportOpen(true);
         }}
         onOpenShortcuts={() => setShortcutsOpen(true)}
+        onImportMedia={handleImportFiles}
+        autoSaveEnabled={autoSaveEnabled}
+        onToggleAutoSave={() => setAutoSaveEnabled((enabled) => !enabled)}
+        onChangeLeftTab={setLeftTab}
+        viewLayout={viewLayout}
+        onChangeViewLayout={setViewLayout}
       />
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
@@ -1913,7 +1968,9 @@ export default function App() {
               onToggle3D={(clipId) =>
                 updateClipById(clipId, (c) => ({ ...c, is3D: !c.is3D }), true)
               }
-              onApplyCatalogPreset={handleApplyCatalogPreset}
+              onApplyCatalogPreset={(item) => { setPreviewPreset(null); handleApplyCatalogPreset(item); }}
+              onPreviewCatalogPreset={setPreviewPreset}
+              onPreviewSfx={(preset) => audioEngine.previewSfx(preset)}
               onUpdateColorGrade={(clipId, colorGrade: ColorWheelGrade) =>
                 updateClipById(clipId, (c) => ({ ...c, colorGrade }))
               }
@@ -2104,6 +2161,7 @@ export default function App() {
                 selectedClipId={selectedClipId}
                 tool={tool}
                 mediaCache={mediaCache}
+                previewPreset={previewPreset}
                 onTogglePlay={() => setIsPlaying((p) => !p)}
                 onSeek={handleSeek}
                 onStepFrame={handleStepFrame}
