@@ -110,6 +110,31 @@ test('togglePropertyKeyframing seeds and freezes keyframes cleanly', () => {
   assert.equal(clip.transform.x, 180);
 });
 
+test('adjacent-frame keyframes are preserved and shape dimensions can be animated', () => {
+  const shape = makeClip({
+    kind: 'shape',
+    shapeProps: {
+      shapeType: 'rect',
+      width: 200,
+      height: 120,
+      fillColor: '#FFFFFF',
+      strokeColor: '#000000',
+      strokeWidth: 0,
+      cornerRadius: 0,
+    },
+  });
+  let clip = upsertKeyframe(shape, 'x', 1, 10, 'linear');
+  clip = upsertKeyframe(clip, 'x', 1 + 1 / 60, 20, 'linear');
+  assert.equal(clip.keyframes.x?.length, 2, 'a 60fps neighbouring frame must not overwrite the prior key');
+
+  clip = upsertKeyframe(clip, 'shapeWidth', 0, 100, 'linear');
+  clip = upsertKeyframe(clip, 'shapeWidth', 2, 300, 'linear');
+  assert.equal(evaluateClipTransform(clip, 3).shapeWidth, 200);
+  clip = togglePropertyKeyframing(clip, 'shapeWidth', 1);
+  assert.equal(clip.keyframes.shapeWidth, undefined);
+  assert.ok(Math.abs((clip.shapeProps?.width ?? 0) - 200) < 0.01, 'stopping size keyframing must freeze the evaluated width into the shape');
+});
+
 test('splitClipAtTime splits clip and preserves 3D keyframes', () => {
   let clip = makeClip({ start: 1, duration: 4, is3D: true });
   clip = upsertKeyframe(clip, 'rotationY', 0, 0, 'linear');
@@ -189,6 +214,7 @@ test('MEGA_CATALOG contains 1000+ presets, transitions with SFX, and DaVinci LUT
   );
   assert.ok(sfxTransitions.length >= 100);
   assert.ok(DAVINCI_LUTS.length >= 6);
+  assert.ok(MEGA_CATALOG.every((item) => item.vendor === 'FX'));
 });
 
 test('parsePsdLayersFromBuffer extracts binary 8BPS PSD layers and parseIllustratorLayersFromText extracts AI vector paths', () => {
