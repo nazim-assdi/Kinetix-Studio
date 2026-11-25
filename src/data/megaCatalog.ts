@@ -129,7 +129,8 @@ export const DAVINCI_LUTS: DaVinciLutPreset[] = [
 function buildMegaCatalog(): MotionPresetItem[] {
   const items: MotionPresetItem[] = [
     // Ensure core curated packs carry SFX presets for transitions
-    ...MOTION_PRESET_PACKS.map((item) => {
+    ...MOTION_PRESET_PACKS.map((sourceItem) => {
+      const item: MotionPresetItem = { ...sourceItem, vendor: 'FX' };
       if (item.id === 'whip_pan_transition') {
         return { ...item, sfxPreset: 'sfx-whoosh' as const };
       }
