@@ -2,11 +2,7 @@ import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 app.set('trust proxy', 1);
@@ -197,10 +193,18 @@ Timeline context: playhead=${context?.playheadTime ?? 0}s, selectedClip=${contex
   }
 });
 
-async function startServer() {
-  const isProd = process.env.NODE_ENV === 'production';
+export interface StartServerOptions {
+  port?: number;
+  host?: string;
+  staticDirectory?: string;
+  useVite?: boolean;
+}
 
-  if (!isProd) {
+/** Starts the local API + Vite/static web server and resolves when it is listening. */
+export async function startServer(options: StartServerOptions = {}) {
+  const useVite = options.useVite ?? process.env.NODE_ENV !== 'production';
+
+  if (useVite) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -208,20 +212,23 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
+    const distPath = options.staticDirectory ?? path.resolve(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  const port = Number(process.env.PORT || 3000);
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`Kinetix Studio server listening on http://0.0.0.0:${port}`);
+  const port = options.port ?? Number(process.env.PORT || 3000);
+  const host = options.host ?? '0.0.0.0';
+
+  return await new Promise<import('node:http').Server>((resolve, reject) => {
+    const server = app.listen(port, host, () => {
+      const address = server.address();
+      const actualPort = typeof address === 'object' && address ? address.port : port;
+      console.log(`Kinetix Studio server listening on http://${host}:${actualPort}`);
+      resolve(server);
+    });
+    server.once('error', reject);
   });
 }
-
-startServer().catch((err) => {
-  console.error('Server startup error:', err);
-  process.exit(1);
-});

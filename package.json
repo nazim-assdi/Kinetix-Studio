@@ -1,16 +1,19 @@
 {
-  "name": "react-example",
+  "name": "kinetix-studio",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "tsx server.ts",
+    "dev": "tsx server-cli.ts",
+    "start": "tsx server-cli.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/engine/engine.test.ts"
+    "test": "tsx --test src/engine/engine.test.ts",
+    "desktop:build": "node scripts/build-desktop.mjs",
+    "desktop:dev": "npm run desktop:build && electron .",
+    "dist:win": "npm run build && npm run desktop:build && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",
@@ -33,6 +36,55 @@
     "esbuild": "^0.28.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "@types/express": "^4.17.21"
-  }
+    "@types/express": "^4.17.21",
+    "electron": "45.5.0",
+    "electron-builder": "26.16.1"
+  },
+  "main": "dist-electron/main.cjs",
+  "build": {
+    "appId": "com.ntech.kinetixstudio",
+    "productName": "Kinetix Studio",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist",
+        "to": "dist",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Kinetix-Studio-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kinetix Studio",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "npmRebuild": false,
+    "asar": true
+  },
+  "description": "Professional video editing and motion graphics studio",
+  "author": "NTech"
 }
