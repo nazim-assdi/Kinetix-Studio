@@ -335,8 +335,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     const transform = evaluateClipTransform(hitClip, playheadTime);
 
     if (tool === 'pin') {
-      const nextAnchorX = (transform.anchorX ?? 0) + localX / (Math.abs(layerScaleX) || 1);
-      const nextAnchorY = (transform.anchorY ?? 0) + localY / (Math.abs(layerScaleY) || 1);
+      const nextAnchorX = (transform.anchorX ?? 0) + localX / (layerScaleX || 1);
+      const nextAnchorY = (transform.anchorY ?? 0) + localY / (layerScaleY || 1);
       onUpdatePropertyCanvas(hitClip.id, 'anchorX', nextAnchorX);
       onUpdatePropertyCanvas(hitClip.id, 'anchorY', nextAnchorY);
       return;
@@ -424,8 +424,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       if (point) {
         const dx = compX - penHandleRef.current.startX;
         const dy = compY - penHandleRef.current.startY;
-        const handleX = dx / Math.max(0.001, scaleX);
-        const handleY = dy / Math.max(0.001, scaleY);
+        const handleX = dx;
+        const handleY = dy;
         setPenDraftPoints((pts) => pts.map((p, index) => index === penHandleRef.current?.index
           ? { ...p, handleOutX: handleX, handleOutY: handleY, handleInX: -handleX, handleInY: -handleY }
           : p));
