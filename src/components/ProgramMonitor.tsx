@@ -18,7 +18,9 @@ import {
   X,
 } from 'lucide-react';
 import {
+  AnimatableProperty,
   CompositionSettings,
+  LayerMask,
   PathPoint,
   TimelineClip,
   TimelineTrack,
@@ -63,6 +65,9 @@ interface ProgramMonitorProps {
   onToggleLoop: () => void;
   onSelectClip: (clipId: string | null) => void;
   onMoveClipCanvas: (clipId: string, x: number, y: number) => void;
+  onUpdatePropertyCanvas: (clipId: string, prop: AnimatableProperty, value: number) => void;
+  onResizeShapeCanvas: (clipId: string, width: number, height: number) => void;
+  onUpdateMaskCanvas: (clipId: string, mask: LayerMask) => void;
   onCreatePathClip: (points: PathPoint[], closed: boolean) => void;
   onUpdateComposition?: (patch: Partial<CompositionSettings>) => void;
 }
@@ -182,6 +187,9 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   onToggleLoop,
   onSelectClip,
   onMoveClipCanvas,
+  onUpdatePropertyCanvas,
+  onResizeShapeCanvas,
+  onUpdateMaskCanvas,
   onCreatePathClip,
   onUpdateComposition,
 }) => {
@@ -194,13 +202,12 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   const [penDraftPoints, setPenDraftPoints] = useState<PathPoint[]>([]);
   const [renderTick, setRenderTick] = useState(0);
 
-  const dragRef = useRef<{
-    clipId: string;
-    startClientX: number;
-    startClientY: number;
-    origX: number;
-    origY: number;
-  } | null>(null);
+  type CanvasDrag =
+    | { mode: 'move'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number }
+    | { mode: 'resize-shape'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
+    | { mode: 'move-mask' | 'resize-mask' | 'draw-mask'; clipId: string; startClientX: number; startClientY: number; startLocalX: number; startLocalY: number; origMask: LayerMask; signX?: number; signY?: number; rotationRad: number; scaleX: number; scaleY: number };
+  const dragRef = useRef<CanvasDrag | null>(null);
+  const penHandleRef = useRef<{ index: number; startX: number; startY: number } | null>(null);
 
   const handleCanvasPointerDown = (
     e: React.PointerEvent<HTMLCanvasElement>,
@@ -223,36 +230,37 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           return;
         }
       }
+      const index = penDraftPoints.length;
       setPenDraftPoints((pts) => [...pts, { x: relX, y: relY }]);
+      penHandleRef.current = { index, startX: compX, startY: compY };
+      canvas.setPointerCapture(e.pointerId);
       return;
     }
 
     const videoTracks = tracks.filter((t) => t.kind === 'video');
     const hasSoloVideo = videoTracks.some((t) => t.solo);
-    const visibleTracks = videoTracks.filter(
-      (t) => t.visible && (!hasSoloVideo || t.solo)
-    );
+    const visibleTracks = videoTracks.filter((t) => t.visible && (!hasSoloVideo || t.solo));
     const visibleTrackIds = new Set(visibleTracks.map((t) => t.id));
-    const activeCamera =
-      clips.find(
-        (c) =>
-          c.kind === 'camera' &&
-          visibleTrackIds.has(c.trackId) &&
-          playheadTime >= c.start &&
-          playheadTime <= c.start + c.duration
-      ) ?? null;
+    const activeCamera = clips.find((c) =>
+      c.kind === 'camera' && visibleTrackIds.has(c.trackId) &&
+      playheadTime >= c.start && playheadTime <= c.start + c.duration
+    ) ?? null;
 
-    let hitClip: TimelineClip | null = null;
+    let hitInfo: {
+      clip: TimelineClip;
+      localX: number;
+      localY: number;
+      halfW: number;
+      halfH: number;
+      scaleX: number;
+      scaleY: number;
+      rotationRad: number;
+    } | null = null;
+
     for (const track of visibleTracks) {
-      const candidates = clips.filter(
-        (c) =>
-          c.trackId === track.id &&
-          c.kind !== 'adjustment' &&
-          c.kind !== 'camera' &&
-          c.kind !== 'light' &&
-          c.kind !== 'audio' &&
-          playheadTime >= c.start &&
-          playheadTime <= c.start + c.duration
+      const candidates = clips.filter((c) =>
+        c.trackId === track.id && !['adjustment', 'camera', 'light', 'audio'].includes(c.kind) &&
+        playheadTime >= c.start && playheadTime <= c.start + c.duration
       );
       for (const c of candidates) {
         const world = resolveWorldTransform(c, clips, playheadTime);
@@ -261,16 +269,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         let effScaleX = world.scale / 100;
         let effScaleY = world.scale / 100;
         let skewX = 0;
-
         if (c.is3D) {
-          const proj = projectLayerThroughCamera(
-            world,
-            activeCamera,
-            clips,
-            playheadTime,
-            composition.width,
-            composition.height
-          );
+          const proj = projectLayerThroughCamera(world, activeCamera, clips, playheadTime, composition.width, composition.height);
           if (!proj.visible) continue;
           cx = proj.screenX;
           cy = proj.screenY;
@@ -279,26 +279,20 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           skewX = proj.skewX;
         }
 
-        const rotRad = (world.rotation * Math.PI) / 180;
+        const rotationRad = (world.rotation * Math.PI) / 180;
         const { screenCx, screenCy } = computeAnchorScreenCenter(
-          cx,
-          cy,
-          world.anchorX ?? 0,
-          world.anchorY ?? 0,
-          effScaleX,
-          effScaleY,
-          rotRad,
-          skewX
+          cx, cy, world.anchorX ?? 0, world.anchorY ?? 0,
+          effScaleX, effScaleY, rotationRad, skewX
         );
-
         let baseW = composition.width;
         let baseH = composition.height;
         if (c.kind === 'solid' && c.solidProps) {
           baseW = c.solidProps.width;
           baseH = c.solidProps.height;
         } else if (c.kind === 'shape' && c.shapeProps) {
-          baseW = Math.max(80, c.shapeProps.width);
-          baseH = Math.max(80, c.shapeProps.height);
+          const shapeTransform = evaluateClipTransform(c, playheadTime);
+          baseW = Math.max(1, shapeTransform.shapeWidth ?? c.shapeProps.width);
+          baseH = Math.max(1, shapeTransform.shapeHeight ?? c.shapeProps.height);
         } else if (c.kind === 'text' && c.textProps) {
           baseW = Math.max(280, c.textProps.text.length * c.textProps.fontSize * 0.65);
           baseH = Math.max(80, c.textProps.fontSize * 1.8);
@@ -316,67 +310,182 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           baseH = 90;
         }
 
-        const halfW = (Math.abs(baseW * effScaleX) || 120) / 2;
-        const halfH = (Math.abs(baseH * effScaleY) || 80) / 2;
-
-        // Transform click into local unrotated box around screenCx, screenCy
+        const halfW = Math.abs(baseW * effScaleX) / 2;
+        const halfH = Math.abs(baseH * effScaleY) / 2;
         const dx = compX - screenCx;
         const dy = compY - screenCy;
-        const localX = dx * Math.cos(-rotRad) - dy * Math.sin(-rotRad);
-        const localY = dx * Math.sin(-rotRad) + dy * Math.cos(-rotRad);
-
-        if (Math.abs(localX) <= halfW && Math.abs(localY) <= halfH) {
-          hitClip = c;
+        const localX = dx * Math.cos(-rotationRad) - dy * Math.sin(-rotationRad);
+        const localY = dx * Math.sin(-rotationRad) + dy * Math.cos(-rotationRad);
+        const hitPadding = 16 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+        if (Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding) {
+          hitInfo = { clip: c, localX, localY, halfW, halfH, scaleX: effScaleX, scaleY: effScaleY, rotationRad };
           break;
         }
       }
-      if (hitClip) break;
+      if (hitInfo) break;
     }
 
-    if (hitClip) {
-      onSelectClip(hitClip.id);
-      const tf = evaluateClipTransform(hitClip, playheadTime);
-      dragRef.current = {
-        clipId: hitClip.id,
-        startClientX: e.clientX,
-        startClientY: e.clientY,
-        origX: tf.x,
-        origY: tf.y,
-      };
-      canvas.setPointerCapture(e.pointerId);
-    } else {
-      onSelectClip(null);
+    if (!hitInfo) {
+      if (tool !== 'mask') onSelectClip(null);
+      return;
     }
+
+    const { clip: hitClip, localX, localY, halfW, halfH, scaleX: layerScaleX, scaleY: layerScaleY, rotationRad } = hitInfo;
+    onSelectClip(hitClip.id);
+    const transform = evaluateClipTransform(hitClip, playheadTime);
+
+    if (tool === 'pin') {
+      const nextAnchorX = (transform.anchorX ?? 0) + localX / (Math.abs(layerScaleX) || 1);
+      const nextAnchorY = (transform.anchorY ?? 0) + localY / (Math.abs(layerScaleY) || 1);
+      onUpdatePropertyCanvas(hitClip.id, 'anchorX', nextAnchorX);
+      onUpdatePropertyCanvas(hitClip.id, 'anchorY', nextAnchorY);
+      return;
+    }
+
+    if (tool === 'mask') {
+      const originalMask: LayerMask = hitClip.mask ?? {
+        enabled: true, shape: 'rect', x: 0, y: 0, width: 65, height: 65,
+        feather: 0, inverted: false, opacity: 100,
+      };
+      const mask = { ...originalMask, enabled: true };
+      if (!hitClip.mask?.enabled) {
+        const fresh = { ...mask, x: (localX / composition.width) * 100, y: (localY / composition.height) * 100, width: 1, height: 1 };
+        onUpdateMaskCanvas(hitClip.id, fresh);
+        dragRef.current = {
+          mode: 'draw-mask', clipId: hitClip.id, startClientX: e.clientX, startClientY: e.clientY,
+          startLocalX: localX, startLocalY: localY, origMask: fresh, rotationRad, scaleX: layerScaleX, scaleY: layerScaleY,
+        };
+      } else {
+        const mx = (mask.x / 100) * composition.width;
+        const my = (mask.y / 100) * composition.height;
+        const mw = (mask.width / 100) * composition.width;
+        const mh = (mask.height / 100) * composition.height;
+        const signs = [
+          { x: -1, y: -1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: 1, y: 1 },
+        ];
+        const radius = 16 / Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
+        const corner = signs.find((sign) => Math.hypot(localX - (mx + sign.x * mw / 2), localY - (my + sign.y * mh / 2)) <= radius);
+        const inside = mask.shape === 'ellipse'
+          ? (((localX - mx) / Math.max(1, mw / 2)) ** 2 + ((localY - my) / Math.max(1, mh / 2)) ** 2) <= 1
+          : Math.abs(localX - mx) <= mw / 2 && Math.abs(localY - my) <= mh / 2;
+        const mode = corner ? 'resize-mask' : inside ? 'move-mask' : 'draw-mask';
+        const selectedMask = mode === 'draw-mask'
+          ? { ...mask, x: (localX / composition.width) * 100, y: (localY / composition.height) * 100, width: 1, height: 1 }
+          : mask;
+        if (mode === 'draw-mask') onUpdateMaskCanvas(hitClip.id, selectedMask);
+        dragRef.current = {
+          mode, clipId: hitClip.id, startClientX: e.clientX, startClientY: e.clientY,
+          startLocalX: localX, startLocalY: localY, origMask: selectedMask,
+          ...(corner ? { signX: corner.x, signY: corner.y } : {}),
+          rotationRad, scaleX: layerScaleX, scaleY: layerScaleY,
+        };
+      }
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    if (hitClip.kind === 'shape' && hitClip.shapeProps) {
+      const corners = [
+        { x: -1, y: -1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: 1, y: 1 },
+      ];
+      const radius = 16 / Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
+      const corner = corners.find((sign) => Math.hypot(localX - sign.x * halfW, localY - sign.y * halfH) <= radius);
+      if (corner) {
+        const shapeTransform = evaluateClipTransform(hitClip, playheadTime);
+        dragRef.current = {
+          mode: 'resize-shape', clipId: hitClip.id, startClientX: e.clientX, startClientY: e.clientY,
+          origWidth: shapeTransform.shapeWidth ?? hitClip.shapeProps.width,
+          origHeight: shapeTransform.shapeHeight ?? hitClip.shapeProps.height,
+          signX: corner.x, signY: corner.y, rotationRad, scaleX: layerScaleX, scaleY: layerScaleY,
+        };
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+
+    dragRef.current = {
+      mode: 'move', clipId: hitClip.id, startClientX: e.clientX, startClientY: e.clientY,
+      origX: transform.x, origY: transform.y,
+    };
+    canvas.setPointerCapture(e.pointerId);
   };
 
   const handleCanvasPointerMove = (
     e: React.PointerEvent<HTMLCanvasElement>,
     canvas: HTMLCanvasElement
   ) => {
-    if (!dragRef.current) return;
     const rect = canvas.getBoundingClientRect();
     const scaleX = composition.width / rect.width;
     const scaleY = composition.height / rect.height;
-    const dx = (e.clientX - dragRef.current.startClientX) * scaleX;
-    const dy = (e.clientY - dragRef.current.startClientY) * scaleY;
-    onMoveClipCanvas(
-      dragRef.current.clipId,
-      Math.round(dragRef.current.origX + dx),
-      Math.round(dragRef.current.origY + dy)
-    );
+    if (tool === 'pen' && penHandleRef.current) {
+      const compX = (e.clientX - rect.left) * scaleX;
+      const compY = (e.clientY - rect.top) * scaleY;
+      const point = penDraftPoints[penHandleRef.current.index];
+      if (point) {
+        const dx = compX - penHandleRef.current.startX;
+        const dy = compY - penHandleRef.current.startY;
+        const handleX = dx / Math.max(0.001, scaleX);
+        const handleY = dy / Math.max(0.001, scaleY);
+        setPenDraftPoints((pts) => pts.map((p, index) => index === penHandleRef.current?.index
+          ? { ...p, handleOutX: handleX, handleOutY: handleY, handleInX: -handleX, handleInY: -handleY }
+          : p));
+      }
+      return;
+    }
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = (e.clientX - drag.startClientX) * scaleX;
+    const dy = (e.clientY - drag.startClientY) * scaleY;
+    if (drag.mode === 'move') {
+      onMoveClipCanvas(drag.clipId, Math.round(drag.origX + dx), Math.round(drag.origY + dy));
+      return;
+    }
+    const localDx = dx * Math.cos(-drag.rotationRad) - dy * Math.sin(-drag.rotationRad);
+    const localDy = dx * Math.sin(-drag.rotationRad) + dy * Math.cos(-drag.rotationRad);
+    const unscaledDx = localDx / (Math.abs(drag.scaleX) || 1);
+    const unscaledDy = localDy / (Math.abs(drag.scaleY) || 1);
+    if (drag.mode === 'resize-shape') {
+      const width = Math.max(1, drag.origWidth + unscaledDx * 2 * drag.signX);
+      const height = Math.max(1, drag.origHeight + unscaledDy * 2 * drag.signY);
+      onResizeShapeCanvas(drag.clipId, width, height);
+      return;
+    }
+    const original = drag.origMask;
+    let nextMask: LayerMask;
+    if (drag.mode === 'move-mask') {
+      nextMask = {
+        ...original,
+        x: original.x + (unscaledDx / composition.width) * 100,
+        y: original.y + (unscaledDy / composition.height) * 100,
+      };
+    } else if (drag.mode === 'resize-mask') {
+      nextMask = {
+        ...original,
+        width: Math.max(1, original.width + (unscaledDx / composition.width) * 200 * (drag.signX ?? 1)),
+        height: Math.max(1, original.height + (unscaledDy / composition.height) * 200 * (drag.signY ?? 1)),
+      };
+    } else {
+      const endX = drag.startLocalX + unscaledDx;
+      const endY = drag.startLocalY + unscaledDy;
+      nextMask = {
+        ...original,
+        x: ((drag.startLocalX + endX) / 2 / composition.width) * 100,
+        y: ((drag.startLocalY + endY) / 2 / composition.height) * 100,
+        width: Math.max(1, (Math.abs(endX - drag.startLocalX) / composition.width) * 100),
+        height: Math.max(1, (Math.abs(endY - drag.startLocalY) / composition.height) * 100),
+      };
+    }
+    onUpdateMaskCanvas(drag.clipId, nextMask);
   };
 
   const handleCanvasPointerUp = (
     e: React.PointerEvent<HTMLCanvasElement>,
     canvas: HTMLCanvasElement
   ) => {
-    if (dragRef.current) {
-      try {
-        canvas.releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
+    if (dragRef.current || penHandleRef.current) {
+      try { canvas.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
       dragRef.current = null;
+      penHandleRef.current = null;
     }
   };
 
