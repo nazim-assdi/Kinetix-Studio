@@ -970,6 +970,21 @@ export default function App() {
     [updateClipById]
   );
 
+  const handleSetAnchorCanvas = useCallback(
+    (clipId: string, anchorX: number, anchorY: number) => {
+      updateClipById(clipId, (clip) => {
+        const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
+        let next = clip;
+        if ((clip.keyframes.anchorX?.length ?? 0) > 0) next = upsertKeyframe(next, 'anchorX', localTime, anchorX);
+        else next = { ...next, transform: { ...next.transform, anchorX } };
+        if ((clip.keyframes.anchorY?.length ?? 0) > 0) next = upsertKeyframe(next, 'anchorY', localTime, anchorY);
+        else next = { ...next, transform: { ...next.transform, anchorY } };
+        return next;
+      });
+    },
+    [updateClipById]
+  );
+
   const handleResizeShapeCanvas = useCallback(
     (clipId: string, width: number, height: number) => {
       updateClipById(clipId, (clip) => {
@@ -2095,7 +2110,7 @@ export default function App() {
                 onToggleLoop={() => setLoopEnabled((l) => !l)}
                 onSelectClip={setSelectedClipId}
                 onMoveClipCanvas={handleMoveClipCanvas}
-                onUpdatePropertyCanvas={handleUpdateProperty}
+                onSetAnchorCanvas={handleSetAnchorCanvas}
                 onResizeShapeCanvas={handleResizeShapeCanvas}
                 onUpdateMaskCanvas={handleUpdateMaskCanvas}
                 onCreatePathClip={handleCreatePathClip}
