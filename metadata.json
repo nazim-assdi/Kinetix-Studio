@@ -1,0 +1,6 @@
+{
+  "name": "Kinetix Studio",
+  "description": "Motion graphics compositing and multi-track video editing studio combining keyframed effects with a non-linear timeline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,1390 @@
+import React from 'react';
+import {
+  Clock,
+  Diamond,
+  Trash2,
+  Eye,
+  EyeOff,
+  Sliders,
+  Plus,
+  RotateCcw,
+  Box,
+  Activity,
+  GripVertical,
+  Copy,
+  Zap,
+  Snowflake,
+  FunctionSquare,
+} from 'lucide-react';
+import {
+  AnimatableProperty,
+  BlendMode,
+  EffectType,
+  LayerMask,
+  TextAnimatorPreset,
+  TimelineClip,
+  TrackMatteMode,
+} from '../types/editor';
+import { evaluateClipTransform } from '../engine/keyframes';
+import { EFFECT_LIBRARY } from '../engine/timelineOps';
+import { EXPRESSION_TEMPLATES } from '../engine/expressions';
+
+interface EffectControlsPanelProps {
+  selectedClip: TimelineClip | null;
+  allClips: TimelineClip[];
+  playheadTime: number;
+  onUpdateProperty: (
+    clipId: string,
+    prop: AnimatableProperty,
+    value: number
+  ) => void;
+  onUpdateExpression: (
+    clipId: string,
+    prop: AnimatableProperty,
+    expr: string | null
+  ) => void;
+  onToggleStopwatch: (clipId: string, prop: AnimatableProperty) => void;
+  onToggleKeyframeAtPlayhead: (clipId: string, prop: AnimatableProperty) => void;
+  onToggle3D: (clipId: string) => void;
+  onSetParent: (clipId: string, parentId: string | null) => void;
+  onResetTransform: (clipId: string) => void;
+  onUpdateBlendMode: (clipId: string, mode: BlendMode) => void;
+  onUpdateTrackMatte: (clipId: string, mode: TrackMatteMode) => void;
+  onUpdateSpeed: (clipId: string, patch: { speed?: number; reversed?: boolean }) => void;
+  onFreezeFrame: (clipId: string) => void;
+  onDuplicateClip: (clipId: string) => void;
+  onRippleDeleteClip: (clipId: string) => void;
+  onUpdateTextProps: (
+    clipId: string,
+    patch: Partial<NonNullable<TimelineClip['textProps']>>
+  ) => void;
+  onUpdateShapeProps: (
+    clipId: string,
+    patch: Partial<NonNullable<TimelineClip['shapeProps']>>
+  ) => void;
+  onUpdatePathProps: (
+    clipId: string,
+    patch: Partial<NonNullable<TimelineClip['pathProps']>>
+  ) => void;
+  onUpdateSolidProps: (
+    clipId: string,
+    patch: Partial<NonNullable<TimelineClip['solidProps']>>
+  ) => void;
+  onUpdateCameraProps: (
+    clipId: string,
+    patch: Partial<NonNullable<TimelineClip['cameraProps']>>
+  ) => void;
+  onUpdateLightProps: (
+    clipId: string,
+    patch: Partial<NonNullable<TimelineClip['lightProps']>>
+  ) => void;
+  onUpdateParticleProps: (
+    clipId: string,
+    patch: Partial<NonNullable<TimelineClip['particleProps']>>
+  ) => void;
+  onUpdateVisualizerProps: (
+    clipId: string,
+    patch: Partial<NonNullable<TimelineClip['visualizerProps']>>
+  ) => void;
+  onUpdateAudioProps: (
+    clipId: string,
+    patch: { volume?: number; fadeIn?: number; fadeOut?: number }
+  ) => void;
+  onAddEffect: (clipId: string, type: EffectType) => void;
+  onToggleEffect: (clipId: string, effectId: string) => void;
+  onUpdateEffectParam: (
+    clipId: string,
+    effectId: string,
+    paramKey: string,
+    value: number
+  ) => void;
+  onRemoveEffect: (clipId: string, effectId: string) => void;
+  onUpdateMask: (clipId: string, mask: LayerMask) => void;
+  onOpenGraphEditor: () => void;
+  onDeleteClip: (clipId: string) => void;
+  panelWidth?: number;
+  onSwapDockPanels?: () => void;
+}
+
+const BASE_ROWS: {
+  prop: AnimatableProperty;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  unit: string;
+  only3D?: boolean;
+}[] = [
+  { prop: 'x', label: 'Position X', min: -800, max: 800, step: 1, unit: 'px' },
+  { prop: 'y', label: 'Position Y', min: -500, max: 500, step: 1, unit: 'px' },
+  { prop: 'z', label: 'Position Z (Depth)', min: -600, max: 600, step: 1, unit: 'px', only3D: true },
+  { prop: 'anchorX', label: 'Anchor Point X', min: -400, max: 400, step: 1, unit: 'px' },
+  { prop: 'anchorY', label: 'Anchor Point Y', min: -300, max: 300, step: 1, unit: 'px' },
+  { prop: 'scale', label: 'Scale', min: 10, max: 300, step: 1, unit: '%' },
+  { prop: 'rotationX', label: 'X Rotation', min: -180, max: 180, step: 1, unit: '°', only3D: true },
+  { prop: 'rotationY', label: 'Y Rotation', min: -180, max: 180, step: 1, unit: '°', only3D: true },
+  { prop: 'rotation', label: 'Z Rotation', min: -360, max: 360, step: 1, unit: '°' },
+  { prop: 'opacity', label: 'Opacity', min: 0, max: 100, step: 1, unit: '%' },
+];
+
+export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
+  selectedClip,
+  allClips,
+  playheadTime,
+  onUpdateProperty,
+  onUpdateExpression,
+  onToggleStopwatch,
+  onToggleKeyframeAtPlayhead,
+  onToggle3D,
+  onSetParent,
+  onResetTransform,
+  onUpdateBlendMode,
+  onUpdateTrackMatte,
+  onUpdateSpeed,
+  onFreezeFrame,
+  onDuplicateClip,
+  onRippleDeleteClip,
+  onUpdateTextProps,
+  onUpdateShapeProps,
+  onUpdatePathProps,
+  onUpdateSolidProps,
+  onUpdateCameraProps,
+  onUpdateLightProps,
+  onUpdateParticleProps,
+  onUpdateVisualizerProps,
+  onUpdateAudioProps,
+  onAddEffect,
+  onToggleEffect,
+  onUpdateEffectParam,
+  onRemoveEffect,
+  onUpdateMask,
+  onOpenGraphEditor,
+  onDeleteClip,
+  panelWidth = 320,
+  onSwapDockPanels,
+}) => {
+  if (!selectedClip) {
+    return (
+      <aside
+        aria-label="Effect Controls"
+        style={{ width: panelWidth }}
+        className="shrink-0 bg-[#181A1F] border-x border-[#2B303A] flex flex-col min-h-0"
+      >
+        <div
+          draggable
+          onDragStart={(e) => e.dataTransfer.setData('application/x-kinetix-panel', 'inspector')}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            if (e.dataTransfer.getData('application/x-kinetix-panel') === 'dock') {
+              onSwapDockPanels?.();
+            }
+          }}
+          title="Drag header to swap panel side"
+          className="h-9 shrink-0 px-3 bg-[#14161A] border-b border-[#2B303A] flex items-center gap-2 cursor-grab"
+        >
+          <GripVertical className="w-3 h-3 text-[#6E7685]" />
+          <Sliders className="w-3.5 h-3.5 text-[#8B5CF6]" />
+          <span className="text-xs font-semibold text-[#E6E8EC]">
+            Effect Controls
+          </span>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+          <Sliders className="w-7 h-7 text-[#4B5261] mb-2.5" />
+          <p className="text-xs font-medium text-[#C8CDD6] mb-1">
+            No Layer Selected
+          </p>
+          <p className="text-[11px] text-[#7E8594] leading-relaxed">
+            Click any clip, Camera, Light, Null, or Pen Path to inspect 3D
+            Transform, Parenting, and Effects.
+          </p>
+        </div>
+      </aside>
+    );
+  }
+
+  const localTime = Math.max(
+    0,
+    Math.min(selectedClip.duration, playheadTime - selectedClip.start)
+  );
+  const currentTransform = evaluateClipTransform(selectedClip, playheadTime);
+  const isVisual =
+    selectedClip.kind !== 'audio' &&
+    selectedClip.kind !== 'camera' &&
+    selectedClip.kind !== 'light';
+  const showTransform = selectedClip.kind !== 'audio' && selectedClip.kind !== 'adjustment';
+  const visibleRows = BASE_ROWS.filter(
+    (r) => !r.only3D || selectedClip.is3D || selectedClip.kind === 'camera' || selectedClip.kind === 'light'
+  );
+  const parentCandidates = allClips.filter(
+    (c) => c.id !== selectedClip.id && c.kind !== 'audio'
+  );
+
+  return (
+    <aside
+      aria-label="Effect Controls"
+      style={{ width: panelWidth }}
+      className="shrink-0 bg-[#181A1F] border-x border-[#2B303A] flex flex-col min-h-0"
+    >
+      {/* Header */}
+      <div
+        draggable
+        onDragStart={(e) => e.dataTransfer.setData('application/x-kinetix-panel', 'inspector')}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          if (e.dataTransfer.getData('application/x-kinetix-panel') === 'dock') {
+            onSwapDockPanels?.();
+          }
+        }}
+        title="Drag header to swap panel side"
+        className="h-9 shrink-0 px-3 bg-[#14161A] border-b border-[#2B303A] flex items-center justify-between gap-2 cursor-grab"
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <GripVertical className="w-3 h-3 text-[#6E7685] shrink-0" />
+          <Sliders className="w-3.5 h-3.5 text-[#8B5CF6] shrink-0" />
+          <span className="text-xs font-semibold text-[#E6E8EC] truncate">
+            {selectedClip.name}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {isVisual && (
+            <button
+              type="button"
+              onClick={() => onToggle3D(selectedClip.id)}
+              title="Toggle 3D Layer"
+              aria-label="Toggle 3D Layer"
+              aria-pressed={selectedClip.is3D}
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                selectedClip.is3D
+                  ? 'bg-[#8B5CF6] text-white'
+                  : 'bg-[#232730] text-[#9BA1AD] hover:text-white'
+              }`}
+            >
+              <Box className="w-3 h-3" />
+              <span>3D</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onDuplicateClip(selectedClip.id)}
+            title="Duplicate Clip"
+            aria-label="Duplicate Clip"
+            className="p-1 rounded text-[#9BA1AD] hover:text-white hover:bg-[#232730] transition-colors"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onRippleDeleteClip(selectedClip.id)}
+            title="Ripple Delete (Close Gap)"
+            aria-label="Ripple Delete Clip"
+            className="p-1 rounded text-[#9BA1AD] hover:text-[#F59E0B] hover:bg-[#232730] transition-colors"
+          >
+            <Zap className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDeleteClip(selectedClip.id)}
+            title="Delete Selected Clip (Delete)"
+            aria-label={`Delete clip ${selectedClip.name}`}
+            className="p-1 rounded text-[#9BA1AD] hover:text-[#EF4444] hover:bg-[#232730] transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Scrollable Inspector */}
+      <div className="flex-1 overflow-y-auto divide-y divide-[#242831] min-h-0">
+        {showTransform && (
+          <div className="p-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-xs font-semibold text-[#E6E8EC]">
+                {selectedClip.is3D ? '3D Transform' : 'Motion & Transform'}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={onOpenGraphEditor}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#232730] hover:bg-[#3B82F6] border border-[#323845] text-[10px] font-medium text-[#E6E8EC] hover:text-white transition-colors"
+                >
+                  <Activity className="w-3 h-3" />
+                  <span>Open Graph Editor</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onResetTransform(selectedClip.id)}
+                  title="Reset Transform"
+                  aria-label="Reset Transform"
+                  className="flex items-center gap-1 text-[11px] text-[#9BA1AD] hover:text-white transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {visibleRows.map((row) => {
+                const kfs = selectedClip.keyframes[row.prop] ?? [];
+                const keyframingActive = kfs.length > 0;
+                const hasKfHere = kfs.some((k) => Math.abs(k.time - localTime) <= 0.05);
+                const val = Number((currentTransform[row.prop] ?? 0).toFixed(1));
+                const expr = selectedClip.expressions?.[row.prop];
+
+                return (
+                  <div key={row.prop} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onToggleStopwatch(selectedClip.id, row.prop)
+                          }
+                          title={`Toggle ${row.label} Keyframes (Stopwatch)`}
+                          aria-label={`Toggle ${row.label} keyframing`}
+                          aria-pressed={keyframingActive}
+                          className={`p-0.5 rounded transition-colors ${
+                            keyframingActive
+                              ? 'text-[#3B82F6] bg-[#3B82F6]/15'
+                              : 'text-[#6E7685] hover:text-[#C8CDD6]'
+                          }`}
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateExpression(
+                              selectedClip.id,
+                              row.prop,
+                              expr !== undefined ? null : 'value + wiggle(3, 18)'
+                            )
+                          }
+                          title={`Toggle AE Expression for ${row.label}`}
+                          aria-label={`Toggle expression for ${row.label}`}
+                          aria-pressed={expr !== undefined}
+                          className={`p-0.5 rounded transition-colors ${
+                            expr !== undefined
+                              ? 'text-[#14B8A6] bg-[#14B8A6]/15'
+                              : 'text-[#6E7685] hover:text-[#C8CDD6]'
+                          }`}
+                        >
+                          <FunctionSquare className="w-3 h-3" />
+                        </button>
+                        <span className="text-[11px] text-[#C8CDD6] truncate">
+                          {row.label}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onToggleKeyframeAtPlayhead(selectedClip.id, row.prop)
+                          }
+                          title={`Add or remove ${row.label} keyframe at playhead`}
+                          aria-label={`Add or remove ${row.label} keyframe`}
+                          className={`p-0.5 rounded transition-colors ${
+                            hasKfHere
+                              ? 'text-[#F59E0B]'
+                              : 'text-[#6E7685] hover:text-[#C8CDD6]'
+                          }`}
+                        >
+                          <Diamond
+                            className={`w-3 h-3 ${hasKfHere ? 'fill-current' : ''}`}
+                          />
+                        </button>
+
+                        <span className="font-mono-tabular text-[11px] text-[#60A5FA] w-14 text-right">
+                          {val}
+                          {row.unit}
+                        </span>
+                      </div>
+                    </div>
+
+                    <input
+                      type="range"
+                      aria-label={row.label}
+                      min={row.min}
+                      max={row.max}
+                      step={row.step}
+                      value={Math.max(row.min, Math.min(row.max, val))}
+                      onChange={(e) =>
+                        onUpdateProperty(
+                          selectedClip.id,
+                          row.prop,
+                          Number(e.target.value)
+                        )
+                      }
+                      className="w-full studio-slider"
+                    />
+
+                    {expr !== undefined && (
+                      <div className="flex items-center gap-1 pt-0.5">
+                        <input
+                          type="text"
+                          aria-label={`${row.label} Expression`}
+                          value={expr}
+                          onChange={(e) =>
+                            onUpdateExpression(
+                              selectedClip.id,
+                              row.prop,
+                              e.target.value
+                            )
+                          }
+                          className="flex-1 bg-[#0E1013] border border-[#14B8A6]/50 rounded px-1.5 py-0.5 text-[10px] font-mono text-[#5EEAD4] focus:outline-none"
+                        />
+                        <select
+                          aria-label={`${row.label} Expression Preset`}
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              onUpdateExpression(
+                                selectedClip.id,
+                                row.prop,
+                                e.target.value
+                              );
+                            }
+                          }}
+                          className="bg-[#111215] border border-[#2B303A] rounded px-1 py-0.5 text-[10px] text-[#9BA1AD]"
+                        >
+                          <option value="">fx</option>
+                          {EXPRESSION_TEMPLATES.map((t) => (
+                            <option key={t.label} value={t.expr}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Parent Layer, Blend Mode, Track Matte & Speed Remapping */}
+            <div className="pt-1 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="parent-layer-select"
+                  className="text-[11px] text-[#C8CDD6]"
+                >
+                  Parent Link
+                </label>
+                <select
+                  id="parent-layer-select"
+                  value={selectedClip.parentId ?? ''}
+                  onChange={(e) =>
+                    onSetParent(
+                      selectedClip.id,
+                      e.target.value ? e.target.value : null
+                    )
+                  }
+                  className="w-40 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC] focus:outline-none"
+                >
+                  <option value="">None</option>
+                  {parentCandidates.map((pc) => (
+                    <option key={pc.id} value={pc.id}>
+                      {pc.name} ({pc.kind})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {isVisual && selectedClip.kind !== 'null' && (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <label
+                      htmlFor="blend-mode-select"
+                      className="text-[11px] text-[#C8CDD6]"
+                    >
+                      Blend Mode
+                    </label>
+                    <select
+                      id="blend-mode-select"
+                      value={selectedClip.blendMode}
+                      onChange={(e) =>
+                        onUpdateBlendMode(
+                          selectedClip.id,
+                          e.target.value as BlendMode
+                        )
+                      }
+                      className="w-40 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC] focus:outline-none"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="multiply">Multiply</option>
+                      <option value="screen">Screen</option>
+                      <option value="overlay">Overlay</option>
+                      <option value="add">Add (Linear Dodge)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <label
+                      htmlFor="track-matte-select"
+                      className="text-[11px] text-[#C8CDD6]"
+                    >
+                      Track Matte
+                    </label>
+                    <select
+                      id="track-matte-select"
+                      value={selectedClip.trackMatte ?? 'none'}
+                      onChange={(e) =>
+                        onUpdateTrackMatte(
+                          selectedClip.id,
+                          e.target.value as TrackMatteMode
+                        )
+                      }
+                      className="w-40 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC] focus:outline-none"
+                    >
+                      <option value="none">No Matte</option>
+                      <option value="alpha">Alpha Matte</option>
+                      <option value="alpha-inverted">Alpha Inverted</option>
+                      <option value="luma">Luma Matte</option>
+                    </select>
+                  </div>
+
+                  {/* Speed / Reverse / Freeze Frame */}
+                  <div className="bg-[#14161A] border border-[#262B34] rounded p-2 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-[#C8CDD6]">
+                        Speed ({(selectedClip.speed ?? 1).toFixed(2)}x)
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 text-[10px] text-[#9BA1AD] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selectedClip.reversed)}
+                            onChange={(e) =>
+                              onUpdateSpeed(selectedClip.id, {
+                                reversed: e.target.checked,
+                              })
+                            }
+                            className="accent-[#3B82F6]"
+                          />
+                          <span>Reverse</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => onFreezeFrame(selectedClip.id)}
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#232730] hover:bg-[#3B82F6] text-[10px] text-[#E6E8EC]"
+                        >
+                          <Snowflake className="w-2.5 h-2.5" />
+                          <span>Freeze</span>
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      aria-label="Clip Speed"
+                      min={0.25}
+                      max={4}
+                      step={0.25}
+                      value={selectedClip.speed ?? 1}
+                      onChange={(e) =>
+                        onUpdateSpeed(selectedClip.id, {
+                          speed: Number(e.target.value),
+                        })
+                      }
+                      className="w-full studio-slider"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Camera Layer Options */}
+        {selectedClip.kind === 'camera' && selectedClip.cameraProps && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#FBBF24] block">
+              3D Camera Optics
+            </span>
+            <div>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-[#C8CDD6]">Field of View</span>
+                <span className="font-mono-tabular text-[#FBBF24]">
+                  {selectedClip.cameraProps.fov}°
+                </span>
+              </div>
+              <input
+                type="range"
+                aria-label="Camera FOV"
+                min={20}
+                max={110}
+                value={selectedClip.cameraProps.fov}
+                onChange={(e) =>
+                  onUpdateCameraProps(selectedClip.id, {
+                    fov: Number(e.target.value),
+                  })
+                }
+                className="w-full studio-slider"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-[#C8CDD6]">Focal Length</span>
+                <span className="font-mono-tabular text-[#FBBF24]">
+                  {selectedClip.cameraProps.focalLength}mm
+                </span>
+              </div>
+              <input
+                type="range"
+                aria-label="Focal Length"
+                min={16}
+                max={135}
+                value={selectedClip.cameraProps.focalLength}
+                onChange={(e) =>
+                  onUpdateCameraProps(selectedClip.id, {
+                    focalLength: Number(e.target.value),
+                  })
+                }
+                className="w-full studio-slider"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Light Layer Options */}
+        {selectedClip.kind === 'light' && selectedClip.lightProps && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#FDE047] block">
+              3D Light Settings
+            </span>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Light Type</label>
+              <select
+                aria-label="Light Type"
+                value={selectedClip.lightProps.lightType}
+                onChange={(e) =>
+                  onUpdateLightProps(selectedClip.id, {
+                    lightType: e.target.value as NonNullable<
+                      TimelineClip['lightProps']
+                    >['lightType'],
+                  })
+                }
+                className="bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
+              >
+                <option value="spot">Spot</option>
+                <option value="point">Point</option>
+                <option value="parallel">Parallel</option>
+                <option value="ambient">Ambient</option>
+              </select>
+            </div>
+            <div>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-[#C8CDD6]">Intensity</span>
+                <span className="font-mono-tabular text-[#FDE047]">
+                  {selectedClip.lightProps.intensity}%
+                </span>
+              </div>
+              <input
+                type="range"
+                aria-label="Light Intensity"
+                min={0}
+                max={200}
+                value={selectedClip.lightProps.intensity}
+                onChange={(e) =>
+                  onUpdateLightProps(selectedClip.id, {
+                    intensity: Number(e.target.value),
+                  })
+                }
+                className="w-full studio-slider"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Light Color</label>
+              <input
+                type="color"
+                aria-label="Light Color"
+                value={selectedClip.lightProps.color}
+                onChange={(e) =>
+                  onUpdateLightProps(selectedClip.id, { color: e.target.value })
+                }
+                className="w-8 h-6 rounded bg-transparent border border-[#2B303A] cursor-pointer"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Solid Layer Options */}
+        {selectedClip.kind === 'solid' && selectedClip.solidProps && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#E6E8EC] block">
+              Solid Matte Settings
+            </span>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Solid Color</label>
+              <input
+                type="color"
+                aria-label="Solid Color"
+                value={selectedClip.solidProps.color}
+                onChange={(e) =>
+                  onUpdateSolidProps(selectedClip.id, { color: e.target.value })
+                }
+                className="w-8 h-6 rounded bg-transparent border border-[#2B303A] cursor-pointer"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Pen Path Options */}
+        {selectedClip.kind === 'path' && selectedClip.pathProps && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#60A5FA] block">
+              Pen Vector Path &amp; Trim Paths
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] text-[#9BA1AD] block mb-1">
+                  Trim Start ({selectedClip.pathProps.trimStart}%)
+                </label>
+                <input
+                  type="range"
+                  aria-label="Path Trim Start"
+                  min={0}
+                  max={100}
+                  value={selectedClip.pathProps.trimStart}
+                  onChange={(e) =>
+                    onUpdatePathProps(selectedClip.id, {
+                      trimStart: Number(e.target.value),
+                    })
+                  }
+                  className="w-full studio-slider"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-[#9BA1AD] block mb-1">
+                  Trim End ({selectedClip.pathProps.trimEnd}%)
+                </label>
+                <input
+                  type="range"
+                  aria-label="Path Trim End"
+                  min={0}
+                  max={100}
+                  value={selectedClip.pathProps.trimEnd}
+                  onChange={(e) =>
+                    onUpdatePathProps(selectedClip.id, {
+                      trimEnd: Number(e.target.value),
+                    })
+                  }
+                  className="w-full studio-slider"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Stroke Color</label>
+              <input
+                type="color"
+                aria-label="Path Stroke Color"
+                value={selectedClip.pathProps.strokeColor}
+                onChange={(e) =>
+                  onUpdatePathProps(selectedClip.id, {
+                    strokeColor: e.target.value,
+                  })
+                }
+                className="w-8 h-6 rounded bg-transparent border border-[#2B303A] cursor-pointer"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Text Layer Properties + Animator Preset */}
+        {selectedClip.kind === 'text' && selectedClip.textProps && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#E6E8EC] block">
+              Kinetic Text &amp; Animator
+            </span>
+            <input
+              type="text"
+              aria-label="Text Content"
+              value={selectedClip.textProps.text}
+              onChange={(e) =>
+                onUpdateTextProps(selectedClip.id, { text: e.target.value })
+              }
+              className="w-full bg-[#111215] border border-[#2B303A] rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#3B82F6]"
+            />
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Text Animator</label>
+              <select
+                aria-label="Text Animator Preset"
+                value={selectedClip.textProps.animator ?? 'none'}
+                onChange={(e) =>
+                  onUpdateTextProps(selectedClip.id, {
+                    animator: e.target.value as TextAnimatorPreset,
+                  })
+                }
+                className="w-40 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
+              >
+                <option value="none">Static / Keyframed</option>
+                <option value="typewriter">Typewriter Reveal</option>
+                <option value="slide-up">Kinetic Slide-Up</option>
+                <option value="word-pop">Word-by-Word Pop</option>
+                <option value="glitch-decode">Glitch Decode</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] text-[#9BA1AD] block mb-1">
+                  Font Size ({selectedClip.textProps.fontSize}px)
+                </label>
+                <input
+                  type="range"
+                  aria-label="Font Size"
+                  min={16}
+                  max={140}
+                  value={selectedClip.textProps.fontSize}
+                  onChange={(e) =>
+                    onUpdateTextProps(selectedClip.id, {
+                      fontSize: Number(e.target.value),
+                    })
+                  }
+                  className="w-full studio-slider"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-[#9BA1AD] block mb-1">
+                  Tracking ({selectedClip.textProps.letterSpacing}px)
+                </label>
+                <input
+                  type="range"
+                  aria-label="Letter Spacing"
+                  min={0}
+                  max={36}
+                  value={selectedClip.textProps.letterSpacing}
+                  onChange={(e) =>
+                    onUpdateTextProps(selectedClip.id, {
+                      letterSpacing: Number(e.target.value),
+                    })
+                  }
+                  className="w-full studio-slider"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Text Fill</label>
+              <input
+                type="color"
+                aria-label="Text Color"
+                value={selectedClip.textProps.color}
+                onChange={(e) =>
+                  onUpdateTextProps(selectedClip.id, { color: e.target.value })
+                }
+                className="w-8 h-6 rounded bg-transparent border border-[#2B303A] cursor-pointer"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Particle System Properties */}
+        {selectedClip.kind === 'particles' && selectedClip.particleProps && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#F59E0B] block">
+              CC Particle World
+            </span>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Emitter Style</label>
+              <select
+                aria-label="Particle Style"
+                value={selectedClip.particleProps.style}
+                onChange={(e) =>
+                  onUpdateParticleProps(selectedClip.id, {
+                    style: e.target.value as NonNullable<
+                      TimelineClip['particleProps']
+                    >['style'],
+                  })
+                }
+                className="w-36 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
+              >
+                <option value="sparks">Ember Sparks</option>
+                <option value="snow">Winter Snow</option>
+                <option value="bokeh">Cinema Bokeh</option>
+                <option value="matrix">Digital Rain</option>
+                <option value="confetti">Celebration Confetti</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-[#9BA1AD] block mb-1">
+                  Count ({selectedClip.particleProps.count})
+                </label>
+                <input
+                  type="range"
+                  aria-label="Particle Count"
+                  min={20}
+                  max={220}
+                  value={selectedClip.particleProps.count}
+                  onChange={(e) =>
+                    onUpdateParticleProps(selectedClip.id, {
+                      count: Number(e.target.value),
+                    })
+                  }
+                  className="w-full studio-slider"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-[#9BA1AD] block mb-1">
+                  Speed ({selectedClip.particleProps.speed}x)
+                </label>
+                <input
+                  type="range"
+                  aria-label="Particle Speed"
+                  min={0.2}
+                  max={4}
+                  step={0.2}
+                  value={selectedClip.particleProps.speed}
+                  onChange={(e) =>
+                    onUpdateParticleProps(selectedClip.id, {
+                      speed: Number(e.target.value),
+                    })
+                  }
+                  className="w-full studio-slider"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Particle Color</label>
+              <input
+                type="color"
+                aria-label="Particle Color"
+                value={selectedClip.particleProps.color}
+                onChange={(e) =>
+                  onUpdateParticleProps(selectedClip.id, { color: e.target.value })
+                }
+                className="w-8 h-6 rounded bg-transparent border border-[#2B303A] cursor-pointer"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Audio Visualizer Properties */}
+        {selectedClip.kind === 'visualizer' && selectedClip.visualizerProps && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#14B8A6] block">
+              Audio Spectrum Analyzer
+            </span>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Style</label>
+              <select
+                aria-label="Visualizer Style"
+                value={selectedClip.visualizerProps.style}
+                onChange={(e) =>
+                  onUpdateVisualizerProps(selectedClip.id, {
+                    style: e.target.value as 'bars' | 'radial' | 'waveform',
+                  })
+                }
+                className="w-36 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
+              >
+                <option value="bars">Frequency Bars</option>
+                <option value="radial">Radial Polar Ring</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] text-[#9BA1AD] block mb-1">
+                Sensitivity ({selectedClip.visualizerProps.sensitivity.toFixed(1)}x)
+              </label>
+              <input
+                type="range"
+                aria-label="Visualizer Sensitivity"
+                min={0.3}
+                max={2.2}
+                step={0.1}
+                value={selectedClip.visualizerProps.sensitivity}
+                onChange={(e) =>
+                  onUpdateVisualizerProps(selectedClip.id, {
+                    sensitivity: Number(e.target.value),
+                  })
+                }
+                className="w-full studio-slider"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Shape Layer Properties */}
+        {selectedClip.kind === 'shape' && selectedClip.shapeProps && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#E6E8EC] block">
+              Vector Shape
+            </span>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Shape Style</label>
+              <select
+                aria-label="Shape Style"
+                value={selectedClip.shapeProps.shapeType}
+                onChange={(e) =>
+                  onUpdateShapeProps(selectedClip.id, {
+                    shapeType: e.target.value as NonNullable<
+                      TimelineClip['shapeProps']
+                    >['shapeType'],
+                  })
+                }
+                className="bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
+              >
+                <option value="ring">Orbital Ring</option>
+                <option value="circle">Circle</option>
+                <option value="rect">Rectangle</option>
+                <option value="polygon">Polygon</option>
+                <option value="lower-third">Lower Third Bar</option>
+              </select>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] text-[#C8CDD6]">Stroke Color</label>
+              <input
+                type="color"
+                aria-label="Stroke Color"
+                value={selectedClip.shapeProps.strokeColor}
+                onChange={(e) =>
+                  onUpdateShapeProps(selectedClip.id, {
+                    strokeColor: e.target.value,
+                  })
+                }
+                className="w-8 h-6 rounded bg-transparent border border-[#2B303A] cursor-pointer"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Audio Volume & Fades */}
+        {(selectedClip.kind === 'audio' || selectedClip.kind === 'video') && (
+          <div className="p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-[#E6E8EC] block">
+              Audio Level &amp; Fades
+            </span>
+            <div>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-[#C8CDD6]">Volume</span>
+                <span className="font-mono-tabular text-[#14B8A6]">
+                  {selectedClip.volume}%
+                </span>
+              </div>
+              <input
+                type="range"
+                aria-label="Audio Volume"
+                min={0}
+                max={150}
+                value={selectedClip.volume}
+                onChange={(e) =>
+                  onUpdateAudioProps(selectedClip.id, {
+                    volume: Number(e.target.value),
+                  })
+                }
+                className="w-full studio-slider"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] text-[#9BA1AD] block mb-1">
+                  Fade In ({selectedClip.fadeIn.toFixed(1)}s)
+                </label>
+                <input
+                  type="range"
+                  aria-label="Audio Fade In"
+                  min={0}
+                  max={3}
+                  step={0.1}
+                  value={selectedClip.fadeIn}
+                  onChange={(e) =>
+                    onUpdateAudioProps(selectedClip.id, {
+                      fadeIn: Number(e.target.value),
+                    })
+                  }
+                  className="w-full studio-slider"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-[#9BA1AD] block mb-1">
+                  Fade Out ({selectedClip.fadeOut.toFixed(1)}s)
+                </label>
+                <input
+                  type="range"
+                  aria-label="Audio Fade Out"
+                  min={0}
+                  max={3}
+                  step={0.1}
+                  value={selectedClip.fadeOut}
+                  onChange={(e) =>
+                    onUpdateAudioProps(selectedClip.id, {
+                      fadeOut: Number(e.target.value),
+                    })
+                  }
+                  className="w-full studio-slider"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Layer Mask (Rectangle / Ellipse / Feather / Invert) */}
+        {isVisual && selectedClip.kind !== 'null' && selectedClip.kind !== 'adjustment' && (
+          <div className="p-3 space-y-2.5">
+            {(() => {
+              const mask: LayerMask = selectedClip.mask ?? {
+                enabled: false,
+                shape: 'rect',
+                x: 0,
+                y: 0,
+                width: 65,
+                height: 65,
+                feather: 0,
+                inverted: false,
+                opacity: 100,
+              };
+              const patchMask = (patch: Partial<LayerMask>) =>
+                onUpdateMask(selectedClip.id, { ...mask, ...patch });
+
+              return (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-[#E6E8EC]">
+                      Layer Mask
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => patchMask({ enabled: !mask.enabled })}
+                      aria-pressed={mask.enabled}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                        mask.enabled
+                          ? 'bg-[#F59E0B] text-[#111215]'
+                          : 'bg-[#232730] text-[#9BA1AD] hover:text-white'
+                      }`}
+                    >
+                      {mask.enabled ? 'Mask On' : '+ Enable Mask'}
+                    </button>
+                  </div>
+
+                  {mask.enabled && (
+                    <div className="space-y-2 bg-[#14161A] border border-[#262B34] rounded p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <select
+                          aria-label="Mask Shape"
+                          value={mask.shape}
+                          onChange={(e) =>
+                            patchMask({
+                              shape: e.target.value as 'rect' | 'ellipse',
+                            })
+                          }
+                          className="bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
+                        >
+                          <option value="rect">Rectangle Mask</option>
+                          <option value="ellipse">Ellipse Mask</option>
+                        </select>
+                        <label className="flex items-center gap-1.5 text-[11px] text-[#C8CDD6] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={mask.inverted}
+                            onChange={(e) =>
+                              patchMask({ inverted: e.target.checked })
+                            }
+                            className="accent-[#F59E0B]"
+                          />
+                          <span>Inverted</span>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
+                            Width ({mask.width}%)
+                          </label>
+                          <input
+                            type="range"
+                            aria-label="Mask Width"
+                            min={10}
+                            max={100}
+                            value={mask.width}
+                            onChange={(e) =>
+                              patchMask({ width: Number(e.target.value) })
+                            }
+                            className="w-full studio-slider"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
+                            Height ({mask.height}%)
+                          </label>
+                          <input
+                            type="range"
+                            aria-label="Mask Height"
+                            min={10}
+                            max={100}
+                            value={mask.height}
+                            onChange={(e) =>
+                              patchMask({ height: Number(e.target.value) })
+                            }
+                            className="w-full studio-slider"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
+                            Offset X ({mask.x}%)
+                          </label>
+                          <input
+                            type="range"
+                            aria-label="Mask Offset X"
+                            min={-50}
+                            max={50}
+                            value={mask.x}
+                            onChange={(e) =>
+                              patchMask({ x: Number(e.target.value) })
+                            }
+                            className="w-full studio-slider"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
+                            Feather ({mask.feather}px)
+                          </label>
+                          <input
+                            type="range"
+                            aria-label="Mask Feather"
+                            min={0}
+                            max={80}
+                            value={mask.feather}
+                            onChange={(e) =>
+                              patchMask({ feather: Number(e.target.value) })
+                            }
+                            className="w-full studio-slider"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Applied Effects Stack */}
+        {isVisual && selectedClip.kind !== 'null' && (
+          <div className="p-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-[#E6E8EC]">
+                Applied Effects ({selectedClip.effects.length})
+              </span>
+              <select
+                aria-label="Add Effect"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onAddEffect(selectedClip.id, e.target.value as EffectType);
+                  }
+                }}
+                className="bg-[#232730] hover:bg-[#2B303A] border border-[#323845] rounded px-2 py-1 text-[11px] font-medium text-[#E6E8EC] focus:outline-none cursor-pointer"
+              >
+                <option value="">+ Add Effect</option>
+                {EFFECT_LIBRARY.map((fx) => (
+                  <option key={fx.type} value={fx.type}>
+                    {fx.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedClip.effects.length === 0 ? (
+              <div className="p-2.5 rounded bg-[#14161A] border border-[#242831] text-[11px] text-[#7E8594] flex items-center gap-2">
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>Add from {EFFECT_LIBRARY.length} AE effects or Packs tab.</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {selectedClip.effects.map((fx) => (
+                  <div
+                    key={fx.id}
+                    className="rounded bg-[#14161A] border border-[#262B34] p-2.5 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-[#E6E8EC]">
+                        {fx.name}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onToggleEffect(selectedClip.id, fx.id)}
+                          aria-label={`Toggle ${fx.name}`}
+                          className={`p-1 rounded transition-colors ${
+                            fx.enabled
+                              ? 'text-[#8B5CF6]'
+                              : 'text-[#6E7685] hover:text-white'
+                          }`}
+                        >
+                          {fx.enabled ? (
+                            <Eye className="w-3.5 h-3.5" />
+                          ) : (
+                            <EyeOff className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveEffect(selectedClip.id, fx.id)}
+                          aria-label={`Remove ${fx.name}`}
+                          className="p-1 rounded text-[#6E7685] hover:text-[#EF4444] transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {Object.entries(fx.params).map(([key, val]) => {
+                      const range = getParamRange(fx.type, key);
+                      return (
+                        <div key={key} className="space-y-1">
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-[#9BA1AD] capitalize">{key}</span>
+                            <span className="font-mono-tabular text-[#C8CDD6]">
+                              {val}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            aria-label={`${fx.name} ${key}`}
+                            min={range.min}
+                            max={range.max}
+                            step={range.step}
+                            value={val}
+                            onChange={(e) =>
+                              onUpdateEffectParam(
+                                selectedClip.id,
+                                fx.id,
+                                key,
+                                Number(e.target.value)
+                              )
+                            }
+                            className="w-full studio-slider"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+};
+
+function getParamRange(
+  type: EffectType,
+  key: string
+): { min: number; max: number; step: number } {
+  if (type === 'blur' && key === 'radius') return { min: 0, max: 40, step: 1 };
+  if (type === 'color' || type === 'hue_sat') {
+    if (key === 'hue') return { min: -180, max: 180, step: 1 };
+    return { min: 0, max: 200, step: 1 };
+  }
+  if (type === 'tint' && key === 'warmth') return { min: -100, max: 100, step: 1 };
+  if (type === 'chromatic') return { min: 0, max: 24, step: 1 };
+  if (type === 'glitch' && key === 'slices') return { min: 2, max: 24, step: 1 };
+  if (type === 'posterize') return { min: 2, max: 16, step: 1 };
+  if (type === 'chromakey') {
+    if (key === 'hueTarget') return { min: 80, max: 260, step: 5 };
+    return { min: 5, max: 120, step: 1 };
+  }
+  if (type === 'pixelate') return { min: 4, max: 48, step: 2 };
+  return { min: 0, max: 100, step: 1 };
+}

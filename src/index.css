@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-sans);
+    background-color: #111215;
+    color: #e6e8ec;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: 1.5px solid #3b82f6;
+    outline-offset: 1px;
+  }
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pro NLE Studio dark scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #14161a;
+}
+::-webkit-scrollbar-thumb {
+  background: #2f343e;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #424957;
+}
+
+/* Custom precision sliders for Effect Controls & Timeline Zoom */
+input[type='range'].studio-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #282c34;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+}
+input[type='range'].studio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 9999px;
+  background: #3b82f6;
+  border: 1.5px solid #e6e8ec;
+  cursor: pointer;
+}
+input[type='range'].studio-slider::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 9999px;
+  background: #3b82f6;
+  border: 1.5px solid #e6e8ec;
+  cursor: pointer;
+}
+
+/* Transparency checkerboard for composition canvas */
+.checkerboard-bg {
+  background-color: #181a1f;
+  background-image:
+    linear-gradient(45deg, #21242b 25%, transparent 25%),
+    linear-gradient(-45deg, #21242b 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #21242b 75%),
+    linear-gradient(-45deg, transparent 75%, #21242b 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}

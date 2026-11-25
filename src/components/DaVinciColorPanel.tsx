@@ -1,0 +1,373 @@
+import React, { useRef, useState } from 'react';
+import { RotateCcw, Palette } from 'lucide-react';
+import {
+  ColorWheelChannel,
+  ColorWheelGrade,
+  TimelineClip,
+} from '../types/editor';
+import { DAVINCI_LUTS, DEFAULT_COLOR_GRADE } from '../data/megaCatalog';
+import { VideoScopesPanel } from './VideoScopesPanel';
+
+interface DaVinciColorPanelProps {
+  selectedClip: TimelineClip | null;
+  playheadTime?: number;
+  scopeRefreshKey?: string;
+  onUpdateColorGrade: (clipId: string, grade: ColorWheelGrade) => void;
+}
+
+interface ColorWheelControlProps {
+  label: string;
+  channel: ColorWheelChannel;
+  onChange: (next: ColorWheelChannel) => void;
+}
+
+const ColorWheelControl: React.FC<ColorWheelControlProps> = ({
+  label,
+  channel,
+  onChange,
+}) => {
+  const wheelRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  // Convert channel r/b/g approx into 2D puck x, y (-1..1)
+  const puckX = Math.max(-0.85, Math.min(0.85, channel.r - channel.b * 0.6));
+  const puckY = Math.max(-0.85, Math.min(0.85, -channel.g + channel.b * 0.4));
+
+  const updateFromPointer = (clientX: number, clientY: number) => {
+    const el = wheelRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const radius = rect.width / 2;
+    let dx = (clientX - cx) / radius;
+    let dy = (clientY - cy) / radius;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0.9) {
+      dx = (dx / dist) * 0.9;
+      dy = (dy / dist) * 0.9;
+    }
+    const angle = Math.atan2(dy, dx);
+    const mag = Math.min(1, Math.hypot(dx, dy));
+    const r = Number((Math.cos(angle) * mag).toFixed(2));
+    const g = Number((-Math.sin(angle) * mag * 0.85).toFixed(2));
+    const b = Number((-Math.cos(angle - Math.PI / 3) * mag).toFixed(2));
+    onChange({ ...channel, r, g, b });
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-1.5 bg-[#14161A] border border-[#262B34] rounded p-2">
+      <div className="w-full flex items-center justify-between text-[10px]">
+        <span className="font-semibold text-[#E6E8EC]">{label}</span>
+        <button
+          type="button"
+          onClick={() => onChange({ r: 0, g: 0, b: 0, luma: 0 })}
+          title={`Reset ${label}`}
+          className="text-[#7E8594] hover:text-white"
+        >
+          <RotateCcw className="w-2.5 h-2.5" />
+        </button>
+      </div>
+
+      <div
+        ref={wheelRef}
+        role="slider"
+        aria-label={`${label} Color Wheel`}
+        aria-valuenow={Math.round(channel.luma)}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          setDragging(true);
+          e.currentTarget.setPointerCapture(e.pointerId);
+          updateFromPointer(e.clientX, e.clientY);
+        }}
+        onPointerMove={(e) => {
+          if (dragging) updateFromPointer(e.clientX, e.clientY);
+        }}
+        onPointerUp={(e) => {
+          if (dragging) {
+            setDragging(false);
+            try {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            } catch {
+              // ignore
+            }
+          }
+        }}
+        style={{
+          background:
+            'conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444)',
+        }}
+        className="relative w-20 h-20 rounded-full border border-[#323845] cursor-crosshair shadow-inner"
+      >
+        <div
+          style={{
+            background:
+              'radial-gradient(circle, rgba(24,26,31,0.92) 10%, rgba(24,26,31,0.35) 68%, rgba(24,26,31,0.08) 100%)',
+          }}
+          className="absolute inset-0 rounded-full pointer-events-none"
+        />
+        <div
+          style={{
+            left: `${50 + puckX * 42}%`,
+            top: `${50 + puckY * 42}%`,
+          }}
+          className="absolute -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-[#111215] shadow pointer-events-none"
+        />
+      </div>
+
+      <div className="w-full space-y-0.5">
+        <div className="flex justify-between text-[9px] text-[#8D95A5] font-mono-tabular">
+          <span>Luma</span>
+          <span>{channel.luma > 0 ? `+${channel.luma}` : channel.luma}</span>
+        </div>
+        <input
+          type="range"
+          aria-label={`${label} Master Luma`}
+          min={-60}
+          max={60}
+          value={channel.luma}
+          onChange={(e) =>
+            onChange({ ...channel, luma: Number(e.target.value) })
+          }
+          className="w-full studio-slider"
+        />
+      </div>
+    </div>
+  );
+};
+
+export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
+  selectedClip,
+  playheadTime = 0,
+  scopeRefreshKey = '',
+  onUpdateColorGrade,
+}) => {
+  if (
+    !selectedClip ||
+    selectedClip.kind === 'audio' ||
+    selectedClip.kind === 'camera' ||
+    selectedClip.kind === 'light' ||
+    selectedClip.kind === 'null'
+  ) {
+    return (
+      <div className="space-y-3 p-1">
+        <VideoScopesPanel
+          playheadTime={playheadTime}
+          gradeSignature="idle"
+          scopeRefreshKey={scopeRefreshKey}
+        />
+        <div className="p-3 text-center space-y-1.5 bg-[#14161A] border border-[#262B34] rounded">
+          <Palette className="w-6 h-6 text-[#4B5261] mx-auto" />
+          <p className="text-xs font-medium text-[#C8CDD6]">
+            Select a Visual Layer or Adjustment Layer
+          </p>
+          <p className="text-[11px] text-[#7E8594]">
+            DaVinci 3-Way Color Wheels (Lift / Gamma / Gain) &amp; Film LUTs grade
+            any selected footage or title layer live.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const grade: ColorWheelGrade = selectedClip.colorGrade ?? {
+    ...DEFAULT_COLOR_GRADE,
+    enabled: true,
+  };
+
+  const patchGrade = (patch: Partial<ColorWheelGrade>) => {
+    onUpdateColorGrade(selectedClip.id, {
+      ...grade,
+      ...patch,
+      enabled: true,
+    });
+  };
+
+  const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.lut}`;
+
+  return (
+    <div className="space-y-2.5 p-1" data-testid="davinci-color-panel">
+      <VideoScopesPanel
+        playheadTime={playheadTime}
+        gradeSignature={gradeSig}
+        scopeRefreshKey={scopeRefreshKey}
+      />
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Palette className="w-3.5 h-3.5 text-[#F59E0B]" />
+          <span className="text-xs font-semibold text-[#E6E8EC]">
+            DaVinci Color Wheels
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            onUpdateColorGrade(selectedClip.id, {
+              ...DEFAULT_COLOR_GRADE,
+              enabled: false,
+            })
+          }
+          className="flex items-center gap-1 text-[10px] text-[#9BA1AD] hover:text-white"
+        >
+          <RotateCcw className="w-3 h-3" />
+          <span>Reset</span>
+        </button>
+      </div>
+
+      {/* LUT Selector */}
+      <div>
+        <label className="text-[10px] text-[#8D95A5] block mb-1">
+          DaVinci Film LUT
+        </label>
+        <select
+          aria-label="DaVinci Film LUT"
+          value={grade.lut}
+          onChange={(e) => {
+            const preset = DAVINCI_LUTS.find((l) => l.name === e.target.value);
+            if (preset) {
+              onUpdateColorGrade(selectedClip.id, {
+                ...preset.grade,
+                enabled: preset.id !== 'lut_neutral',
+              });
+            }
+          }}
+          className="w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC] focus:outline-none"
+        >
+          {DAVINCI_LUTS.map((l) => (
+            <option key={l.id} value={l.name}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 3-Way Color Wheels */}
+      <div className="grid grid-cols-3 gap-1.5">
+        <ColorWheelControl
+          label="Lift"
+          channel={grade.lift}
+          onChange={(lift) => patchGrade({ lift })}
+        />
+        <ColorWheelControl
+          label="Gamma"
+          channel={grade.gamma}
+          onChange={(gamma) => patchGrade({ gamma })}
+        />
+        <ColorWheelControl
+          label="Gain"
+          channel={grade.gain}
+          onChange={(gain) => patchGrade({ gain })}
+        />
+      </div>
+
+      {/* Primary Bars + Luma Curve Shadows/Highlights */}
+      <div className="bg-[#14161A] border border-[#262B34] rounded p-2.5 space-y-2">
+        <div className="grid grid-cols-2 gap-2.5">
+          <div>
+            <div className="flex justify-between text-[10px] mb-1">
+              <span className="text-[#9BA1AD]">Temp</span>
+              <span className="font-mono-tabular text-[#60A5FA]">{grade.temp}</span>
+            </div>
+            <input
+              type="range"
+              aria-label="Color Temp"
+              min={-100}
+              max={100}
+              value={grade.temp}
+              onChange={(e) => patchGrade({ temp: Number(e.target.value) })}
+              className="w-full studio-slider"
+            />
+          </div>
+          <div>
+            <div className="flex justify-between text-[10px] mb-1">
+              <span className="text-[#9BA1AD]">Tint</span>
+              <span className="font-mono-tabular text-[#A78BFA]">{grade.tint}</span>
+            </div>
+            <input
+              type="range"
+              aria-label="Color Tint"
+              min={-100}
+              max={100}
+              value={grade.tint}
+              onChange={(e) => patchGrade({ tint: Number(e.target.value) })}
+              className="w-full studio-slider"
+            />
+          </div>
+          <div>
+            <div className="flex justify-between text-[10px] mb-1">
+              <span className="text-[#9BA1AD]">Contrast</span>
+              <span className="font-mono-tabular text-[#C8CDD6]">
+                {grade.contrast}%
+              </span>
+            </div>
+            <input
+              type="range"
+              aria-label="Color Contrast"
+              min={50}
+              max={180}
+              value={grade.contrast}
+              onChange={(e) => patchGrade({ contrast: Number(e.target.value) })}
+              className="w-full studio-slider"
+            />
+          </div>
+          <div>
+            <div className="flex justify-between text-[10px] mb-1">
+              <span className="text-[#9BA1AD]">Saturation</span>
+              <span className="font-mono-tabular text-[#C8CDD6]">
+                {grade.saturation}%
+              </span>
+            </div>
+            <input
+              type="range"
+              aria-label="Color Saturation"
+              min={0}
+              max={200}
+              value={grade.saturation}
+              onChange={(e) =>
+                patchGrade({ saturation: Number(e.target.value) })
+              }
+              className="w-full studio-slider"
+            />
+          </div>
+          <div>
+            <div className="flex justify-between text-[10px] mb-1">
+              <span className="text-[#9BA1AD]">Shadows</span>
+              <span className="font-mono-tabular text-[#60A5FA]">
+                {grade.shadows ?? 0}
+              </span>
+            </div>
+            <input
+              type="range"
+              aria-label="Color Shadows"
+              min={-50}
+              max={50}
+              value={grade.shadows ?? 0}
+              onChange={(e) => patchGrade({ shadows: Number(e.target.value) })}
+              className="w-full studio-slider"
+            />
+          </div>
+          <div>
+            <div className="flex justify-between text-[10px] mb-1">
+              <span className="text-[#9BA1AD]">Highlights</span>
+              <span className="font-mono-tabular text-[#FBBF24]">
+                {grade.highlights ?? 0}
+              </span>
+            </div>
+            <input
+              type="range"
+              aria-label="Color Highlights"
+              min={-50}
+              max={50}
+              value={grade.highlights ?? 0}
+              onChange={(e) =>
+                patchGrade({ highlights: Number(e.target.value) })
+              }
+              className="w-full studio-slider"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
