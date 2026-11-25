@@ -150,7 +150,15 @@ export function evaluateClipTransform(
     rotationX: evalProp('rotationX', clip.transform.rotationX ?? 0, 8.5),
     rotationY: evalProp('rotationY', clip.transform.rotationY ?? 0, 9.9),
     opacity: clamp(evalProp('opacity', clip.transform.opacity, 11.2), 0, 100),
+    shapeWidth: evalProp('shapeWidth', clip.shapeProps?.width ?? 0, 12.1),
+    shapeHeight: evalProp('shapeHeight', clip.shapeProps?.height ?? 0, 13.7),
   };
+}
+
+function getAnimatableBaseValue(clip: TimelineClip, prop: AnimatableProperty): number {
+  if (prop === 'shapeWidth') return clip.shapeProps?.width ?? 0;
+  if (prop === 'shapeHeight') return clip.shapeProps?.height ?? 0;
+  return clip.transform[prop] ?? 0;
 }
 
 export function upsertKeyframe(
@@ -159,7 +167,9 @@ export function upsertKeyframe(
   localTime: number,
   value: number,
   easing: EasingType = 'ease-in-out',
-  tolerance: number = 0.04,
+  // Only replace a keyframe at effectively the same timestamp. The old 40ms
+  // window silently swallowed neighbouring-frame keys at 24/30/60fps.
+  tolerance: number = 0.001,
   bezier?: [number, number, number, number]
 ): TimelineClip {
   const clampedTime = clamp(Number(localTime.toFixed(3)), 0, clip.duration);
@@ -221,7 +231,7 @@ export function togglePropertyKeyframing(
     clip,
     prop,
     localTime,
-    clip.transform[prop] ?? 0,
+    getAnimatableBaseValue(clip, prop),
     'ease-in-out'
   );
 }
