@@ -2093,6 +2093,7 @@ export default function App() {
                 onSelectClip={setSelectedClipId}
                 onMoveClipCanvas={handleMoveClipCanvas}
                 onUpdatePropertyCanvas={handleUpdateProperty}
+                onUpdatePropertyCanvas={handleUpdateProperty}
                 onResizeShapeCanvas={handleResizeShapeCanvas}
                 onUpdateMaskCanvas={handleUpdateMaskCanvas}
                 onCreatePathClip={handleCreatePathClip}
