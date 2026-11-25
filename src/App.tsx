@@ -1367,43 +1367,37 @@ export default function App() {
   // Project Save & Load: portable project files plus durable IndexedDB autosave.
   const handleSaveProject = async () => {
     try {
-      const payload = await createPortableProjectPayload({
-        composition,
-        tracks,
-        clips,
-        assets,
-        markers,
-        workArea,
-      }, portableMediaCacheRef.current);
-
-      let autosaved = false;
-      try {
-        await saveProjectToIndexedDb(payload);
-        autosaved = true;
-      } catch (error) {
-        console.warn('IndexedDB autosave failed; the portable project file is still being created:', error);
-      }
-
+      const payload = await createPortableProjectPayload({ composition, tracks, clips, assets, markers, workArea }, portableMediaCacheRef.current);
+      await saveProjectToIndexedDb(payload);
       try {
         window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(payload)));
       } catch {
-        // IndexedDB remains the primary storage for large projects.
+        // IndexedDB stores the full media-backed project.
       }
-
-      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${composition.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.kinetix.json`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-
-      setSaveBadgeText(autosaved ? 'Saved' : 'File Saved');
+      setSaveBadgeText('Saved');
     } catch (error) {
       console.error('Project save failed:', error);
       setSaveBadgeText('Save Failed');
     }
-    setTimeout(() => setSaveBadgeText(null), 2500);
+    window.setTimeout(() => setSaveBadgeText(null), 2500);
+  };
+
+  const handleExportProjectFile = async () => {
+    try {
+      const payload = await createPortableProjectPayload({ composition, tracks, clips, assets, markers, workArea }, portableMediaCacheRef.current);
+      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${composition.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.kinetix.json`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setSaveBadgeText('Project Exported');
+    } catch (error) {
+      console.error('Project export failed:', error);
+      setSaveBadgeText('Export Failed');
+    }
+    window.setTimeout(() => setSaveBadgeText(null), 2500);
   };
 
   const handleLoadProjectFile = (file: File) => {
@@ -1878,7 +1872,8 @@ export default function App() {
         onChangeLeftTab={setLeftTab}
         viewLayout={viewLayout}
         onChangeViewLayout={setViewLayout}
-      />
+        onExportProjectFile={handleExportProjectFile}
+        />
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
         {(() => {
