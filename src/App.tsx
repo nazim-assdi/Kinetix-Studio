@@ -823,7 +823,7 @@ export default function App() {
         }
 
         const duration = Math.max(0.1, ...cues.map((cue) => cue.end));
-        const baseName = file.name.replace(/\\.srt$/i, '').trim() || 'Imported Subtitles';
+        const baseName = file.name.replace(/\.srt$/i, '').trim() || 'Imported Subtitles';
         const asset: ProjectAsset = {
           id: `asset_srt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           name: `${baseName} · Subtitles`,
