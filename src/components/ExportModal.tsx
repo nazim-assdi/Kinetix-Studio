@@ -11,6 +11,7 @@ import {
   MediaCache,
   renderCompositionFrame,
 } from '../renderer/canvasRenderer';
+import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -89,6 +90,8 @@ interface ExportAudioChannel {
   clip: TimelineClip;
   element: HTMLAudioElement | HTMLVideoElement;
   gain: GainNode;
+  rumbleCut: BiquadFilterNode;
+  noiseGate: DynamicsCompressorNode;
   track: TimelineTrack;
 }
 
@@ -155,6 +158,18 @@ async function createExportAudioSession(
       high.frequency.value = 6000;
       high.gain.value = track.eqHigh ?? 0;
 
+      const rumbleCut = context.createBiquadFilter();
+      rumbleCut.type = 'highpass';
+      rumbleCut.frequency.value = 30;
+      rumbleCut.Q.value = 0.7;
+
+      const noiseGate = context.createDynamicsCompressor();
+      noiseGate.threshold.value = 0;
+      noiseGate.knee.value = 0;
+      noiseGate.ratio.value = 1;
+      noiseGate.attack.value = 0.003;
+      noiseGate.release.value = 0.16;
+
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = track.compressor ? -20 : 0;
       compressor.ratio.value = track.compressor ? 4 : 1;
@@ -164,7 +179,9 @@ async function createExportAudioSession(
       const gain = context.createGain();
       gain.gain.value = 0;
 
-      source.connect(low);
+      source.connect(rumbleCut);
+      rumbleCut.connect(noiseGate);
+      noiseGate.connect(low);
       low.connect(mid);
       mid.connect(high);
       high.connect(compressor);
@@ -172,7 +189,7 @@ async function createExportAudioSession(
       pan.connect(gain);
       gain.connect(destination);
 
-      channels.push({ clip, element, gain, track });
+      channels.push({ clip, element, gain, rumbleCut, noiseGate, track });
     }
 
     if (channels.length === 0) {
@@ -195,7 +212,18 @@ async function createExportAudioSession(
     destination,
     updateAt(time: number) {
       if (disposed) return;
-      for (const { clip, element, gain, track } of channels) {
+      const activeVoiceovers = channels.filter(({ clip, track }) =>
+        clip.isVoiceover &&
+        clip.duckingEnabled !== false &&
+        time >= clip.start &&
+        time < clip.start + clip.duration &&
+        !track.muted
+      );
+      const duckDb = activeVoiceovers.reduce(
+        (maximum, { clip }) => Math.max(maximum, clip.duckingAmount ?? 12),
+        0
+      );
+      for (const { clip, element, gain, track, rumbleCut, noiseGate } of channels) {
         const clipEnd = clip.start + clip.duration;
         const active = time >= clip.start && time < clipEnd;
         if (!active) {
@@ -204,9 +232,14 @@ async function createExportAudioSession(
           continue;
         }
 
-        const speed = Math.max(0.25, Math.min(4, clip.speed ?? 1));
-        const targetTime = Math.max(0, clip.sourceIn + (time - clip.start) * speed);
-        element.playbackRate = speed;
+        const localTimeline = Math.max(0, Math.min(clip.duration, time - clip.start));
+        const speed = getClipSpeedAtLocalTime(clip, localTimeline);
+        const targetTime = Math.max(0, clip.sourceIn + getClipLocalTime(clip, time));
+        element.playbackRate = Math.max(0.1, Math.min(8, speed));
+        const reduction = Math.max(0, Math.min(100, clip.noiseReduction ?? 0));
+        rumbleCut.frequency.value = reduction > 0 ? 80 + reduction * 1.25 : 30;
+        noiseGate.threshold.value = reduction > 0 ? -65 + reduction * 0.4 : 0;
+        noiseGate.ratio.value = reduction > 0 ? 1 + reduction * 0.18 : 1;
         if (Number.isFinite(element.duration) && element.duration > 0) {
           const safeTime = Math.min(targetTime, Math.max(0, element.duration - 0.04));
           if (Math.abs(element.currentTime - safeTime) > 0.22) {
@@ -224,10 +257,14 @@ async function createExportAudioSession(
           }
         }
 
-        let level = (clip.volume / 100) * Math.pow(10, (track.volumeDb ?? 0) / 20);
+        const animatedVolume = (clip.keyframes.volume?.length ?? 0) > 0
+          ? evaluateClipTransform(clip, time).volume ?? clip.volume
+          : clip.volume;
+        let level = (animatedVolume / 100) * Math.pow(10, (track.volumeDb ?? 0) / 20);
         if (clip.fadeIn > 0) level *= Math.min(1, Math.max(0, (time - clip.start) / clip.fadeIn));
         if (clip.fadeOut > 0) level *= Math.min(1, Math.max(0, (clipEnd - time) / clip.fadeOut));
-        gain.gain.setTargetAtTime(Math.max(0, Math.min(1.6, level)), context.currentTime, 0.015);
+        if (activeVoiceovers.length > 0 && !clip.isVoiceover) level *= Math.pow(10, -duckDb / 20);
+        gain.gain.setTargetAtTime(Math.max(0, Math.min(1.6, level)), context.currentTime, 0.035);
 
         if (element.paused) {
           void element.play().catch(() => {
