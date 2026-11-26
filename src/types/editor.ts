@@ -460,16 +460,36 @@ export type PresetCategory =
   | 'Shapes'
   | 'Backgrounds'
   | 'Particles'
-  | 'Visualizers';
+  | 'Visualizers'
+  | 'Icons'
+  | 'Frames'
+  | 'Callouts'
+  | 'Dividers'
+  | 'Captions'
+  | 'Infographics'
+  | 'Social Kits'
+  | 'UI Elements'
+  | 'Decorative'
+  | 'Textures';
 
 export interface CatalogAssetTemplate {
-  kind: Extract<MediaKind, 'text' | 'shape' | 'solid' | 'particles' | 'visualizer'>;
+  kind: Extract<MediaKind, 'text' | 'shape' | 'solid' | 'particles' | 'visualizer' | 'path' | 'caption'>;
   duration?: number;
+  /** Offset from the composition centre for grouped, independently editable kits. */
+  offset?: {
+    x?: number;
+    y?: number;
+    scale?: number;
+    rotation?: number;
+    opacity?: number;
+  };
   defaultText?: TextLayerProps;
   defaultShape?: ShapeLayerProps;
   defaultSolid?: SolidLayerProps;
   defaultParticles?: ParticleLayerProps;
   defaultVisualizer?: VisualizerLayerProps;
+  defaultPath?: PathLayerProps;
+  defaultCaption?: CaptionLayerProps;
 }
 
 export interface CatalogMotionVariant {
@@ -496,6 +516,8 @@ export interface MotionPresetItem {
   lutMood?: 'cinema' | 'commercial' | 'documentary' | 'music-video' | 'wedding' | 'sci-fi' | 'travel' | 'tech';
   motionVariant?: CatalogMotionVariant;
   assetTemplate?: CatalogAssetTemplate;
+  /** Multi-layer asset kit. Each template becomes its own editable timeline clip. */
+  assetTemplates?: CatalogAssetTemplate[];
 }
 
 export interface SavedProjectPayload {
