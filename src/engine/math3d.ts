@@ -224,9 +224,10 @@ export function projectLayerPointThroughCamera(
   compWidth: number,
   compHeight: number,
   localX: number,
-  localY: number
+  localY: number,
+  cameraState?: CameraViewState
 ): { x: number; y: number; depth: number; visible: boolean } {
-  const camera = resolveCameraViewState(cameraClip, allClips, globalTime, compWidth);
+  const camera = cameraState ?? resolveCameraViewState(cameraClip, allClips, globalTime, compWidth);
   const localOffset = rotateVector3(
     {
       x: localX * world.scale / 100,
