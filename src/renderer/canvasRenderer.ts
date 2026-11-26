@@ -1115,16 +1115,13 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     const renderCtx = layerTexture?.getContext('2d') ?? targetCtx;
 
     renderCtx.save();
+    renderCtx.setTransform(1, 0, 0, 1, 0, 0);
+    renderCtx.globalCompositeOperation = clip.is3D ? 'source-over' : toCompositeOp(clip.blendMode);
     renderCtx.globalAlpha = clip.is3D
       ? 1
       : Math.max(0, Math.min(1, world.opacity / 100));
-    if (!ignoreBlendMode && !clip.is3D) {
-      renderCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
-    }
-    renderCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100));
-    if (!ignoreBlendMode) {
-      renderCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
-    }
+    renderCtx.filter = 'none';
+    renderCtx.shadowBlur = 0;
     let baseFilter = buildFilterString(
       clip.effects,
       shading.brightnessFactor,
