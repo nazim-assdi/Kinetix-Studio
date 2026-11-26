@@ -1684,8 +1684,10 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       if (!ignoreBlendMode) {
         targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
       }
+      // Camera sits on negative Z and looks toward +Z; negative local depth
+      // extends a shape towards the camera, leaving the texture on its front face.
       const shapeDepth = clip.kind === 'shape'
-        ? Math.max(0, clip.shapeProps?.depth ?? 0)
+        ? -Math.max(0, clip.shapeProps?.depth ?? 0)
         : 0;
       if (clip.kind === 'shape' && shapeDepth > 0) {
         drawExtrudedShapeSides(
