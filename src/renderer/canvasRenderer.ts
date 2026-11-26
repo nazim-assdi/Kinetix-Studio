@@ -1781,6 +1781,47 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       targetCtx.restore();
     }
 
+    if (drawGizmo && clip.id === selectedClipId && clip.is3D) {
+      const anchorOffsetX = screenCx - cx;
+      const anchorOffsetY = screenCy - cy;
+      const axes = [
+        { label: 'X', x: 120, y: 0, z: 0, color: '#F87171' },
+        { label: 'Y', x: 0, y: 120, z: 0, color: '#4ADE80' },
+        { label: 'Z', x: 0, y: 0, z: 120, color: '#60A5FA' },
+      ];
+      targetCtx.save();
+      targetCtx.lineWidth = 3;
+      targetCtx.font = '700 12px "JetBrains Mono", monospace';
+      for (const axis of axes) {
+        const tip = projectLayerPointThroughCamera(
+          world,
+          activeCamera,
+          clips,
+          playheadTime,
+          width,
+          height,
+          axis.x,
+          axis.y,
+          axis.z,
+          activeCameraView
+        );
+        if (!tip.visible) continue;
+        const tx = tip.x + anchorOffsetX;
+        const ty = tip.y + anchorOffsetY;
+        targetCtx.strokeStyle = axis.color;
+        targetCtx.fillStyle = axis.color;
+        targetCtx.beginPath();
+        targetCtx.moveTo(screenCx, screenCy);
+        targetCtx.lineTo(tx, ty);
+        targetCtx.stroke();
+        targetCtx.beginPath();
+        targetCtx.arc(tx, ty, 4, 0, Math.PI * 2);
+        targetCtx.fill();
+        targetCtx.fillText(axis.label, tx + 6, ty - 6);
+      }
+      targetCtx.restore();
+    }
+
     if (drawGizmo && clip.id === selectedClipId && clip.trackData) {
       const td = clip.trackData;
       targetCtx.save();
