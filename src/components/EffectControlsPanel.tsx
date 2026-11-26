@@ -1331,10 +1331,27 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
               Audio Level &amp; Fades
             </span>
             <div>
-              <div className="flex justify-between text-[11px] mb-1">
-                <span className="text-[#C8CDD6]">Volume</span>
+              <div className="flex items-center justify-between text-[11px] mb-1">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onToggleStopwatch(selectedClip.id, 'volume')}
+                    aria-label="Toggle audio volume keyframing"
+                    aria-pressed={(selectedClip.keyframes.volume?.length ?? 0) > 0}
+                    title="Enable / disable volume keyframes"
+                    className={(selectedClip.keyframes.volume?.length ?? 0) > 0 ? 'text-[#3B82F6]' : 'text-[#6E7685] hover:text-white'}
+                  ><Clock className="w-3.5 h-3.5" /></button>
+                  <span className="text-[#C8CDD6]">Volume</span>
+                  <button
+                    type="button"
+                    onClick={() => onToggleKeyframeAtPlayhead(selectedClip.id, 'volume')}
+                    aria-label="Add or remove volume keyframe at playhead"
+                    title="Add / remove volume keyframe"
+                    className={(selectedClip.keyframes.volume ?? []).some((key) => Math.abs(key.time - localTime) < 0.05) ? 'text-[#F59E0B]' : 'text-[#6E7685] hover:text-white'}
+                  ><Diamond className="w-3 h-3 fill-current" /></button>
+                </div>
                 <span className="font-mono-tabular text-[#14B8A6]">
-                  {selectedClip.volume}%
+                  {Math.round((currentTransform.volume ?? selectedClip.volume))}%
                 </span>
               </div>
               <input
@@ -1342,7 +1359,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                 aria-label="Audio Volume"
                 min={0}
                 max={150}
-                value={selectedClip.volume}
+                value={Math.max(0, Math.min(150, currentTransform.volume ?? selectedClip.volume))}
                 onChange={(e) =>
                   onUpdateAudioProps(selectedClip.id, {
                     volume: Number(e.target.value),
@@ -1350,6 +1367,68 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                 }
                 className="w-full studio-slider"
               />
+            </div>
+            <div className="rounded border border-[#2B303A] bg-[#111215] p-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] text-[#C8CDD6]">Noise Reduction</label>
+                <span className="text-[10px] font-mono-tabular text-[#14B8A6]">{selectedClip.noiseReduction ?? 0}%</span>
+              </div>
+              <input
+                type="range"
+                aria-label="Audio Noise Reduction"
+                min={0}
+                max={100}
+                step={1}
+                value={selectedClip.noiseReduction ?? 0}
+                onChange={(e) => onUpdateAudioProps(selectedClip.id, { noiseReduction: Number(e.target.value) })}
+                className="w-full studio-slider"
+              />
+              <span className="text-[9px] text-[#707A89]">Adaptive noise gate and low-frequency rumble cut</span>
+            </div>
+            <div className="rounded border border-[#2B303A] bg-[#111215] p-2 space-y-2">
+              <label className="flex items-center justify-between text-[11px] text-[#C8CDD6]">
+                <span>Voiceover Source</span>
+                <input
+                  type="checkbox"
+                  aria-label="Mark clip as voiceover"
+                  checked={Boolean(selectedClip.isVoiceover)}
+                  onChange={(e) => onUpdateAudioProps(selectedClip.id, {
+                    isVoiceover: e.target.checked,
+                    ...(e.target.checked ? { duckingEnabled: true } : {}),
+                  })}
+                  className="accent-[#14B8A6]"
+                />
+              </label>
+              {selectedClip.isVoiceover && (
+                <>
+                  <label className="flex items-center justify-between text-[10px] text-[#9BA1AD]">
+                    <span>Duck Background Music</span>
+                    <input
+                      type="checkbox"
+                      aria-label="Enable background music ducking"
+                      checked={selectedClip.duckingEnabled !== false}
+                      onChange={(e) => onUpdateAudioProps(selectedClip.id, { duckingEnabled: e.target.checked })}
+                      className="accent-[#14B8A6]"
+                    />
+                  </label>
+                  <div>
+                    <div className="flex justify-between text-[10px] mb-1">
+                      <span className="text-[#9BA1AD]">Duck Amount</span>
+                      <span className="font-mono-tabular text-[#14B8A6]">{selectedClip.duckingAmount ?? 12} dB</span>
+                    </div>
+                    <input
+                      type="range"
+                      aria-label="Voiceover Ducking Amount"
+                      min={0}
+                      max={24}
+                      step={1}
+                      value={selectedClip.duckingAmount ?? 12}
+                      onChange={(e) => onUpdateAudioProps(selectedClip.id, { duckingAmount: Number(e.target.value) })}
+                      className="w-full studio-slider"
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
