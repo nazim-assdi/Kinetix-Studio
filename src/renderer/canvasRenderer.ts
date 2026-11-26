@@ -11,10 +11,13 @@ import {
 } from '../types/editor';
 import {
   applyLumaMatteToPixels,
+  CameraViewState,
   computeAnchorScreenCenter,
   computeLightShading,
+  projectLayerPointThroughCamera,
   projectLayerThroughCamera,
   quaternionFromEuler,
+  resolveCameraViewState,
   resolveWorldTransform,
   rotateVector3,
 } from '../engine/math3d';
@@ -57,6 +60,114 @@ function getScratchCanvas(
     sctx.clearRect(0, 0, tw, th);
   }
   return c;
+}
+
+interface ScreenPoint2D {
+  x: number;
+  y: number;
+}
+
+function drawTexturedTriangle(
+  ctx: CanvasRenderingContext2D,
+  texture: HTMLCanvasElement,
+  source: [ScreenPoint2D, ScreenPoint2D, ScreenPoint2D],
+  destination: [ScreenPoint2D, ScreenPoint2D, ScreenPoint2D]
+) {
+  const [s1, s2, s3] = source;
+  const [d1, d2, d3] = destination;
+  const denominator =
+    s1.x * (s2.y - s3.y) +
+    s2.x * (s3.y - s1.y) +
+    s3.x * (s1.y - s2.y);
+  if (Math.abs(denominator) < 0.0001) return;
+
+  const a = (d1.x * (s2.y - s3.y) + d2.x * (s3.y - s1.y) + d3.x * (s1.y - s2.y)) / denominator;
+  const b = (d1.y * (s2.y - s3.y) + d2.y * (s3.y - s1.y) + d3.y * (s1.y - s2.y)) / denominator;
+  const c = (d1.x * (s3.x - s2.x) + d2.x * (s1.x - s3.x) + d3.x * (s2.x - s1.x)) / denominator;
+  const d = (d1.y * (s3.x - s2.x) + d2.y * (s1.x - s3.x) + d3.y * (s2.x - s1.x)) / denominator;
+  const e = (
+    d1.x * (s2.x * s3.y - s3.x * s2.y) +
+    d2.x * (s3.x * s1.y - s1.x * s3.y) +
+    d3.x * (s1.x * s2.y - s2.x * s1.y)
+  ) / denominator;
+  const f = (
+    d1.y * (s2.x * s3.y - s3.x * s2.y) +
+    d2.y * (s3.x * s1.y - s1.x * s3.y) +
+    d3.y * (s1.x * s2.y - s2.x * s1.y)
+  ) / denominator;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(d1.x, d1.y);
+  ctx.lineTo(d2.x, d2.y);
+  ctx.lineTo(d3.x, d3.y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.transform(a, b, c, d, e, f);
+  ctx.drawImage(texture, 0, 0);
+  ctx.restore();
+}
+
+/** Perspective-correctly maps a layer texture onto a subdivided 3D plane. */
+function drawPerspectiveLayerPlane(
+  ctx: CanvasRenderingContext2D,
+  texture: HTMLCanvasElement,
+  world: ReturnType<typeof resolveWorldTransform>,
+  cameraClip: TimelineClip | null,
+  clips: TimelineClip[],
+  playheadTime: number,
+  width: number,
+  height: number,
+  layerWidth: number,
+  layerHeight: number,
+  anchorX: number,
+  anchorY: number,
+  cameraState: CameraViewState
+) {
+  const segments = 6;
+  const left = width / 2 - layerWidth / 2 - anchorX;
+  const top = height / 2 - layerHeight / 2 - anchorY;
+  const cellW = layerWidth / segments;
+  const cellH = layerHeight / segments;
+
+  for (let row = 0; row < segments; row++) {
+    for (let column = 0; column < segments; column++) {
+      const sx0 = left + column * cellW;
+      const sx1 = sx0 + cellW;
+      const sy0 = top + row * cellH;
+      const sy1 = sy0 + cellH;
+      const project = (sx: number, sy: number) =>
+        projectLayerPointThroughCamera(
+          world,
+          cameraClip,
+          clips,
+          playheadTime,
+          width,
+          height,
+          sx - width / 2,
+          sy - height / 2,
+          cameraState
+        );
+      const p00 = project(sx0, sy0);
+      const p10 = project(sx1, sy0);
+      const p11 = project(sx1, sy1);
+      const p01 = project(sx0, sy1);
+      if (!p00.visible || !p10.visible || !p11.visible || !p01.visible) continue;
+
+      drawTexturedTriangle(
+        ctx,
+        texture,
+        [{ x: sx0, y: sy0 }, { x: sx1, y: sy0 }, { x: sx1, y: sy1 }],
+        [p00, p10, p11]
+      );
+      drawTexturedTriangle(
+        ctx,
+        texture,
+        [{ x: sx0, y: sy0 }, { x: sx1, y: sy1 }, { x: sx0, y: sy1 }],
+        [p00, p11, p01]
+      );
+    }
+  }
 }
 
 function getOrLoadImage(
