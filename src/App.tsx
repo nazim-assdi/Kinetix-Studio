@@ -36,6 +36,7 @@ import { applyCatalogMotionVariant, buildCatalogColorGrade } from './engine/cata
 import { DAVINCI_LUTS } from './data/megaCatalog';
 import {
   evaluateClipTransform,
+  moveKeyframe,
   removeKeyframeAtTime,
   togglePropertyKeyframing,
   updateKeyframeEasing,
