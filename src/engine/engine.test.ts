@@ -27,6 +27,7 @@ import {
 } from './math3d';
 import { applyMotionPresetToClip } from '../data/motionPresets';
 import { MEGA_CATALOG, DAVINCI_LUTS } from '../data/megaCatalog';
+import { SFX_LIBRARY } from '../data/sfxLibrary';
 import {
   parsePsdLayersFromBuffer,
   parseIllustratorLayersFromText,
@@ -216,6 +217,13 @@ test('MEGA_CATALOG contains 1000+ presets, transitions with SFX, and DaVinci LUT
   assert.ok(sfxTransitions.length >= 100);
   assert.ok(DAVINCI_LUTS.length >= 6);
   assert.ok(MEGA_CATALOG.every((item) => item.vendor === 'FX'));
+});
+
+test('SFX library contains 100 unique draggable presets', () => {
+  assert.equal(SFX_LIBRARY.length, 100);
+  assert.equal(new Set(SFX_LIBRARY.map((item) => item.id)).size, 100);
+  assert.equal(new Set(SFX_LIBRARY.map((item) => item.name)).size, 100);
+  assert.ok(SFX_LIBRARY.every((item) => item.sfxPreset?.startsWith('sfx-pack-')));
 });
 
 test('parsePsdLayersFromBuffer extracts binary 8BPS PSD layers and parseIllustratorLayersFromText extracts AI vector paths', () => {
