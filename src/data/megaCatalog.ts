@@ -4,7 +4,6 @@ import {
   EasingType,
   MotionPresetItem,
   ParticleLayerProps,
-  PresetCategory,
   PresetPackVendor,
   ShapeLayerProps,
 } from '../types/editor';
