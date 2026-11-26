@@ -420,6 +420,8 @@ export interface CompositionSettings {
   fps: number;
   duration: number;
   backgroundColor: string;
+  /** How source media is fitted when the sequence aspect ratio differs. */
+  fitMode?: 'contain' | 'cover' | 'stretch';
 }
 
 export interface EffectDefinition {
