@@ -151,6 +151,113 @@ export function resolveWorldTransform(
   };
 }
 
+export interface CameraViewState {
+  position: Vector3;
+  inverseOrientation: Quaternion;
+  focalPixels: number;
+  nearClip: number;
+  farClip: number;
+}
+
+/** Resolves the active camera's world pose and physical lens parameters once per frame. */
+export function resolveCameraViewState(
+  cameraClip: TimelineClip | null,
+  allClips: TimelineClip[],
+  globalTime: number,
+  compWidth: number
+): CameraViewState {
+  let position: Vector3 = { x: 0, y: 0, z: -900 };
+  let orientation = IDENTITY_QUATERNION;
+  let focalLength = 35;
+  let sensorWidth = 36;
+  let nearClip = 10;
+  let farClip = 100000;
+
+  if (cameraClip?.cameraProps) {
+    const props = cameraClip.cameraProps;
+    const cameraWorld = resolveWorldTransform(cameraClip, allClips, globalTime);
+    position = { x: cameraWorld.x, y: cameraWorld.y, z: -900 + cameraWorld.z };
+    focalLength = clamp(props.focalLength || 35, 8, 300);
+    sensorWidth = clamp(props.sensorWidth ?? 36, 18, 70);
+    nearClip = clamp(props.nearClip ?? 10, 0.1, 1000);
+    farClip = Math.max(nearClip + 1, props.farClip ?? 100000);
+
+    if (props.useTarget) {
+      const direction = {
+        x: props.lookAtX - position.x,
+        y: props.lookAtY - position.y,
+        z: props.lookAtZ - position.z,
+      };
+      const horizontalLength = Math.max(0.0001, Math.hypot(direction.x, direction.z));
+      const yaw = Math.atan2(direction.x, direction.z) * RAD;
+      const pitch = -Math.atan2(direction.y, horizontalLength) * RAD;
+      orientation = quaternionFromEuler(pitch, yaw, cameraWorld.rotation);
+    } else {
+      orientation = cameraWorld.orientation ?? quaternionFromEuler(
+        cameraWorld.rotationX,
+        cameraWorld.rotationY,
+        cameraWorld.rotation
+      );
+    }
+  }
+
+  return {
+    position,
+    inverseOrientation: {
+      x: -orientation.x,
+      y: -orientation.y,
+      z: -orientation.z,
+      w: orientation.w,
+    },
+    focalPixels: (compWidth * focalLength) / sensorWidth,
+    nearClip,
+    farClip,
+  };
+}
+
+/** Projects a point on a layer's local plane through the active camera. */
+export function projectLayerPointThroughCamera(
+  world: WorldTransform3D,
+  cameraClip: TimelineClip | null,
+  allClips: TimelineClip[],
+  globalTime: number,
+  compWidth: number,
+  compHeight: number,
+  localX: number,
+  localY: number
+): { x: number; y: number; depth: number; visible: boolean } {
+  const camera = resolveCameraViewState(cameraClip, allClips, globalTime, compWidth);
+  const localOffset = rotateVector3(
+    {
+      x: localX * world.scale / 100,
+      y: localY * world.scale / 100,
+      z: 0,
+    },
+    getWorldOrientation(world)
+  );
+  const worldPoint = {
+    x: world.x + localOffset.x,
+    y: world.y + localOffset.y,
+    z: world.z + localOffset.z,
+  };
+  const view = rotateVector3(
+    {
+      x: worldPoint.x - camera.position.x,
+      y: worldPoint.y - camera.position.y,
+      z: worldPoint.z - camera.position.z,
+    },
+    camera.inverseOrientation
+  );
+  const visible = view.z >= camera.nearClip && view.z <= camera.farClip;
+  if (!visible) return { x: 0, y: 0, depth: view.z, visible: false };
+  return {
+    x: compWidth / 2 + camera.focalPixels * view.x / view.z,
+    y: compHeight / 2 + camera.focalPixels * view.y / view.z,
+    depth: view.z,
+    visible: true,
+  };
+}
+
 export interface CameraProjectionResult {
   screenX: number;
   screenY: number;
@@ -177,48 +284,12 @@ export function projectLayerThroughCamera(
   compWidth: number,
   compHeight: number
 ): CameraProjectionResult {
-  let cameraPosition: Vector3 = { x: 0, y: 0, z: -900 };
-  let cameraOrientation = IDENTITY_QUATERNION;
-  let focalLength = 35;
-  let sensorWidth = 36;
-  let nearClip = 10;
-  let farClip = 100000;
-
-  if (cameraClip?.cameraProps) {
-    const camera = cameraClip.cameraProps;
-    const cameraWorld = resolveWorldTransform(cameraClip, allClips, globalTime);
-    cameraPosition = { x: cameraWorld.x, y: cameraWorld.y, z: -900 + cameraWorld.z };
-    focalLength = clamp(camera.focalLength || 35, 8, 300);
-    sensorWidth = clamp(camera.sensorWidth ?? 36, 18, 70);
-    nearClip = clamp(camera.nearClip ?? 10, 0.1, 1000);
-    farClip = Math.max(nearClip + 1, camera.farClip ?? 100000);
-
-    if (camera.useTarget) {
-      const target = { x: camera.lookAtX, y: camera.lookAtY, z: camera.lookAtZ };
-      const direction = {
-        x: target.x - cameraPosition.x,
-        y: target.y - cameraPosition.y,
-        z: target.z - cameraPosition.z,
-      };
-      const horizontalLength = Math.max(0.0001, Math.hypot(direction.x, direction.z));
-      const yaw = Math.atan2(direction.x, direction.z) * RAD;
-      const pitch = -Math.atan2(direction.y, horizontalLength) * RAD;
-      cameraOrientation = quaternionFromEuler(
-        pitch,
-        yaw,
-        cameraWorld.rotation
-      );
-    } else {
-      cameraOrientation = cameraWorld.orientation ?? quaternionFromEuler(cameraWorld.rotationX, cameraWorld.rotationY, cameraWorld.rotation);
-    }
-  }
-
-  const cameraInverse: Quaternion = {
-    x: -cameraOrientation.x,
-    y: -cameraOrientation.y,
-    z: -cameraOrientation.z,
-    w: cameraOrientation.w,
-  };
+  const camera = resolveCameraViewState(cameraClip, allClips, globalTime, compWidth);
+  const cameraPosition = camera.position;
+  const cameraInverse = camera.inverseOrientation;
+  const focalPx = camera.focalPixels;
+  const nearClip = camera.nearClip;
+  const farClip = camera.farClip;
   const relative = {
     x: world.x - cameraPosition.x,
     y: world.y - cameraPosition.y,
