@@ -96,6 +96,7 @@ interface ProgramMonitorProps {
   onSelectClip: (clipId: string | null) => void;
   onMoveClipCanvas: (clipId: string, x: number, y: number) => void;
   onSetAnchorCanvas: (clipId: string, anchorX: number, anchorY: number) => void;
+  onTransformClipCanvas: (clipId: string, patch: { scale?: number; rotation?: number }) => void;
   onResizeShapeCanvas: (clipId: string, width: number, height: number) => void;
   onUpdateMaskCanvas: (clipId: string, mask: LayerMask) => void;
   onCreatePathClip: (points: PathPoint[], closed: boolean) => void;
@@ -104,6 +105,7 @@ interface ProgramMonitorProps {
 
 interface ViewportSlotProps {
   angle: ViewportCameraAngle;
+  tool: ToolMode;
   composition: CompositionSettings;
   tracks: TimelineTrack[];
   clips: TimelineClip[];
@@ -142,6 +144,7 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
   showTransparencyGrid,
   showWireframes,
   penDraftPoints,
+  tool,
   isPlaying,
   mediaCache,
   renderTick,
@@ -171,6 +174,7 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
       mediaCache,
       onMediaLoaded,
       drawGizmo: angle === 'active',
+      activeTool: tool,
     });
   }, [
     angle,
@@ -183,6 +187,7 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
     showTransparencyGrid,
     showWireframes,
     penDraftPoints,
+    tool,
     isPlaying,
     mediaCache,
     renderTick,
@@ -196,6 +201,7 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
       onPointerDown={(e) => canvasRef.current && onPointerDown?.(e, canvasRef.current)}
       onPointerMove={(e) => canvasRef.current && onPointerMove?.(e, canvasRef.current)}
       onPointerUp={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current)}
+      onPointerCancel={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current)}
       className="w-full h-full object-contain block cursor-crosshair"
     />
   );
@@ -221,6 +227,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   onSelectClip,
   onMoveClipCanvas,
   onSetAnchorCanvas,
+  onTransformClipCanvas,
   onResizeShapeCanvas,
   onUpdateMaskCanvas,
   onCreatePathClip,
@@ -257,6 +264,9 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   type CanvasDrag =
     | { mode: 'move'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number }
     | { mode: 'resize-shape'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
+    | { mode: 'resize-text'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; origScale: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
+    | { mode: 'rotate'; clipId: string; centerX: number; centerY: number; startAngle: number; origRotation: number }
+    | { mode: 'move-anchor'; clipId: string; startClientX: number; startClientY: number; origAnchorX: number; origAnchorY: number; rotationRad: number; scaleX: number; scaleY: number }
     | { mode: 'move-mask' | 'resize-mask' | 'draw-mask'; clipId: string; startClientX: number; startClientY: number; startLocalX: number; startLocalY: number; origMask: LayerMask; signX?: number; signY?: number; rotationRad: number; scaleX: number; scaleY: number };
   const dragRef = useRef<CanvasDrag | null>(null);
   const penHandleRef = useRef<{ index: number; startX: number; startY: number } | null>(null);
@@ -313,13 +323,17 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       scaleX: number;
       scaleY: number;
       rotationRad: number;
+      centerX: number;
+      centerY: number;
+      baseWidth: number;
+      baseHeight: number;
     } | null = null;
 
     for (const track of visibleTracks) {
       const candidates = clips.filter((c) =>
         c.trackId === track.id && !['adjustment', 'camera', 'light', 'audio'].includes(c.kind) &&
         playheadTime >= c.start && playheadTime <= c.start + c.duration
-      );
+      ).sort((a, b) => Number(b.id === selectedClipId) - Number(a.id === selectedClipId));
       for (const c of candidates) {
         const world = resolveWorldTransform(c, clips, playheadTime);
         let cx = composition.width / 2 + world.x;
@@ -375,7 +389,20 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         const localX = dx * Math.cos(-rotationRad) - dy * Math.sin(-rotationRad);
         const localY = dx * Math.sin(-rotationRad) + dy * Math.cos(-rotationRad);
         const hitPadding = 16 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
-        let isInside = Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding;
+        const rotatePadding = 14 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+        const rotationHandleHit =
+          c.id === selectedClipId &&
+          (c.kind === 'text' || c.kind === 'shape') &&
+          Math.abs(localX) <= rotatePadding &&
+          Math.abs(localY + halfH + 34 / Math.max(0.01, Math.abs(effScaleY))) <= rotatePadding;
+        const pivotHandleHit =
+          c.id === selectedClipId &&
+          tool === 'pin' &&
+          Math.hypot(compX - cx, compY - cy) <= 16;
+        let isInside =
+          (Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding) ||
+          rotationHandleHit ||
+          pivotHandleHit;
 
         if (c.is3D) {
           const anchorX = world.anchorX ?? 0;
@@ -406,7 +433,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         }
 
         if (isInside) {
-          hitInfo = { clip: c, localX, localY, halfW, halfH, scaleX: effScaleX, scaleY: effScaleY, rotationRad };
+          hitInfo = { clip: c, localX, localY, halfW, halfH, scaleX: effScaleX, scaleY: effScaleY, rotationRad, centerX: cx, centerY: cy, baseWidth: baseW, baseHeight: baseH };
           break;
         }
       }
@@ -418,14 +445,33 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       return;
     }
 
-    const { clip: hitClip, localX, localY, halfW, halfH, scaleX: layerScaleX, scaleY: layerScaleY, rotationRad } = hitInfo;
+    const { clip: hitClip, localX, localY, halfW, halfH, scaleX: layerScaleX, scaleY: layerScaleY, rotationRad, centerX, centerY, baseWidth, baseHeight } = hitInfo;
     onSelectClip(hitClip.id);
     const transform = evaluateClipTransform(hitClip, playheadTime);
 
     if (tool === 'pin') {
-      const nextAnchorX = (transform.anchorX ?? 0) + localX / (layerScaleX || 1);
-      const nextAnchorY = (transform.anchorY ?? 0) + localY / (layerScaleY || 1);
-      onSetAnchorCanvas(hitClip.id, nextAnchorX, nextAnchorY);
+      // Drag the existing pivot marker, or click elsewhere on the artwork to
+      // move the pivot there. Both operations preserve the visible artwork.
+      const draggingExistingPivot = Math.hypot(compX - centerX, compY - centerY) <= 16;
+      const nextAnchorX = draggingExistingPivot
+        ? (transform.anchorX ?? 0)
+        : localX / (layerScaleX || 1);
+      const nextAnchorY = draggingExistingPivot
+        ? (transform.anchorY ?? 0)
+        : localY / (layerScaleY || 1);
+      if (!draggingExistingPivot) onSetAnchorCanvas(hitClip.id, nextAnchorX, nextAnchorY);
+      dragRef.current = {
+        mode: 'move-anchor',
+        clipId: hitClip.id,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        origAnchorX: nextAnchorX,
+        origAnchorY: nextAnchorY,
+        rotationRad,
+        scaleX: layerScaleX,
+        scaleY: layerScaleY,
+      };
+      canvas.setPointerCapture(e.pointerId);
       return;
     }
 
@@ -471,20 +517,65 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       return;
     }
 
-    if (hitClip.kind === 'shape' && hitClip.shapeProps) {
-      const corners = [
-        { x: -1, y: -1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: 1, y: 1 },
-      ];
-      const radius = 16 / Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
-      const corner = corners.find((sign) => Math.hypot(localX - sign.x * halfW, localY - sign.y * halfH) <= radius);
-      if (corner) {
-        const shapeTransform = evaluateClipTransform(hitClip, playheadTime);
+    if (tool === 'select' && hitClip.id === selectedClipId && (hitClip.kind === 'shape' || hitClip.kind === 'text')) {
+      const minScale = Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
+      const radius = 12 / minScale;
+      const rotateDistance = 34 / Math.max(0.01, Math.abs(layerScaleY));
+      if (Math.abs(localX) <= radius * 1.5 && Math.abs(localY + halfH + rotateDistance) <= radius * 1.5) {
         dragRef.current = {
-          mode: 'resize-shape', clipId: hitClip.id, startClientX: e.clientX, startClientY: e.clientY,
-          origWidth: shapeTransform.shapeWidth ?? hitClip.shapeProps.width,
-          origHeight: shapeTransform.shapeHeight ?? hitClip.shapeProps.height,
-          signX: corner.x, signY: corner.y, rotationRad, scaleX: layerScaleX, scaleY: layerScaleY,
+          mode: 'rotate',
+          clipId: hitClip.id,
+          centerX,
+          centerY,
+          startAngle: Math.atan2(compY - centerY, compX - centerX),
+          origRotation: transform.rotation,
         };
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+
+      const handles = [
+        { x: -1, y: -1 }, { x: 0, y: -1 }, { x: 1, y: -1 },
+        { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+        { x: -1, y: 1 }, { x: -1, y: 0 },
+      ];
+      const handle = handles.find((sign) => {
+        const hx = sign.x * halfW;
+        const hy = sign.y * halfH;
+        return Math.hypot(localX - hx, localY - hy) <= radius;
+      });
+      if (handle) {
+        if (hitClip.kind === 'shape' && hitClip.shapeProps) {
+          const shapeTransform = evaluateClipTransform(hitClip, playheadTime);
+          dragRef.current = {
+            mode: 'resize-shape',
+            clipId: hitClip.id,
+            startClientX: e.clientX,
+            startClientY: e.clientY,
+            origWidth: shapeTransform.shapeWidth ?? hitClip.shapeProps.width,
+            origHeight: shapeTransform.shapeHeight ?? hitClip.shapeProps.height,
+            signX: handle.x,
+            signY: handle.y,
+            rotationRad,
+            scaleX: layerScaleX,
+            scaleY: layerScaleY,
+          };
+        } else {
+          dragRef.current = {
+            mode: 'resize-text',
+            clipId: hitClip.id,
+            startClientX: e.clientX,
+            startClientY: e.clientY,
+            origWidth: baseWidth,
+            origHeight: baseHeight,
+            origScale: transform.scale,
+            signX: handle.x,
+            signY: handle.y,
+            rotationRad,
+            scaleX: layerScaleX,
+            scaleY: layerScaleY,
+          };
+        }
         canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -521,20 +612,40 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     }
     const drag = dragRef.current;
     if (!drag) return;
+    if (drag.mode === 'rotate') {
+      const compX = (e.clientX - rect.left) * scaleX;
+      const compY = (e.clientY - rect.top) * scaleY;
+      const angle = Math.atan2(compY - drag.centerY, compX - drag.centerX);
+      let rotation = drag.origRotation + ((angle - drag.startAngle) * 180) / Math.PI;
+      if (e.shiftKey) rotation = Math.round(rotation / 15) * 15;
+      onTransformClipCanvas(drag.clipId, { rotation });
+      return;
+    }
     const dx = (e.clientX - drag.startClientX) * scaleX;
     const dy = (e.clientY - drag.startClientY) * scaleY;
     if (drag.mode === 'move') {
       onMoveClipCanvas(drag.clipId, Math.round(drag.origX + dx), Math.round(drag.origY + dy));
       return;
     }
-    const localDx = dx * Math.cos(-drag.rotationRad) - dy * Math.sin(-drag.rotationRad);
-    const localDy = dx * Math.sin(-drag.rotationRad) + dy * Math.cos(-drag.rotationRad);
+    const localDx = dx * Math.cos(drag.rotationRad) + dy * Math.sin(drag.rotationRad);
+    const localDy = -dx * Math.sin(drag.rotationRad) + dy * Math.cos(drag.rotationRad);
     const unscaledDx = localDx / (Math.abs(drag.scaleX) || 1);
     const unscaledDy = localDy / (Math.abs(drag.scaleY) || 1);
+    if (drag.mode === 'move-anchor') {
+      onSetAnchorCanvas(drag.clipId, drag.origAnchorX + unscaledDx, drag.origAnchorY + unscaledDy);
+      return;
+    }
     if (drag.mode === 'resize-shape') {
       const width = Math.max(1, drag.origWidth + unscaledDx * 2 * drag.signX);
       const height = Math.max(1, drag.origHeight + unscaledDy * 2 * drag.signY);
       onResizeShapeCanvas(drag.clipId, width, height);
+      return;
+    }
+    if (drag.mode === 'resize-text') {
+      const ratioX = drag.signX === 0 ? 1 : Math.max(0.02, (drag.origWidth + unscaledDx * 2 * drag.signX) / drag.origWidth);
+      const ratioY = drag.signY === 0 ? 1 : Math.max(0.02, (drag.origHeight + unscaledDy * 2 * drag.signY) / drag.origHeight);
+      const ratio = drag.signX === 0 ? ratioY : drag.signY === 0 ? ratioX : Math.max(ratioX, ratioY);
+      onTransformClipCanvas(drag.clipId, { scale: Math.max(1, drag.origScale * ratio) });
       return;
     }
     const original = drag.origMask;
@@ -941,6 +1052,18 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         </div>
       )}
 
+      {tool === 'pin' && (
+        <div className="px-3 py-1.5 bg-[#211D14] border-b border-[#F59E0B]/40 flex items-center justify-between text-xs">
+          <span className="text-[#FDE68A]">Pin Tool Active · Click or drag inside a layer to move its pivot without shifting the artwork</span>
+          <button
+            type="button"
+            disabled={!selectedClipId}
+            onClick={() => selectedClipId && onSetAnchorCanvas(selectedClipId, 0, 0)}
+            className="px-2 py-0.5 rounded bg-[#3A2B12] text-[#FDE68A] hover:bg-[#523B15] disabled:opacity-40 disabled:cursor-not-allowed text-[11px]"
+          >Center Anchor</button>
+        </div>
+      )}
+
       {/* Viewport Grid (1 / 2H / 2V / 4 Quad) */}
       <div className="flex-1 min-h-0 p-3 overflow-auto bg-[#0D0E11] flex items-center justify-center">
         <div
@@ -992,6 +1115,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
               )}
               <ViewportCanvasSlot
                 angle={angle}
+                tool={tool}
                 composition={composition}
                 tracks={tracks}
                 clips={previewClips}

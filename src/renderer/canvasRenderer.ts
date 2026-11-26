@@ -7,6 +7,7 @@ import {
   PathPoint,
   TimelineClip,
   TimelineTrack,
+  ToolMode,
   ViewportCameraAngle,
 } from '../types/editor';
 import {
@@ -883,6 +884,169 @@ function drawVectorPathPoints(
   }
 }
 
+type ShapePoint = { x: number; y: number };
+
+function traceVectorShape(
+  ctx: CanvasRenderingContext2D,
+  shapeType: NonNullable<TimelineClip['shapeProps']>['shapeType'],
+  width: number,
+  height: number,
+  cornerRadius: number,
+  sides = 6
+) {
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  const l = -w / 2;
+  const r = w / 2;
+  const t = -h / 2;
+  const b = h / 2;
+  const polygon = (points: ShapePoint[]) => {
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+  };
+  const regularPolygon = (count: number, innerRatio = 1) => {
+    const radius = Math.min(w, h) / 2;
+    const points: ShapePoint[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 - Math.PI / 2;
+      points.push({
+        x: Math.cos(a) * radius * (innerRatio === 1 ? 1 : (i % 2 === 0 ? 1 : innerRatio)),
+        y: Math.sin(a) * radius * (innerRatio === 1 ? 1 : (i % 2 === 0 ? 1 : innerRatio)),
+      });
+    }
+    return points;
+  };
+
+  ctx.beginPath();
+  switch (shapeType) {
+    case 'circle':
+      ctx.ellipse(0, 0, Math.min(w, h) / 2, Math.min(w, h) / 2, 0, 0, Math.PI * 2);
+      break;
+    case 'ellipse':
+      ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+      break;
+    case 'ring':
+      ctx.ellipse(0, 0, Math.min(w, h) / 2, Math.min(w, h) / 2, 0, 0, Math.PI * 2);
+      break;
+    case 'polygon':
+      polygon(regularPolygon(Math.max(3, Math.min(24, Math.round(sides)))));
+      break;
+    case 'triangle':
+      polygon([{ x: 0, y: t }, { x: r, y: b }, { x: l, y: b }]);
+      break;
+    case 'diamond':
+      polygon([{ x: 0, y: t }, { x: r, y: 0 }, { x: 0, y: b }, { x: l, y: 0 }]);
+      break;
+    case 'pentagon':
+      polygon(regularPolygon(5));
+      break;
+    case 'hexagon':
+      polygon(regularPolygon(6));
+      break;
+    case 'heptagon':
+      polygon(regularPolygon(7));
+      break;
+    case 'octagon':
+      polygon(regularPolygon(8));
+      break;
+    case 'star':
+      polygon(regularPolygon(10, 0.43));
+      break;
+    case 'star-6':
+      polygon(regularPolygon(12, 0.48));
+      break;
+    case 'burst':
+      polygon(regularPolygon(24, 0.55));
+      break;
+    case 'heart':
+      ctx.moveTo(0, h * 0.42);
+      ctx.bezierCurveTo(-w * 0.12, h * 0.28, -w * 0.5, -h * 0.02, -w * 0.46, -h * 0.24);
+      ctx.bezierCurveTo(-w * 0.42, -h * 0.54, -w * 0.08, -h * 0.53, 0, -h * 0.28);
+      ctx.bezierCurveTo(w * 0.08, -h * 0.53, w * 0.42, -h * 0.54, w * 0.46, -h * 0.24);
+      ctx.bezierCurveTo(w * 0.5, -h * 0.02, w * 0.12, h * 0.28, 0, h * 0.42);
+      ctx.closePath();
+      break;
+    case 'arrow':
+      polygon([
+        { x: l, y: -h * 0.18 }, { x: w * 0.08, y: -h * 0.18 },
+        { x: w * 0.08, y: -h * 0.42 }, { x: r, y: 0 },
+        { x: w * 0.08, y: h * 0.42 }, { x: w * 0.08, y: h * 0.18 },
+        { x: l, y: h * 0.18 },
+      ]);
+      break;
+    case 'chevron':
+      polygon([
+        { x: l, y: t }, { x: -w * 0.12, y: t }, { x: r, y: 0 },
+        { x: -w * 0.12, y: b }, { x: l, y: b }, { x: w * 0.05, y: 0 },
+      ]);
+      break;
+    case 'cross':
+      polygon([
+        { x: -w * 0.18, y: t }, { x: w * 0.18, y: t },
+        { x: w * 0.18, y: -h * 0.18 }, { x: r, y: -h * 0.18 },
+        { x: r, y: h * 0.18 }, { x: w * 0.18, y: h * 0.18 },
+        { x: w * 0.18, y: b }, { x: -w * 0.18, y: b },
+        { x: -w * 0.18, y: h * 0.18 }, { x: l, y: h * 0.18 },
+        { x: l, y: -h * 0.18 }, { x: -w * 0.18, y: -h * 0.18 },
+      ]);
+      break;
+    case 'plus':
+      polygon([
+        { x: -w * 0.16, y: t }, { x: w * 0.16, y: t },
+        { x: w * 0.16, y: -h * 0.16 }, { x: r, y: -h * 0.16 },
+        { x: r, y: h * 0.16 }, { x: w * 0.16, y: h * 0.16 },
+        { x: w * 0.16, y: b }, { x: -w * 0.16, y: b },
+        { x: -w * 0.16, y: h * 0.16 }, { x: l, y: h * 0.16 },
+        { x: l, y: -h * 0.16 }, { x: -w * 0.16, y: -h * 0.16 },
+      ]);
+      break;
+    case 'minus':
+      polygon([{ x: l, y: -h * 0.16 }, { x: r, y: -h * 0.16 }, { x: r, y: h * 0.16 }, { x: l, y: h * 0.16 }]);
+      break;
+    case 'trapezoid':
+      polygon([{ x: -w * 0.32, y: t }, { x: w * 0.32, y: t }, { x: r, y: b }, { x: l, y: b }]);
+      break;
+    case 'parallelogram':
+      polygon([{ x: -w * 0.28, y: t }, { x: r, y: t }, { x: w * 0.28, y: b }, { x: l, y: b }]);
+      break;
+    case 'speech-bubble':
+      polygon([
+        { x: l, y: t }, { x: r, y: t }, { x: r, y: h * 0.24 },
+        { x: w * 0.12, y: h * 0.24 }, { x: -w * 0.04, y: b },
+        { x: -w * 0.08, y: h * 0.24 }, { x: l, y: h * 0.24 },
+      ]);
+      break;
+    case 'cloud':
+      ctx.moveTo(-w * 0.38, h * 0.22);
+      ctx.bezierCurveTo(-w * 0.57, h * 0.08, -w * 0.49, -h * 0.19, -w * 0.25, -h * 0.2);
+      ctx.bezierCurveTo(-w * 0.18, -h * 0.49, w * 0.2, -h * 0.5, w * 0.28, -h * 0.2);
+      ctx.bezierCurveTo(w * 0.57, -h * 0.22, w * 0.59, h * 0.16, w * 0.34, h * 0.25);
+      ctx.bezierCurveTo(w * 0.27, h * 0.49, -w * 0.12, h * 0.47, -w * 0.2, h * 0.25);
+      ctx.closePath();
+      break;
+    case 'lightning':
+      polygon([
+        { x: w * 0.08, y: t }, { x: -w * 0.28, y: h * 0.08 },
+        { x: -w * 0.02, y: h * 0.08 }, { x: -w * 0.16, y: b },
+        { x: w * 0.3, y: -h * 0.12 }, { x: w * 0.04, y: -h * 0.12 },
+      ]);
+      break;
+    case 'line':
+      ctx.moveTo(l, b);
+      ctx.lineTo(r, t);
+      break;
+    case 'rounded-rect':
+      ctx.roundRect(l, t, w, h, Math.max(0, Math.min(cornerRadius || 28, Math.min(w, h) / 2)));
+      break;
+    case 'rect':
+    case 'lower-third':
+    default:
+      ctx.rect(l, t, w, h);
+      break;
+  }
+}
+
 export interface RenderOptions {
   canvas: HTMLCanvasElement;
   composition: CompositionSettings;
@@ -899,6 +1063,7 @@ export interface RenderOptions {
   mediaCache: MediaCache;
   onMediaLoaded?: () => void;
   drawGizmo?: boolean;
+  activeTool?: ToolMode;
 }
 
 export interface BoundingBox {
@@ -1123,6 +1288,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     mediaCache,
     onMediaLoaded,
     drawGizmo = true,
+    activeTool = 'select',
   } = options;
 
   const ctx = canvas.getContext('2d');
@@ -1747,60 +1913,18 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       baseW = shapeWidth;
       baseH = shapeHeight;
 
-      if (sp.shapeType === 'circle' || sp.shapeType === 'ring') {
-        const r = Math.min(shapeWidth, shapeHeight) / 2;
-        renderCtx.beginPath();
-        renderCtx.arc(0, 0, r, 0, Math.PI * 2);
-        if (sp.shapeType === 'circle' && sp.fillColor !== 'transparent') {
-          renderCtx.fillStyle = sp.fillColor;
-          renderCtx.fill();
-        }
-        if (sp.strokeWidth > 0) {
-          renderCtx.strokeStyle = sp.strokeColor;
-          renderCtx.lineWidth = sp.strokeWidth;
-          if (sp.shapeType === 'ring') renderCtx.setLineDash([28, 12, 8, 12]);
-          renderCtx.stroke();
-          renderCtx.setLineDash([]);
-        }
-      } else if (sp.shapeType === 'polygon') {
-        const sides = Math.max(3, sp.sides ?? 6);
-        const r = Math.min(shapeWidth, shapeHeight) / 2;
-        renderCtx.beginPath();
-        for (let i = 0; i < sides; i++) {
-          const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
-          const px = Math.cos(a) * r;
-          const py = Math.sin(a) * r;
-          if (i === 0) renderCtx.moveTo(px, py);
-          else renderCtx.lineTo(px, py);
-        }
-        renderCtx.closePath();
-        if (sp.fillColor !== 'transparent') {
-          renderCtx.fillStyle = sp.fillColor;
-          renderCtx.fill();
-        }
-        if (sp.strokeWidth > 0) {
-          renderCtx.strokeStyle = sp.strokeColor;
-          renderCtx.lineWidth = sp.strokeWidth;
-          renderCtx.stroke();
-        }
-      } else {
-        renderCtx.beginPath();
-        renderCtx.roundRect(
-          -shapeWidth / 2,
-          -shapeHeight / 2,
-          shapeWidth,
-          shapeHeight,
-          sp.cornerRadius
-        );
-        if (sp.fillColor !== 'transparent') {
-          renderCtx.fillStyle = sp.fillColor;
-          renderCtx.fill();
-        }
-        if (sp.strokeWidth > 0) {
-          renderCtx.strokeStyle = sp.strokeColor;
-          renderCtx.lineWidth = sp.strokeWidth;
-          renderCtx.stroke();
-        }
+      traceVectorShape(renderCtx, sp.shapeType, shapeWidth, shapeHeight, sp.cornerRadius, sp.sides);
+      if (sp.shapeType !== 'ring' && sp.shapeType !== 'line' && sp.fillColor !== 'transparent') {
+        renderCtx.fillStyle = sp.fillColor;
+        renderCtx.fill();
+      }
+      if (sp.strokeWidth > 0) {
+        renderCtx.strokeStyle = sp.strokeColor;
+        renderCtx.lineWidth = sp.strokeWidth;
+        if (sp.shapeType === 'ring') renderCtx.setLineDash([28, 12, 8, 12]);
+        if (sp.shapeType === 'line') renderCtx.lineCap = 'round';
+        renderCtx.stroke();
+        renderCtx.setLineDash([]);
       }
     } else if (clip.kind === 'path' && clip.pathProps) {
       const pp = clip.pathProps;
@@ -1957,11 +2081,78 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
     if (drawGizmo && clip.id === selectedClipId) {
       targetCtx.save();
-      targetCtx.fillStyle = '#FDE68A';
-      targetCtx.strokeStyle = '#111827';
-      targetCtx.lineWidth = 2;
+      if (activeTool === 'pin') {
+        // The pivot is the transform origin (cx/cy), not the visible layer center.
+        targetCtx.strokeStyle = '#FBBF24';
+        targetCtx.fillStyle = '#FDE68A';
+        targetCtx.lineWidth = 2;
+        targetCtx.beginPath();
+        targetCtx.moveTo(cx - 15, cy);
+        targetCtx.lineTo(cx + 15, cy);
+        targetCtx.moveTo(cx, cy - 15);
+        targetCtx.lineTo(cx, cy + 15);
+        targetCtx.stroke();
+        targetCtx.beginPath();
+        targetCtx.arc(cx, cy, 6, 0, Math.PI * 2);
+        targetCtx.fill();
+        targetCtx.strokeStyle = '#111827';
+        targetCtx.stroke();
+        targetCtx.font = '600 10px "JetBrains Mono", monospace';
+        targetCtx.fillStyle = '#FDE68A';
+        targetCtx.fillText('PIVOT', cx + 11, cy - 10);
+      } else {
+        targetCtx.fillStyle = '#FDE68A';
+        targetCtx.strokeStyle = '#111827';
+        targetCtx.lineWidth = 2;
+        targetCtx.beginPath();
+        targetCtx.arc(screenCx, screenCy, 5, 0, Math.PI * 2);
+        targetCtx.fill();
+        targetCtx.stroke();
+      }
+      targetCtx.restore();
+    }
+
+    if (
+      drawGizmo &&
+      clip.id === selectedClipId &&
+      (clip.kind === 'text' || clip.kind === 'shape') &&
+      activeTool === 'select'
+    ) {
+      targetCtx.save();
+      targetCtx.translate(cx, cy);
+      targetCtx.rotate(rotRad);
+      if (skewX !== 0) targetCtx.transform(1, 0, skewX, 1, 0, 0);
+      targetCtx.scale(effScaleX, effScaleY);
+      if (ax !== 0 || ay !== 0) targetCtx.translate(-ax, -ay);
+      const boxX = -baseW / 2;
+      const boxY = -baseH / 2;
+      targetCtx.strokeStyle = '#60A5FA';
+      targetCtx.lineWidth = 1.5 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+      targetCtx.setLineDash([5, 4]);
+      targetCtx.strokeRect(boxX, boxY, baseW, baseH);
+      targetCtx.setLineDash([]);
+      const handleSize = 9 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+      targetCtx.fillStyle = '#F8FAFC';
+      targetCtx.strokeStyle = '#2563EB';
+      targetCtx.lineWidth = 1.5 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+      const handles: ShapePoint[] = [
+        { x: boxX, y: boxY }, { x: 0, y: boxY }, { x: -boxX, y: boxY },
+        { x: -boxX, y: 0 }, { x: -boxX, y: -boxY }, { x: 0, y: -boxY },
+        { x: boxX, y: -boxY }, { x: boxX, y: 0 },
+      ];
+      handles.forEach((point) => {
+        targetCtx.fillRect(point.x - handleSize / 2, point.y - handleSize / 2, handleSize, handleSize);
+        targetCtx.strokeRect(point.x - handleSize / 2, point.y - handleSize / 2, handleSize, handleSize);
+      });
+      const rotateY = boxY - 34 / Math.max(0.01, Math.abs(effScaleY));
+      targetCtx.strokeStyle = '#F59E0B';
       targetCtx.beginPath();
-      targetCtx.arc(screenCx, screenCy, 5, 0, Math.PI * 2);
+      targetCtx.moveTo(0, boxY);
+      targetCtx.lineTo(0, rotateY);
+      targetCtx.stroke();
+      targetCtx.beginPath();
+      targetCtx.arc(0, rotateY, 6 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY))), 0, Math.PI * 2);
+      targetCtx.fillStyle = '#FBBF24';
       targetCtx.fill();
       targetCtx.stroke();
       targetCtx.restore();

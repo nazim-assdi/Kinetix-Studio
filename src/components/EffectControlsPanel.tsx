@@ -1303,11 +1303,42 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                 }
                 className="bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
               >
-                <option value="ring">Orbital Ring</option>
-                <option value="circle">Circle</option>
-                <option value="rect">Rectangle</option>
-                <option value="polygon">Polygon</option>
-                <option value="lower-third">Lower Third Bar</option>
+                <optgroup label="Basic">
+                  <option value="rect">Rectangle</option>
+                  <option value="rounded-rect">Rounded Rectangle</option>
+                  <option value="circle">Circle</option>
+                  <option value="ellipse">Ellipse</option>
+                  <option value="ring">Ring</option>
+                  <option value="line">Line</option>
+                </optgroup>
+                <optgroup label="Polygons">
+                  <option value="triangle">Triangle</option>
+                  <option value="diamond">Diamond</option>
+                  <option value="pentagon">Pentagon</option>
+                  <option value="hexagon">Hexagon</option>
+                  <option value="heptagon">Heptagon</option>
+                  <option value="octagon">Octagon</option>
+                  <option value="polygon">Custom Polygon</option>
+                </optgroup>
+                <optgroup label="Stars & Symbols">
+                  <option value="star">5-Point Star</option>
+                  <option value="star-6">6-Point Star</option>
+                  <option value="burst">Burst / Sun</option>
+                  <option value="heart">Heart</option>
+                  <option value="plus">Plus</option>
+                  <option value="minus">Minus</option>
+                  <option value="cross">Cross</option>
+                  <option value="lightning">Lightning Bolt</option>
+                </optgroup>
+                <optgroup label="Arrows & UI">
+                  <option value="arrow">Arrow</option>
+                  <option value="chevron">Chevron</option>
+                  <option value="trapezoid">Trapezoid</option>
+                  <option value="parallelogram">Parallelogram</option>
+                  <option value="speech-bubble">Speech Bubble</option>
+                  <option value="cloud">Cloud</option>
+                  <option value="lower-third">Lower Third Bar</option>
+                </optgroup>
               </select>
             </div>
             <div className="flex items-center justify-between gap-2">
