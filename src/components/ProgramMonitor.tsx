@@ -626,7 +626,10 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                 </option>
               ))}
               {!SEQUENCE_PRESETS.some(
-                (p) => p.width === composition.width && p.height === composition.height
+                (p) =>
+                  p.width === composition.width &&
+                  p.height === composition.height &&
+                  p.fps === composition.fps
               ) && (
                 <option value="custom">
                   {composition.width}×{composition.height} · {composition.fps}fps
