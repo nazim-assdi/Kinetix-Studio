@@ -1019,6 +1019,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       playheadTime >= c.start &&
       playheadTime <= c.start + c.duration
   );
+  const activeCameraView = resolveCameraViewState(activeCamera, clips, playheadTime, width);
 
   let selectedBox: BoundingBox | null = null;
 
@@ -1108,11 +1109,21 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
     const ax = world.anchorX ?? 0;
     const ay = world.anchorY ?? 0;
+    const layerTexture = clip.is3D
+      ? getScratchCanvas(mediaCache, `3d-layer-${clip.id}`, width, height)
+      : null;
+    const renderCtx = layerTexture?.getContext('2d') ?? targetCtx;
 
-    targetCtx.save();
-    targetCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100));
+    renderCtx.save();
+    renderCtx.globalAlpha = clip.is3D
+      ? 1
+      : Math.max(0, Math.min(1, world.opacity / 100));
+    if (!ignoreBlendMode && !clip.is3D) {
+      renderCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
+    }
+    renderCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100));
     if (!ignoreBlendMode) {
-      targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
+      renderCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
     }
     let baseFilter = buildFilterString(
       clip.effects,
@@ -1136,38 +1147,44 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     }
     if (clip.mask?.enabled && clip.mask.feather > 0) {
       const maskBlur = `blur(${(clip.mask.feather * 0.15).toFixed(1)}px)`;
-      targetCtx.filter = baseFilter === 'none' ? maskBlur : `${baseFilter} ${maskBlur}`;
+      renderCtx.filter = baseFilter === 'none' ? maskBlur : `${baseFilter} ${maskBlur}`;
     } else {
-      targetCtx.filter = baseFilter;
+      renderCtx.filter = baseFilter;
     }
 
     const glowFx = clip.effects.find((f) => f.enabled && f.type === 'glow');
     const shadowFx = clip.effects.find((f) => f.enabled && f.type === 'dropshadow');
     if (glowFx) {
-      targetCtx.shadowColor = 'rgba(96, 165, 250, 0.8)';
-      targetCtx.shadowBlur =
+      renderCtx.shadowColor = 'rgba(96, 165, 250, 0.8)';
+      renderCtx.shadowBlur =
         (glowFx.params.radius ?? 16) * ((glowFx.params.intensity ?? 50) / 50);
     } else if (shadowFx) {
       const op = (shadowFx.params.opacity ?? 70) / 100;
-      targetCtx.shadowColor = `rgba(0, 0, 0, ${op})`;
-      targetCtx.shadowBlur = shadowFx.params.blur ?? 16;
-      targetCtx.shadowOffsetX = (shadowFx.params.distance ?? 10) * 0.5;
-      targetCtx.shadowOffsetY = shadowFx.params.distance ?? 10;
+      renderCtx.shadowColor = `rgba(0, 0, 0, ${op})`;
+      renderCtx.shadowBlur = shadowFx.params.blur ?? 16;
+      renderCtx.shadowOffsetX = (shadowFx.params.distance ?? 10) * 0.5;
+      renderCtx.shadowOffsetY = shadowFx.params.distance ?? 10;
     }
 
-    targetCtx.translate(cx, cy);
-    targetCtx.rotate(rotRad);
-    if (skewX !== 0) {
-      targetCtx.transform(1, 0, skewX, 1, 0, 0);
+    if (clip.is3D) {
+      // Render the source layer in its own local plane. Camera projection and
+      // world rotation/scale are applied later by the perspective mesh.
+      renderCtx.translate(width / 2, height / 2);
+    } else {
+      renderCtx.translate(cx, cy);
+      renderCtx.rotate(rotRad);
+      if (skewX !== 0) {
+        renderCtx.transform(1, 0, skewX, 1, 0, 0);
+      }
+      renderCtx.scale(effScaleX, effScaleY);
     }
-    targetCtx.scale(effScaleX, effScaleY);
     if (ax !== 0 || ay !== 0) {
-      targetCtx.translate(-ax, -ay);
+      renderCtx.translate(-ax, -ay);
     }
 
     if (clip.mask?.enabled) {
-      targetCtx.globalAlpha *= Math.max(0, Math.min(1, clip.mask.opacity / 100));
-      applyMaskClipPath(targetCtx, clip.mask, width, height);
+      renderCtx.globalAlpha *= Math.max(0, Math.min(1, clip.mask.opacity / 100));
+      applyMaskClipPath(renderCtx, clip.mask, width, height);
     }
 
     let baseW = width;
@@ -1178,8 +1195,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     if (clip.kind === 'solid' && clip.solidProps) {
       baseW = clip.solidProps.width;
       baseH = clip.solidProps.height;
-      targetCtx.fillStyle = clip.solidProps.color;
-      targetCtx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
+      renderCtx.fillStyle = clip.solidProps.color;
+      renderCtx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
     } else if (clip.kind === 'image' && clip.src) {
       const img = getOrLoadImage(mediaCache, clip.src, onMediaLoaded);
       if (img) {
@@ -1202,9 +1219,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          targetCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
+          renderCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
         } else {
-          targetCtx.drawImage(img, -baseW / 2, -baseH / 2, baseW, baseH);
+          renderCtx.drawImage(img, -baseW / 2, -baseH / 2, baseW, baseH);
         }
       }
     } else if (clip.kind === 'video' && clip.src) {
@@ -1236,9 +1253,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          targetCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
+          renderCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
         } else {
-          targetCtx.drawImage(video, -baseW / 2, -baseH / 2, baseW, baseH);
+          renderCtx.drawImage(video, -baseW / 2, -baseH / 2, baseW, baseH);
         }
       }
     } else if (clip.kind === 'text' && clip.textProps) {
@@ -1260,7 +1277,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         const prog = Math.min(1, localT / 0.55);
         const ease = 1 - Math.pow(1 - prog, 3);
         animOffsetY = (1 - ease) * 34;
-        targetCtx.globalAlpha *= ease;
+        renderCtx.globalAlpha *= ease;
       } else if (anim === 'word-pop') {
         const prog = Math.min(1, localT / 0.45);
         animScale = 0.78 + 0.22 * (1 - Math.pow(1 - prog, 3));
@@ -1277,30 +1294,30 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           .join('');
       }
 
-      targetCtx.font = `${tp.fontWeight} ${tp.fontSize}px "Plus Jakarta Sans", sans-serif`;
-      targetCtx.textAlign = tp.align;
-      targetCtx.textBaseline = 'middle';
-      if ('letterSpacing' in targetCtx) {
-        (targetCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${tp.letterSpacing}px`;
+      renderCtx.font = `${tp.fontWeight} ${tp.fontSize}px "Plus Jakarta Sans", sans-serif`;
+      renderCtx.textAlign = tp.align;
+      renderCtx.textBaseline = 'middle';
+      if ('letterSpacing' in renderCtx) {
+        (renderCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${tp.letterSpacing}px`;
       }
-      const metrics = targetCtx.measureText(tp.text);
+      const metrics = renderCtx.measureText(tp.text);
       baseW = Math.max(120, metrics.width + 40);
       baseH = Math.max(48, tp.fontSize * 1.45);
 
-      targetCtx.save();
-      targetCtx.translate(0, animOffsetY);
-      if (animScale !== 1) targetCtx.scale(animScale, animScale);
+      renderCtx.save();
+      renderCtx.translate(0, animOffsetY);
+      if (animScale !== 1) renderCtx.scale(animScale, animScale);
       if (tp.backgroundColor) {
-        targetCtx.fillStyle = tp.backgroundColor;
+        renderCtx.fillStyle = tp.backgroundColor;
         const rx =
           tp.align === 'left' ? -16 : tp.align === 'right' ? -baseW + 16 : -baseW / 2;
-        targetCtx.beginPath();
-        targetCtx.roundRect(rx, -baseH / 2, baseW, baseH, 6);
-        targetCtx.fill();
+        renderCtx.beginPath();
+        renderCtx.roundRect(rx, -baseH / 2, baseW, baseH, 6);
+        renderCtx.fill();
       }
-      targetCtx.fillStyle = tp.color;
-      targetCtx.fillText(renderText, 0, 0);
-      targetCtx.restore();
+      renderCtx.fillStyle = tp.color;
+      renderCtx.fillText(renderText, 0, 0);
+      renderCtx.restore();
     } else if (clip.kind === 'particles' && clip.particleProps) {
       const pp = clip.particleProps;
       baseW = width;
@@ -1331,21 +1348,21 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         }
 
         const radius = pp.size * (0.45 + (i % 5) * 0.18);
-        targetCtx.save();
-        targetCtx.fillStyle = pp.color;
-        targetCtx.globalAlpha *= pp.style === 'bokeh' ? 0.35 : 0.78;
-        targetCtx.beginPath();
+        renderCtx.save();
+        renderCtx.fillStyle = pp.color;
+        renderCtx.globalAlpha *= pp.style === 'bokeh' ? 0.35 : 0.78;
+        renderCtx.beginPath();
         if (pp.style === 'confetti') {
-          targetCtx.translate(px, py);
-          targetCtx.rotate(localT * 3 + i);
-          targetCtx.fillRect(-radius, -radius * 0.5, radius * 2, radius);
+          renderCtx.translate(px, py);
+          renderCtx.rotate(localT * 3 + i);
+          renderCtx.fillRect(-radius, -radius * 0.5, radius * 2, radius);
         } else if (pp.style === 'matrix') {
-          targetCtx.fillRect(px, py, Math.max(2, radius * 0.6), radius * 3.2);
+          renderCtx.fillRect(px, py, Math.max(2, radius * 0.6), radius * 3.2);
         } else {
-          targetCtx.arc(px, py, radius, 0, Math.PI * 2);
-          targetCtx.fill();
+          renderCtx.arc(px, py, radius, 0, Math.PI * 2);
+          renderCtx.fill();
         }
-        targetCtx.restore();
+        renderCtx.restore();
       }
     } else if (clip.kind === 'visualizer' && clip.visualizerProps) {
       const vp = clip.visualizerProps;
@@ -1361,12 +1378,12 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             (0.25 + 0.75 * Math.abs(Math.sin(localT * 7 + i * 0.55) * Math.cos(localT * 3 + i * 0.25))) *
             75 *
             vp.sensitivity;
-          targetCtx.strokeStyle = i % 2 === 0 ? vp.color : vp.accentColor;
-          targetCtx.lineWidth = 4;
-          targetCtx.beginPath();
-          targetCtx.moveTo(Math.cos(ang) * baseR, Math.sin(ang) * baseR);
-          targetCtx.lineTo(Math.cos(ang) * (baseR + mag), Math.sin(ang) * (baseR + mag));
-          targetCtx.stroke();
+          renderCtx.strokeStyle = i % 2 === 0 ? vp.color : vp.accentColor;
+          renderCtx.lineWidth = 4;
+          renderCtx.beginPath();
+          renderCtx.moveTo(Math.cos(ang) * baseR, Math.sin(ang) * baseR);
+          renderCtx.lineTo(Math.cos(ang) * (baseR + mag), Math.sin(ang) * (baseR + mag));
+          renderCtx.stroke();
         }
       } else {
         const barW = baseW / bars - 4;
@@ -1377,10 +1394,10 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             0.72 *
             vp.sensitivity;
           const bx = -baseW / 2 + i * (baseW / bars);
-          targetCtx.fillStyle = i % 3 === 0 ? vp.accentColor : vp.color;
-          targetCtx.beginPath();
-          targetCtx.roundRect(bx, baseH / 2 - mag, barW, Math.max(6, mag), 2);
-          targetCtx.fill();
+          renderCtx.fillStyle = i % 3 === 0 ? vp.accentColor : vp.color;
+          renderCtx.beginPath();
+          renderCtx.roundRect(bx, baseH / 2 - mag, barW, Math.max(6, mag), 2);
+          renderCtx.fill();
         }
       }
     } else if (clip.kind === 'caption' && clip.captionProps) {
@@ -1393,9 +1410,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       if (activeCue) {
         const yPos = cp.position === 'bottom' ? height * 0.34 : 0;
         const maxTextWidth = Math.max(80, width - 120);
-        targetCtx.font = `700 ${cp.fontSize}px "Plus Jakarta Sans", sans-serif`;
-        targetCtx.textAlign = 'center';
-        targetCtx.textBaseline = 'middle';
+        renderCtx.font = `700 ${cp.fontSize}px "Plus Jakarta Sans", sans-serif`;
+        renderCtx.textAlign = 'center';
+        renderCtx.textBaseline = 'middle';
 
         const lines: string[] = [];
         for (const paragraph of activeCue.text.split(/\r?\n/)) {
@@ -1407,7 +1424,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           let line = '';
           for (const word of words) {
             const candidate = line ? `${line} ${word}` : word;
-            if (line && targetCtx.measureText(candidate).width > maxTextWidth) {
+            if (line && renderCtx.measureText(candidate).width > maxTextWidth) {
               lines.push(line);
               line = word;
             } else {
@@ -1419,19 +1436,19 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
         const visibleLines = lines.length > 0 ? lines : [''];
         const lineHeight = cp.fontSize * 1.28;
-        const textWidth = Math.max(...visibleLines.map((line) => targetCtx.measureText(line).width));
+        const textWidth = Math.max(...visibleLines.map((line) => renderCtx.measureText(line).width));
         const boxW = Math.min(width - 48, Math.max(80, Math.min(maxTextWidth, textWidth) + 36));
         const boxH = visibleLines.length * lineHeight + 18;
         baseW = boxW;
         baseH = boxH;
 
-        targetCtx.fillStyle = cp.bgColor;
-        targetCtx.beginPath();
-        targetCtx.roundRect(-boxW / 2, yPos - boxH / 2, boxW, boxH, 8);
-        targetCtx.fill();
-        targetCtx.fillStyle = cp.color;
+        renderCtx.fillStyle = cp.bgColor;
+        renderCtx.beginPath();
+        renderCtx.roundRect(-boxW / 2, yPos - boxH / 2, boxW, boxH, 8);
+        renderCtx.fill();
+        renderCtx.fillStyle = cp.color;
         visibleLines.forEach((line, index) => {
-          targetCtx.fillText(
+          renderCtx.fillText(
             line,
             0,
             yPos + (index - (visibleLines.length - 1) / 2) * lineHeight,
@@ -1449,43 +1466,43 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
       if (sp.shapeType === 'circle' || sp.shapeType === 'ring') {
         const r = Math.min(shapeWidth, shapeHeight) / 2;
-        targetCtx.beginPath();
-        targetCtx.arc(0, 0, r, 0, Math.PI * 2);
+        renderCtx.beginPath();
+        renderCtx.arc(0, 0, r, 0, Math.PI * 2);
         if (sp.shapeType === 'circle' && sp.fillColor !== 'transparent') {
-          targetCtx.fillStyle = sp.fillColor;
-          targetCtx.fill();
+          renderCtx.fillStyle = sp.fillColor;
+          renderCtx.fill();
         }
         if (sp.strokeWidth > 0) {
-          targetCtx.strokeStyle = sp.strokeColor;
-          targetCtx.lineWidth = sp.strokeWidth;
-          if (sp.shapeType === 'ring') targetCtx.setLineDash([28, 12, 8, 12]);
-          targetCtx.stroke();
-          targetCtx.setLineDash([]);
+          renderCtx.strokeStyle = sp.strokeColor;
+          renderCtx.lineWidth = sp.strokeWidth;
+          if (sp.shapeType === 'ring') renderCtx.setLineDash([28, 12, 8, 12]);
+          renderCtx.stroke();
+          renderCtx.setLineDash([]);
         }
       } else if (sp.shapeType === 'polygon') {
         const sides = Math.max(3, sp.sides ?? 6);
         const r = Math.min(shapeWidth, shapeHeight) / 2;
-        targetCtx.beginPath();
+        renderCtx.beginPath();
         for (let i = 0; i < sides; i++) {
           const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
           const px = Math.cos(a) * r;
           const py = Math.sin(a) * r;
-          if (i === 0) targetCtx.moveTo(px, py);
-          else targetCtx.lineTo(px, py);
+          if (i === 0) renderCtx.moveTo(px, py);
+          else renderCtx.lineTo(px, py);
         }
-        targetCtx.closePath();
+        renderCtx.closePath();
         if (sp.fillColor !== 'transparent') {
-          targetCtx.fillStyle = sp.fillColor;
-          targetCtx.fill();
+          renderCtx.fillStyle = sp.fillColor;
+          renderCtx.fill();
         }
         if (sp.strokeWidth > 0) {
-          targetCtx.strokeStyle = sp.strokeColor;
-          targetCtx.lineWidth = sp.strokeWidth;
-          targetCtx.stroke();
+          renderCtx.strokeStyle = sp.strokeColor;
+          renderCtx.lineWidth = sp.strokeWidth;
+          renderCtx.stroke();
         }
       } else {
-        targetCtx.beginPath();
-        targetCtx.roundRect(
+        renderCtx.beginPath();
+        renderCtx.roundRect(
           -shapeWidth / 2,
           -shapeHeight / 2,
           shapeWidth,
@@ -1493,54 +1510,54 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           sp.cornerRadius
         );
         if (sp.fillColor !== 'transparent') {
-          targetCtx.fillStyle = sp.fillColor;
-          targetCtx.fill();
+          renderCtx.fillStyle = sp.fillColor;
+          renderCtx.fill();
         }
         if (sp.strokeWidth > 0) {
-          targetCtx.strokeStyle = sp.strokeColor;
-          targetCtx.lineWidth = sp.strokeWidth;
-          targetCtx.stroke();
+          renderCtx.strokeStyle = sp.strokeColor;
+          renderCtx.lineWidth = sp.strokeWidth;
+          renderCtx.stroke();
         }
       }
     } else if (clip.kind === 'path' && clip.pathProps) {
       const pp = clip.pathProps;
       baseW = 360;
       baseH = 260;
-      if (pp.dashed) targetCtx.setLineDash([14, 10]);
-      drawVectorPathPoints(targetCtx, pp.points, pp.closed, pp.trimStart, pp.trimEnd);
+      if (pp.dashed) renderCtx.setLineDash([14, 10]);
+      drawVectorPathPoints(renderCtx, pp.points, pp.closed, pp.trimStart, pp.trimEnd);
       if (pp.closed && pp.fillColor !== 'transparent') {
-        targetCtx.fillStyle = pp.fillColor;
-        targetCtx.fill();
+        renderCtx.fillStyle = pp.fillColor;
+        renderCtx.fill();
       }
       if (pp.strokeWidth > 0) {
-        targetCtx.strokeStyle = pp.strokeColor;
-        targetCtx.lineWidth = pp.strokeWidth;
-        targetCtx.lineCap = 'round';
-        targetCtx.lineJoin = 'round';
-        targetCtx.stroke();
+        renderCtx.strokeStyle = pp.strokeColor;
+        renderCtx.lineWidth = pp.strokeWidth;
+        renderCtx.lineCap = 'round';
+        renderCtx.lineJoin = 'round';
+        renderCtx.stroke();
       }
-      targetCtx.setLineDash([]);
+      renderCtx.setLineDash([]);
     }
 
     // Clear shadow & filter before DaVinci color wash and 3D light tint so halos never bleed
-    targetCtx.shadowBlur = 0;
-    targetCtx.shadowOffsetX = 0;
-    targetCtx.shadowOffsetY = 0;
-    targetCtx.shadowColor = 'transparent';
-    targetCtx.filter = 'none';
+    renderCtx.shadowBlur = 0;
+    renderCtx.shadowOffsetX = 0;
+    renderCtx.shadowOffsetY = 0;
+    renderCtx.shadowColor = 'transparent';
+    renderCtx.filter = 'none';
 
     if (clip.colorGrade?.enabled) {
-      applyDaVinciToneOverlay(targetCtx, clip.colorGrade, baseW, baseH);
+      applyDaVinciToneOverlay(renderCtx, clip.colorGrade, baseW, baseH);
     }
 
     if (shading.tintAlpha > 0.01) {
-      targetCtx.globalCompositeOperation = 'overlay';
-      targetCtx.globalAlpha = shading.tintAlpha;
-      targetCtx.fillStyle = shading.tintColor;
-      targetCtx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
+      renderCtx.globalCompositeOperation = 'overlay';
+      renderCtx.globalAlpha = shading.tintAlpha;
+      renderCtx.fillStyle = shading.tintColor;
+      renderCtx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
     }
 
-    targetCtx.restore();
+    renderCtx.restore();
 
     if (
       clip.effects.some(
@@ -1559,7 +1576,31 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           ].includes(f.type)
       )
     ) {
-      applyPostOverlays(targetCtx, width, height, clip.effects, playheadTime, mediaCache);
+      applyPostOverlays(renderCtx, width, height, clip.effects, playheadTime, mediaCache);
+    }
+
+    if (layerTexture && clip.is3D) {
+      targetCtx.save();
+      targetCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100));
+      if (!ignoreBlendMode) {
+        targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
+      }
+      drawPerspectiveLayerPlane(
+        targetCtx,
+        layerTexture,
+        world,
+        activeCamera,
+        clips,
+        playheadTime,
+        width,
+        height,
+        baseW,
+        baseH,
+        ax,
+        ay,
+        activeCameraView
+      );
+      targetCtx.restore();
     }
 
     const { screenCx, screenCy } = computeAnchorScreenCenter(
