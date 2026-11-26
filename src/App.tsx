@@ -1224,17 +1224,9 @@ export default function App() {
       // Pointer drags can emit dozens of updates per second. A functional update
       // prevents stale render closures from restoring an older clip snapshot.
       setClips((previous) =>
-        previous.map((clip) => {
-          if (clip.id !== clipId) return clip;
-          const list = (clip.keyframes[prop] ?? [])
-            .map((keyframe) =>
-              keyframe.id === keyframeId
-                ? { ...keyframe, time: clamp(time, 0, clip.duration), value }
-                : keyframe
-            )
-            .sort((a, b) => a.time - b.time || a.id.localeCompare(b.id));
-          return { ...clip, keyframes: { ...clip.keyframes, [prop]: list } };
-        })
+        previous.map((clip) =>
+          clip.id === clipId ? moveKeyframe(clip, prop, keyframeId, time, value) : clip
+        )
       );
     },
     []
