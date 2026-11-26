@@ -119,7 +119,7 @@ function catalogItem(
 }
 
 const ICONS: Array<{ name: string; points: Array<[number, number]>; closed?: boolean; filled?: boolean }> = [
-  { name: 'Check Mark', points: [[-72, 0], [-22, 48], [76, -58]], width: 12 as never },
+  { name: 'Check Mark', points: [[-72, 0], [-22, 48], [76, -58]] },
   { name: 'Close Mark', points: [[-58, -58], [58, 58], [0, 0], [-58, 58], [58, -58]] },
   { name: 'Play', points: [[-42, -64], [64, 0], [-42, 64]], closed: true, filled: true },
   { name: 'Send Arrow', points: [[-78, -10], [78, 0], [-12, 66], [8, 10], [-78, -10]], closed: true, filled: true },
@@ -312,13 +312,13 @@ function buildExtendedLibrary(): MotionPresetItem[] {
   }));
 
   // 5. Caption styles designed as real subtitle/caption timeline layers.
-  const captionStyles = [
+  const captionStyles: Array<{ name: string; font: number; bg: string; position?: CaptionLayerProps['position'] }> = [
     { name: 'Clean Subtitle', font: 34, bg: '#111827' },
     { name: 'Bold Social Caption', font: 42, bg: '#09090B' },
     { name: 'Cinema Subtitle', font: 30, bg: '#000000' },
     { name: 'Karaoke Highlight', font: 38, bg: '#18181B' },
     { name: 'Documentary Note', font: 28, bg: '#1F2937' },
-    { name: 'Minimal Top Caption', font: 31, bg: '#0F172A', position: 'center' as const },
+    { name: 'Minimal Top Caption', font: 31, bg: '#0F172A', position: 'center' },
     { name: 'Podcast Quote', font: 36, bg: '#27272A' },
     { name: 'High Contrast Accessibility', font: 40, bg: '#000000' },
   ];
