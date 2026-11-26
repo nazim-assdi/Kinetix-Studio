@@ -22,6 +22,7 @@ import {
   rotateVector3,
 } from '../engine/math3d';
 import { evaluateClipTransform, getClipLocalTime } from '../engine/keyframes';
+import { getTextAnimatorDefinition } from '../data/textAnimators';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -1369,6 +1370,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       let renderText = tp.text;
       let animOffsetY = 0;
       let animScale = 1;
+      let animRotation = 0;
+      let animBlur = 0;
+      let animTracking = 0;
 
       if (anim === 'typewriter') {
         const revealDur = Math.min(2.2, Math.max(0.4, clip.duration * 0.45));
@@ -1398,11 +1402,76 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           .join('');
       }
 
+      const advancedAnimator = getTextAnimatorDefinition(tp.animator);
+      if (advancedAnimator) {
+        const progress = Math.min(1, Math.max(0, localT / advancedAnimator.duration));
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const amount = advancedAnimator.intensity;
+        switch (advancedAnimator.family) {
+          case 'fade-rise':
+            animOffsetY = (1 - eased) * 56 * amount;
+            targetCtx.globalAlpha *= eased;
+            break;
+          case 'fade-drop':
+            animOffsetY = -(1 - eased) * 56 * amount;
+            targetCtx.globalAlpha *= eased;
+            break;
+          case 'scale-pop':
+            animScale = 0.28 + eased * 0.72;
+            targetCtx.globalAlpha *= eased;
+            break;
+          case 'rotate-reveal':
+            animRotation = (1 - eased) * 0.35 * amount;
+            animScale = 0.85 + eased * 0.15;
+            targetCtx.globalAlpha *= eased;
+            break;
+          case 'tracking-reveal':
+            animTracking = (1 - eased) * 24 * amount;
+            targetCtx.globalAlpha *= eased;
+            break;
+          case 'soft-blur':
+            animBlur = (1 - eased) * 18 * amount;
+            targetCtx.globalAlpha *= eased;
+            break;
+          case 'wave-in':
+            animOffsetY = (1 - eased) * 38 * amount + Math.sin(localT * 12 + advancedAnimator.variant) * (1 - eased) * 13;
+            targetCtx.globalAlpha *= eased;
+            break;
+          case 'bounce-in': {
+            const bounce = 1 + Math.sin(progress * Math.PI * 3) * (1 - progress) * 0.16 * amount;
+            animScale = Math.max(0.1, eased * bounce);
+            animOffsetY = (1 - eased) * 46 * amount;
+            targetCtx.globalAlpha *= eased;
+            break;
+          }
+          case 'typewriter': {
+            const chars = Math.max(0, Math.floor(progress * tp.text.length));
+            renderText = tp.text.slice(0, chars);
+            break;
+          }
+          case 'glitch': {
+            if (progress < 1) {
+              const glyphs = '01#@%&XZ';
+              const settled = Math.floor(progress * tp.text.length);
+              renderText = tp.text
+                .split('')
+                .map((character, index) =>
+                  index < settled || character === ' '
+                    ? character
+                    : glyphs[(index * 7 + Math.floor(localT * 36) + advancedAnimator.variant) % glyphs.length]
+                )
+                .join('');
+            }
+            break;
+          }
+        }
+      }
+
       renderCtx.font = `${tp.fontWeight} ${tp.fontSize}px "Plus Jakarta Sans", sans-serif`;
       renderCtx.textAlign = tp.align;
       renderCtx.textBaseline = 'middle';
       if ('letterSpacing' in renderCtx) {
-        (renderCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${tp.letterSpacing}px`;
+        (renderCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${tp.letterSpacing + animTracking}px`;
       }
       const metrics = renderCtx.measureText(tp.text);
       baseW = Math.max(120, metrics.width + 40);
@@ -1410,7 +1479,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
       renderCtx.save();
       renderCtx.translate(0, animOffsetY);
+      if (animRotation !== 0) renderCtx.rotate(animRotation);
       if (animScale !== 1) renderCtx.scale(animScale, animScale);
+      if (animBlur > 0) renderCtx.filter = `blur(${animBlur.toFixed(1)}px)`;
       if (tp.backgroundColor) {
         renderCtx.fillStyle = tp.backgroundColor;
         const rx =
