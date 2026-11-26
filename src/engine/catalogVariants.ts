@@ -1,4 +1,4 @@
-import { AnimatableProperty, MotionPresetItem, TimelineClip } from '../types/editor';
+import { AnimatableProperty, ColorWheelGrade, MotionPresetItem, TimelineClip } from '../types/editor';
 
 function applyCatalogMotionVariant(
   clip: TimelineClip,
@@ -55,4 +55,44 @@ function applyCatalogMotionVariant(
   ];
 
   return { ...clip, keyframes };
+}
+
+export function buildCatalogColorGrade(
+  item: MotionPresetItem,
+  baseGrade: Omit<ColorWheelGrade, 'enabled'>
+): ColorWheelGrade {
+  const strength = Math.max(0, Math.min(1, item.lutStrength ?? 1));
+  const moodAdjustments = {
+    cinema: { temp: -2, tint: 1, contrast: 8, saturation: 3 },
+    commercial: { temp: 2, tint: 0, contrast: 5, saturation: 12 },
+    documentary: { temp: 0, tint: 0, contrast: -3, saturation: -12 },
+    'music-video': { temp: -4, tint: 5, contrast: 13, saturation: 18 },
+    wedding: { temp: 11, tint: 3, contrast: -5, saturation: 5 },
+    'sci-fi': { temp: -15, tint: 12, contrast: 15, saturation: 14 },
+    travel: { temp: 6, tint: -2, contrast: 4, saturation: 16 },
+    tech: { temp: -7, tint: 4, contrast: 10, saturation: 8 },
+  } as const;
+  const mood = moodAdjustments[item.lutMood ?? 'cinema'];
+  const blend = (value: number) => value * strength;
+  return {
+    ...baseGrade,
+    enabled: true,
+    lift: {
+      r: blend(baseGrade.lift.r), g: blend(baseGrade.lift.g),
+      b: blend(baseGrade.lift.b), luma: blend(baseGrade.lift.luma),
+    },
+    gamma: {
+      r: blend(baseGrade.gamma.r), g: blend(baseGrade.gamma.g),
+      b: blend(baseGrade.gamma.b), luma: blend(baseGrade.gamma.luma),
+    },
+    gain: {
+      r: blend(baseGrade.gain.r), g: blend(baseGrade.gain.g),
+      b: blend(baseGrade.gain.b), luma: blend(baseGrade.gain.luma),
+    },
+    temp: (baseGrade.temp + mood.temp) * strength,
+    tint: (baseGrade.tint + mood.tint) * strength,
+    contrast: 100 + (baseGrade.contrast - 100 + mood.contrast) * strength,
+    saturation: 100 + (baseGrade.saturation - 100 + mood.saturation) * strength,
+    lut: `${baseGrade.lut} · ${item.lutMood ?? 'cinema'} · ${Math.round(strength * 100)}%`,
+  };
 }
