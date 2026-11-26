@@ -36,6 +36,7 @@ import { applyCatalogMotionVariant, buildCatalogColorGrade } from './engine/cata
 import { DAVINCI_LUTS } from './data/megaCatalog';
 import {
   evaluateClipTransform,
+  moveKeyframe,
   removeKeyframeAtTime,
   togglePropertyKeyframing,
   updateKeyframeEasing,
@@ -1221,16 +1222,15 @@ export default function App() {
       time: number,
       value: number
     ) => {
-      updateClipById(clipId, (clip) => {
-        const list = (clip.keyframes[prop] ?? []).map((keyframe) =>
-          keyframe.id === keyframeId
-            ? { ...keyframe, time: clamp(time, 0, clip.duration), value }
-            : keyframe
-        ).sort((a, b) => a.time - b.time);
-        return { ...clip, keyframes: { ...clip.keyframes, [prop]: list } };
-      });
+      // Pointer drags can emit dozens of updates per second. A functional update
+      // prevents stale render closures from restoring an older clip snapshot.
+      setClips((previous) =>
+        previous.map((clip) =>
+          clip.id === clipId ? moveKeyframe(clip, prop, keyframeId, time, value) : clip
+        )
+      );
     },
-    [updateClipById]
+    []
   );
 
   const handleToggleStopwatch = (clipId: string, prop: AnimatableProperty) => {
