@@ -18,6 +18,8 @@ import {
   AnimatableProperty,
   CompositionSettings,
   EasingType,
+  EffectType,
+  MotionPresetItem,
   TimelineClip,
   TimelineMarker,
   TimelineTrack,
@@ -58,6 +60,8 @@ interface TimelinePanelProps {
     kfId: string,
     easing: EasingType
   ) => void;
+  onDropEffect?: (clipId: string, effectType: EffectType) => void;
+  onDropPreset?: (clipId: string, item: MotionPresetItem) => void;
   panelHeight?: number;
 }
 
@@ -85,9 +89,12 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onAddTrack,
   onDropAssetOnTrack,
   onUpdateKeyframeEasing,
+  onDropEffect,
+  onDropPreset,
   panelHeight = 300,
 }) => {
   const [pxPerSecond, setPxPerSecond] = useState(72);
+  const [verticalZoom, setVerticalZoom] = useState(100);
   const [showKeyframeDopeSheet, setShowKeyframeDopeSheet] = useState(true);
   const [selectedKf, setSelectedKf] = useState<{
     clipId: string;
@@ -341,65 +348,59 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
           )}
         </div>
 
-        {/* Keyframe Easing Quick Selector + Zoom */}
-        <div className="flex items-center gap-3">
+        {/* Draggable Keyframe FX + independent timeline zoom */}
+        <div className="flex items-center gap-2">
           {selectedKf && (
-            <div className="flex items-center gap-1.5 bg-[#111215] border border-[#2B303A] rounded px-2 py-0.5">
-              <span className="text-[11px] text-[#9BA1AD]">
-                Easing ({selectedKf.prop}):
-              </span>
-              <select
-                aria-label="Keyframe Easing"
-                value={selectedKf.easing}
-                onChange={(e) => {
-                  const nextEasing = e.target.value as EasingType;
-                  onUpdateKeyframeEasing(
-                    selectedKf.clipId,
-                    selectedKf.prop,
-                    selectedKf.kfId,
-                    nextEasing
-                  );
-                  setSelectedKf({ ...selectedKf, easing: nextEasing });
-                }}
-                className="bg-transparent text-[11px] text-[#F59E0B] font-medium focus:outline-none"
-              >
-                <option value="linear" className="bg-[#181A1F]">Linear</option>
-                <option value="ease-in" className="bg-[#181A1F]">Ease In</option>
-                <option value="ease-out" className="bg-[#181A1F]">Ease Out</option>
-                <option value="ease-in-out" className="bg-[#181A1F]">Easy Ease</option>
-                <option value="bezier" className="bg-[#181A1F]">Custom Bezier</option>
-                <option value="elastic" className="bg-[#181A1F]">Elastic Bounce</option>
-                <option value="overshoot" className="bg-[#181A1F]">Back Overshoot</option>
-              </select>
+            <div className="flex items-center gap-1 bg-[#111215] border border-[#2B303A] rounded px-2 py-1">
+              <span className="text-[10px] text-[#9BA1AD] mr-1 whitespace-nowrap">KF FX</span>
+              {([
+                ['linear', 'Linear'],
+                ['ease-in', 'In'],
+                ['ease-out', 'Out'],
+                ['ease-in-out', 'Ease'],
+                ['bezier', 'Bezier'],
+                ['elastic', 'Elastic'],
+                ['overshoot', 'Back'],
+              ] as [EasingType, string][]).map(([easing, label]) => (
+                <button
+                  key={easing}
+                  type="button"
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData('application/x-kinetix-easing', easing);
+                    event.dataTransfer.effectAllowed = 'copy';
+                  }}
+                  onClick={() => {
+                    onUpdateKeyframeEasing(selectedKf.clipId, selectedKf.prop, selectedKf.kfId, easing);
+                    setSelectedKf({ ...selectedKf, easing });
+                  }}
+                  title={`Drag ${label} onto a keyframe diamond or click to apply`}
+                  className={`px-1.5 py-1 rounded text-[9px] font-semibold cursor-grab active:cursor-grabbing transition-colors ${selectedKf.easing === easing ? 'bg-[#8B5CF6] text-white' : 'bg-[#232730] text-[#C8CDD6] hover:bg-[#343B49]'}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           )}
 
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              aria-label="Zoom Out Timeline"
-              onClick={() => setPxPerSecond((p) => Math.max(30, p - 16))}
-              className="p-1 text-[#9BA1AD] hover:text-white"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <input
-              type="range"
-              aria-label="Timeline Zoom"
-              min={30}
-              max={180}
-              value={pxPerSecond}
-              onChange={(e) => setPxPerSecond(Number(e.target.value))}
-              className="w-24 studio-slider"
-            />
-            <button
-              type="button"
-              aria-label="Zoom In Timeline"
-              onClick={() => setPxPerSecond((p) => Math.min(180, p + 16))}
-              className="p-1 text-[#9BA1AD] hover:text-white"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
+          <div className="flex items-center gap-2 border-l border-[#2B303A] pl-2">
+            <div className="flex items-center gap-1" title="Horizontal timeline zoom">
+              <span className="text-[9px] text-[#7E8594]">H</span>
+              <button type="button" aria-label="Zoom Out Timeline Horizontally" onClick={() => setPxPerSecond((p) => Math.max(20, p - 16))} className="p-1 text-[#9BA1AD] hover:text-white">
+                <ZoomOut className="w-3 h-3" />
+              </button>
+              <input type="range" aria-label="Horizontal Timeline Zoom" min={20} max={300} value={pxPerSecond} onChange={(e) => setPxPerSecond(Number(e.target.value))} className="w-20 studio-slider" />
+              <button type="button" aria-label="Zoom In Timeline Horizontally" onClick={() => setPxPerSecond((p) => Math.min(300, p + 16))} className="p-1 text-[#9BA1AD] hover:text-white">
+                <ZoomIn className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="flex items-center gap-1" title="Vertical track height zoom">
+              <span className="text-[9px] text-[#7E8594]">V</span>
+              <button type="button" aria-label="Reduce Vertical Track Height" onClick={() => setVerticalZoom((p) => Math.max(50, p - 10))} className="px-1 text-[10px] text-[#9BA1AD] hover:text-white">−</button>
+              <input type="range" aria-label="Vertical Timeline Zoom" min={50} max={200} step={5} value={verticalZoom} onChange={(e) => setVerticalZoom(Number(e.target.value))} className="w-16 studio-slider" />
+              <button type="button" aria-label="Increase Vertical Track Height" onClick={() => setVerticalZoom((p) => Math.min(200, p + 10))} className="px-1 text-[10px] text-[#9BA1AD] hover:text-white">+</button>
+              <span className="text-[9px] text-[#7E8594] w-7">{verticalZoom}%</span>
+            </div>
           </div>
         </div>
       </div>
@@ -417,7 +418,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             {tracks.map((track) => (
               <div
                 key={track.id}
-                style={{ height: track.height }}
+                style={{ height: Math.max(32, Math.round(track.height * verticalZoom / 100)) }}
                 className="px-2.5 flex items-center justify-between gap-2 bg-[#181A1F]"
               >
                 <div className="flex items-center gap-2 min-w-0">
@@ -577,7 +578,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   <div
                     key={track.id}
                     data-track-id={track.id}
-                    style={{ height: track.height }}
+                    style={{ height: Math.max(32, Math.round(track.height * verticalZoom / 100)) }}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                       e.preventDefault();
@@ -604,6 +605,21 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                           key={clip.id}
                           data-testid={`timeline-clip-${clip.id}`}
                           onPointerDown={(e) => handleClipPointerDown(e, clip, track)}
+                          onDragOver={(e) => {
+                            if (Array.from(e.dataTransfer.types).some((type) => type === 'application/x-kinetix-effect' || type === 'application/x-kinetix-preset')) e.preventDefault();
+                          }}
+                          onDrop={(e) => {
+                            const effectType = e.dataTransfer.getData('application/x-kinetix-effect');
+                            const presetRaw = e.dataTransfer.getData('application/x-kinetix-preset');
+                            if (!effectType && !presetRaw) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (effectType) onDropEffect?.(clip.id, effectType as EffectType);
+                            if (presetRaw) {
+                              try { onDropPreset?.(clip.id, JSON.parse(presetRaw) as MotionPresetItem); }
+                              catch { /* ignore invalid drag payload */ }
+                            }
+                          }}
                           style={{
                             left,
                             width,
@@ -673,6 +689,18 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                                       type="button"
                                       title={`${prop} keyframe @ ${kf.time.toFixed(2)}s (${kf.easing})`}
                                       aria-label={`${prop} keyframe at ${kf.time.toFixed(2)}s`}
+                                      onDragOver={(ev) => {
+                                        if (ev.dataTransfer.types.includes('application/x-kinetix-easing')) ev.preventDefault();
+                                      }}
+                                      onDrop={(ev) => {
+                                        const easing = ev.dataTransfer.getData('application/x-kinetix-easing') as EasingType;
+                                        const valid = ['linear', 'ease-in', 'ease-out', 'ease-in-out', 'bezier', 'elastic', 'overshoot'].includes(easing);
+                                        if (!valid) return;
+                                        ev.preventDefault();
+                                        ev.stopPropagation();
+                                        onUpdateKeyframeEasing(clip.id, prop, kf.id, easing);
+                                        setSelectedKf({ clipId: clip.id, prop, kfId: kf.id, easing });
+                                      }}
                                       onClick={(ev) => {
                                         ev.stopPropagation();
                                         onSeek(clip.start + kf.time);
