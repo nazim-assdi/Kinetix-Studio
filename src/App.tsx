@@ -32,7 +32,7 @@ import {
   generateWaveformPeaks,
 } from './data/demoProject';
 import { applyMotionPresetToClip } from './data/motionPresets';
-import { applyCatalogMotionVariant } from './engine/catalogVariants';
+import { applyCatalogMotionVariant, buildCatalogColorGrade } from './engine/catalogVariants';
 import { DAVINCI_LUTS } from './data/megaCatalog';
 import {
   evaluateClipTransform,
@@ -1519,40 +1519,7 @@ export default function App() {
     if (item.category === 'Color LUT' && item.lutName && targetClipId) {
       const lut = DAVINCI_LUTS.find((candidate) => candidate.name === item.lutName);
       if (lut) {
-        const strength = Math.max(0, Math.min(1, item.lutStrength ?? 1));
-        const moodAdjustments = {
-          cinema: { temp: -2, tint: 1, contrast: 8, saturation: 3 },
-          commercial: { temp: 2, tint: 0, contrast: 5, saturation: 12 },
-          documentary: { temp: 0, tint: 0, contrast: -3, saturation: -12 },
-          'music-video': { temp: -4, tint: 5, contrast: 13, saturation: 18 },
-          wedding: { temp: 11, tint: 3, contrast: -5, saturation: 5 },
-          'sci-fi': { temp: -15, tint: 12, contrast: 15, saturation: 14 },
-          travel: { temp: 6, tint: -2, contrast: 4, saturation: 16 },
-          tech: { temp: -7, tint: 4, contrast: 10, saturation: 8 },
-        } as const;
-        const mood = moodAdjustments[item.lutMood ?? 'cinema'];
-        const blend = (value: number) => value * strength;
-        const grade: ColorWheelGrade = {
-          ...lut.grade,
-          enabled: true,
-          lift: {
-            r: blend(lut.grade.lift.r), g: blend(lut.grade.lift.g),
-            b: blend(lut.grade.lift.b), luma: blend(lut.grade.lift.luma),
-          },
-          gamma: {
-            r: blend(lut.grade.gamma.r), g: blend(lut.grade.gamma.g),
-            b: blend(lut.grade.gamma.b), luma: blend(lut.grade.gamma.luma),
-          },
-          gain: {
-            r: blend(lut.grade.gain.r), g: blend(lut.grade.gain.g),
-            b: blend(lut.grade.gain.b), luma: blend(lut.grade.gain.luma),
-          },
-          temp: (lut.grade.temp + mood.temp) * strength,
-          tint: (lut.grade.tint + mood.tint) * strength,
-          contrast: 100 + (lut.grade.contrast - 100 + mood.contrast) * strength,
-          saturation: 100 + (lut.grade.saturation - 100 + mood.saturation) * strength,
-          lut: `${lut.name} · ${item.lutMood ?? 'cinema'} · ${Math.round(strength * 100)}%`,
-        };
+        const grade = buildCatalogColorGrade(item, lut.grade);
         updateClipById(targetClipId, (clip) => ({ ...clip, colorGrade: grade }), true);
       }
       return;
