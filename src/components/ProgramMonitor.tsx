@@ -650,13 +650,16 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                     <input
                       type="number"
                       aria-label="Custom Sequence Width"
-                      min={64}
+                      min={1}
                       max={8192}
                       step={2}
                       value={composition.width}
                       onChange={(e) => {
-                        const width = Math.max(64, Math.min(8192, Math.round(Number(e.target.value) || composition.width)));
+                        const width = Math.max(1, Math.min(8192, Math.round(Number(e.target.value) || composition.width)));
                         onUpdateComposition({ width });
+                      }}
+                      onBlur={() => {
+                        if (composition.width < 64) onUpdateComposition({ width: 64 });
                       }}
                       className="mt-1 w-full bg-[#0B0D10] border border-[#2B303A] rounded px-1.5 py-1 text-[11px] text-white"
                     />
@@ -665,13 +668,16 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                     <input
                       type="number"
                       aria-label="Custom Sequence Height"
-                      min={64}
+                      min={1}
                       max={8192}
                       step={2}
                       value={composition.height}
                       onChange={(e) => {
-                        const height = Math.max(64, Math.min(8192, Math.round(Number(e.target.value) || composition.height)));
+                        const height = Math.max(1, Math.min(8192, Math.round(Number(e.target.value) || composition.height)));
                         onUpdateComposition({ height });
+                      }}
+                      onBlur={() => {
+                        if (composition.height < 64) onUpdateComposition({ height: 64 });
                       }}
                       className="mt-1 w-full bg-[#0B0D10] border border-[#2B303A] rounded px-1.5 py-1 text-[11px] text-white"
                     />
