@@ -115,6 +115,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   } | null>(null);
 
   const lanesScrollRef = useRef<HTMLDivElement>(null);
+  const keyframeDragDidMoveRef = useRef(false);
 
   const totalWidth = Math.max(1100, Math.ceil((composition.duration + 4) * pxPerSecond));
 
@@ -241,8 +242,8 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     keyframe: NonNullable<TimelineClip['keyframes'][AnimatableProperty]>[number]
   ) => {
     event.stopPropagation();
-    event.preventDefault();
     if (!onMoveKeyframe) return;
+    keyframeDragDidMoveRef.current = false;
     const track = tracks.find((item) => item.id === clip.trackId);
     if (track?.locked) return;
     onSelectClip(clip.id);
@@ -262,16 +263,25 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       prop === 'scale' || prop === 'opacity' || prop === 'volume' ? 1 : 2;
 
     const onMove = (moveEvent: PointerEvent) => {
-      const deltaX = (moveEvent.clientX - startX) / pxPerSecond;
+      const pixelDeltaX = moveEvent.clientX - startX;
+      const pixelDeltaY = moveEvent.clientY - startY;
+      if (Math.abs(pixelDeltaX) + Math.abs(pixelDeltaY) > 2) {
+        keyframeDragDidMoveRef.current = true;
+      }
+      const deltaX = pixelDeltaX / pxPerSecond;
       let nextTime = Math.max(0, Math.min(clip.duration, startTime + deltaX));
       if (snapEnabled) nextTime = Math.round(nextTime * composition.fps) / composition.fps;
-      const deltaValue = -(moveEvent.clientY - startY) * unitsPerPixel;
+      const deltaValue = -pixelDeltaY * unitsPerPixel;
+      let nextValue = startValue + deltaValue;
+      if (prop === 'opacity') nextValue = Math.max(0, Math.min(100, nextValue));
+      else if (prop === 'volume') nextValue = Math.max(0, Math.min(200, nextValue));
+      else if (prop === 'shapeWidth' || prop === 'shapeHeight') nextValue = Math.max(1, nextValue);
       onMoveKeyframe(
         clip.id,
         prop,
         keyframe.id,
         Number(nextTime.toFixed(4)),
-        Number((startValue + deltaValue).toFixed(2))
+        Number(nextValue.toFixed(2))
       );
     };
     const onUp = () => {
@@ -764,6 +774,10 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                                       onPointerDown={(ev) => handleKeyframePointerDown(ev, clip, prop, kf)}
                                       onClick={(ev) => {
                                         ev.stopPropagation();
+                                        if (keyframeDragDidMoveRef.current) {
+                                          keyframeDragDidMoveRef.current = false;
+                                          return;
+                                        }
                                         onSeek(clip.start + kf.time);
                                         onSelectClip(clip.id);
                                         setSelectedKf({
