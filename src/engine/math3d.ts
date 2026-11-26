@@ -2,10 +2,14 @@ import { TimelineClip, TransformState } from '../types/editor';
 import { evaluateClipTransform } from './keyframes';
 import { clamp } from './timecode';
 
-export interface WorldTransform3D {
-  x: number;
-  y: number;
-  z: number;
+export type Vector3 = { x: number; y: number; z: number };
+export type Quaternion = { x: number; y: number; z: number; w: number };
+
+const DEG = Math.PI / 180;
+const RAD = 180 / Math.PI;
+const IDENTITY_QUATERNION: Quaternion = { x: 0, y: 0, z: 0, w: 1 };
+
+export interface WorldTransform3D extends Vector3 {
   anchorX?: number;
   anchorY?: number;
   scale: number;
@@ -13,10 +17,75 @@ export interface WorldTransform3D {
   rotationX: number;
   rotationY: number;
   opacity: number;
+  /** Full world orientation, composed from every parent and local transform. */
+  orientation: Quaternion;
+}
+
+export function quaternionMultiply(a: Quaternion, b: Quaternion): Quaternion {
+  return {
+    x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+  };
+}
+
+export function quaternionFromEuler(
+  rotationX: number,
+  rotationY: number,
+  rotationZ: number
+): Quaternion {
+  const hx = rotationX * DEG * 0.5;
+  const hy = rotationY * DEG * 0.5;
+  const hz = rotationZ * DEG * 0.5;
+  const qx = { x: Math.sin(hx), y: 0, z: 0, w: Math.cos(hx) };
+  const qy = { x: 0, y: Math.sin(hy), z: 0, w: Math.cos(hy) };
+  const qz = { x: 0, y: 0, z: Math.sin(hz), w: Math.cos(hz) };
+  return quaternionMultiply(quaternionMultiply(qz, qy), qx);
+}
+
+export function rotateVector3(vector: Vector3, orientation: Quaternion): Vector3 {
+  const qv: Quaternion = { x: vector.x, y: vector.y, z: vector.z, w: 0 };
+  const inverse: Quaternion = {
+    x: -orientation.x,
+    y: -orientation.y,
+    z: -orientation.z,
+    w: orientation.w,
+  };
+  const rotated = quaternionMultiply(
+    quaternionMultiply(orientation, qv),
+    inverse
+  );
+  return { x: rotated.x, y: rotated.y, z: rotated.z };
+}
+
+function normalizeQuaternion(q: Quaternion): Quaternion {
+  const length = Math.hypot(q.x, q.y, q.z, q.w) || 1;
+  return { x: q.x / length, y: q.y / length, z: q.z / length, w: q.w / length };
+}
+
+function quaternionToEuler(qInput: Quaternion): {
+  rotationX: number;
+  rotationY: number;
+  rotation: number;
+} {
+  const q = normalizeQuaternion(qInput);
+  const sinX = 2 * (q.w * q.x + q.y * q.z);
+  const cosX = 1 - 2 * (q.x * q.x + q.y * q.y);
+  const sinY = 2 * (q.w * q.y - q.z * q.x);
+  const sinZ = 2 * (q.w * q.z + q.x * q.y);
+  const cosZ = 1 - 2 * (q.y * q.y + q.z * q.z);
+  return {
+    rotationX: Math.atan2(sinX, cosX) * RAD,
+    rotationY: Math.asin(clamp(sinY, -1, 1)) * RAD,
+    rotation: Math.atan2(sinZ, cosZ) * RAD,
+  };
 }
 
 /**
- * Resolves parent-child Null Object / layer hierarchy chains safely (cycle-guarded).
+ * Resolves the complete 3D parent hierarchy.
+ * Local translation is transformed by the parent's world quaternion and scale;
+ * local orientation is composed with the parent's quaternion (Z * Y * X Euler order).
  */
 export function resolveWorldTransform(
   clip: TimelineClip,
@@ -31,46 +100,50 @@ export function resolveWorldTransform(
     visited.add(current.id);
     chain.push(evaluateClipTransform(current, globalTime));
     if (!current.parentId) break;
-    current = allClips.find((c) => c.id === current!.parentId);
+    current = allClips.find((candidate) => candidate.id === current!.parentId);
   }
 
-  // Accumulate from root parent down to child
-  let x = 0;
-  let y = 0;
-  let z = 0;
+  let position: Vector3 = { x: 0, y: 0, z: 0 };
   let scale = 100;
-  let rotation = 0;
-  let rotationX = 0;
-  let rotationY = 0;
   let opacity = 100;
+  let orientation = IDENTITY_QUATERNION;
 
-  for (let i = chain.length - 1; i >= 0; i--) {
-    const tf = chain[i];
-    const scaleMult = scale / 100;
-    const rad = (rotation * Math.PI) / 180;
-    const rx = tf.x * Math.cos(rad) - tf.y * Math.sin(rad);
-    const ry = tf.x * Math.sin(rad) + tf.y * Math.cos(rad);
-    x += rx * scaleMult;
-    y += ry * scaleMult;
-    z += tf.z * scaleMult;
+  for (let index = chain.length - 1; index >= 0; index--) {
+    const tf = chain[index];
+    const localOffset = rotateVector3(
+      {
+        x: tf.x * (scale / 100),
+        y: tf.y * (scale / 100),
+        z: tf.z * (scale / 100),
+      },
+      orientation
+    );
+    position = {
+      x: position.x + localOffset.x,
+      y: position.y + localOffset.y,
+      z: position.z + localOffset.z,
+    };
+    orientation = normalizeQuaternion(
+      quaternionMultiply(
+        orientation,
+        quaternionFromEuler(tf.rotationX, tf.rotationY, tf.rotation)
+      )
+    );
     scale = (scale * tf.scale) / 100;
-    rotation += tf.rotation;
-    rotationX += tf.rotationX;
-    rotationY += tf.rotationY;
     opacity = (opacity * tf.opacity) / 100;
   }
 
+  const euler = quaternionToEuler(orientation);
   return {
-    x,
-    y,
-    z,
+    ...position,
     anchorX: chain[0]?.anchorX ?? 0,
     anchorY: chain[0]?.anchorY ?? 0,
     scale,
-    rotation,
-    rotationX,
-    rotationY,
+    rotation: euler.rotation,
+    rotationX: euler.rotationX,
+    rotationY: euler.rotationY,
     opacity,
+    orientation,
   };
 }
 
@@ -78,15 +151,19 @@ export interface CameraProjectionResult {
   screenX: number;
   screenY: number;
   perspectiveScale: number;
+  /** Local X/Y plane basis decomposed into Canvas2D rotate + shear + scale. */
   skewX: number;
   scaleX: number;
   scaleY: number;
+  rotationRad: number;
   visible: boolean;
   depthZ: number;
 }
 
 /**
- * Projects a 3D layer transform through an optional Active Camera into 2D screen space.
+ * Physically based pinhole-camera projection for a 3D layer plane.
+ * Camera +Z is forward, +Y is down, and all rotations (including camera roll)
+ * are evaluated as quaternions. Focal length is interpreted against a 36mm sensor.
  */
 export function projectLayerThroughCamera(
   world: WorldTransform3D,
@@ -96,67 +173,94 @@ export function projectLayerThroughCamera(
   compWidth: number,
   compHeight: number
 ): CameraProjectionResult {
-  let camX = 0;
-  let camY = 0;
-  let camZ = -900;
-  let fov = 55;
-  let camRotX = 0;
-  let camRotY = 0;
-  let camRotZ = 0;
+  let cameraPosition: Vector3 = { x: 0, y: 0, z: -900 };
+  let cameraOrientation = IDENTITY_QUATERNION;
+  let focalLength = 35;
+  let sensorWidth = 36;
+  let nearClip = 10;
+  let farClip = 100000;
 
-  if (cameraClip && cameraClip.cameraProps) {
-    const camTf = resolveWorldTransform(cameraClip, allClips, globalTime);
-    camX = camTf.x;
-    camY = camTf.y;
-    camZ = -900 + camTf.z;
-    fov = clamp(cameraClip.cameraProps.fov || 55, 20, 120);
-    camRotX = camTf.rotationX;
-    camRotY = camTf.rotationY;
-    camRotZ = camTf.rotation;
+  if (cameraClip?.cameraProps) {
+    const camera = cameraClip.cameraProps;
+    const cameraWorld = resolveWorldTransform(cameraClip, allClips, globalTime);
+    cameraPosition = { x: cameraWorld.x, y: cameraWorld.y, z: -900 + cameraWorld.z };
+    focalLength = clamp(camera.focalLength || 35, 8, 300);
+    sensorWidth = clamp(camera.sensorWidth ?? 36, 18, 70);
+    nearClip = clamp(camera.nearClip ?? 10, 0.1, 1000);
+    farClip = Math.max(nearClip + 1, camera.farClip ?? 100000);
+
+    if (camera.useTarget) {
+      const target = { x: camera.lookAtX, y: camera.lookAtY, z: camera.lookAtZ };
+      const direction = {
+        x: target.x - cameraPosition.x,
+        y: target.y - cameraPosition.y,
+        z: target.z - cameraPosition.z,
+      };
+      const horizontalLength = Math.max(0.0001, Math.hypot(direction.x, direction.z));
+      const yaw = Math.atan2(direction.x, direction.z) * RAD;
+      const pitch = -Math.atan2(direction.y, horizontalLength) * RAD;
+      cameraOrientation = quaternionFromEuler(
+        pitch,
+        yaw,
+        cameraWorld.rotation
+      );
+    } else {
+      cameraOrientation = cameraWorld.orientation;
+    }
   }
 
-  // Relative to camera position
-  let dx = world.x - camX;
-  let dy = world.y - camY;
-  const dz = world.z - camZ;
-
-  // Apply inverse camera yaw/pitch subtly for realistic 3D parallax
-  const yawRad = (-camRotY * Math.PI) / 180;
-  const pitchRad = (-camRotX * Math.PI) / 180;
-  const cosY = Math.cos(yawRad);
-  const sinY = Math.sin(yawRad);
-  const rx = dx * cosY - dz * sinY;
-  const rz1 = dx * sinY + dz * cosY;
-
-  const cosX = Math.cos(pitchRad);
-  const sinX = Math.sin(pitchRad);
-  const ry = dy * cosX - rz1 * sinX;
-  const rz = dy * sinX + rz1 * cosX;
-
-  const focalPx = (compWidth * 0.5) / Math.tan(((fov * 0.5) * Math.PI) / 180);
-  const safeDepth = Math.max(80, rz);
+  const cameraInverse: Quaternion = {
+    x: -cameraOrientation.x,
+    y: -cameraOrientation.y,
+    z: -cameraOrientation.z,
+    w: cameraOrientation.w,
+  };
+  const relative = {
+    x: world.x - cameraPosition.x,
+    y: world.y - cameraPosition.y,
+    z: world.z - cameraPosition.z,
+  };
+  const viewCenter = rotateVector3(relative, cameraInverse);
+  const focalPx = (compWidth * focalLength) / sensorWidth;
+  const depth = viewCenter.z;
+  const safeDepth = Math.max(nearClip, depth);
   const perspectiveScale = focalPx / safeDepth;
 
-  // Screen coordinates
-  const screenX = compWidth / 2 + rx * perspectiveScale;
-  const screenY = compHeight / 2 + ry * perspectiveScale;
+  const worldAxisX = rotateVector3({ x: 1, y: 0, z: 0 }, world.orientation);
+  const worldAxisY = rotateVector3({ x: 0, y: 1, z: 0 }, world.orientation);
+  const viewAxisX = rotateVector3(worldAxisX, cameraInverse);
+  const viewAxisY = rotateVector3(worldAxisY, cameraInverse);
+  const layerScale = world.scale / 100;
+  const ux = viewAxisX.x * layerScale;
+  const uy = viewAxisX.y * layerScale;
+  const uz = viewAxisX.z * layerScale;
+  const vx = viewAxisY.x * layerScale;
+  const vy = viewAxisY.y * layerScale;
+  const vz = viewAxisY.z * layerScale;
 
-  // Apparent 3D foreshortening from layer rotationX / rotationY
-  const layerPitchRad = ((world.rotationX - camRotX) * Math.PI) / 180;
-  const layerYawRad = ((world.rotationY - camRotY) * Math.PI) / 180;
-  const scaleX = Math.cos(layerYawRad);
-  const scaleY = Math.cos(layerPitchRad);
-  const skewX = Math.sin(layerYawRad) * Math.sin(layerPitchRad) * 0.35;
+  // Differential of the perspective divide at the layer origin.
+  const depthSquared = safeDepth * safeDepth;
+  const a = focalPx * (ux * safeDepth - viewCenter.x * uz) / depthSquared;
+  const b = focalPx * (uy * safeDepth - viewCenter.y * uz) / depthSquared;
+  const c = focalPx * (vx * safeDepth - viewCenter.x * vz) / depthSquared;
+  const d = focalPx * (vy * safeDepth - viewCenter.y * vz) / depthSquared;
+  const rotationRad = Math.atan2(b, a);
+  const cosRotation = Math.cos(rotationRad);
+  const sinRotation = Math.sin(rotationRad);
+  const scaleXActual = Math.hypot(a, b);
+  const shearX = cosRotation * c + sinRotation * d;
+  const scaleYActual = -sinRotation * c + cosRotation * d;
 
   return {
-    screenX,
-    screenY,
-    perspectiveScale: perspectiveScale * (world.scale / 100),
-    skewX,
-    scaleX: Math.abs(scaleX) < 0.04 ? 0.04 * Math.sign(scaleX || 1) : scaleX,
-    scaleY: Math.abs(scaleY) < 0.04 ? 0.04 * Math.sign(scaleY || 1) : scaleY,
-    visible: rz > 30,
-    depthZ: rz + camRotZ * 0.0001,
+    screenX: compWidth / 2 + viewCenter.x * perspectiveScale,
+    screenY: compHeight / 2 + viewCenter.y * perspectiveScale,
+    perspectiveScale,
+    scaleX: scaleXActual / Math.max(0.0001, perspectiveScale),
+    scaleY: scaleYActual / Math.max(0.0001, perspectiveScale),
+    skewX: Math.abs(scaleYActual) > 0.0001 ? shearX / scaleYActual : 0,
+    rotationRad,
+    visible: depth >= nearClip && depth <= farClip,
+    depthZ: depth,
   };
 }
 
@@ -166,9 +270,7 @@ export interface LightShading {
   tintAlpha: number; // 0 .. 0.5
 }
 
-/**
- * Computes combined diffuse + ambient + spot attenuation from active Light layers.
- */
+/** Computes diffuse + ambient + point/spot attenuation from active 3D Light layers. */
 export function computeLightShading(
   layerWorld: WorldTransform3D,
   lights: TimelineClip[],
@@ -179,71 +281,68 @@ export function computeLightShading(
     return { brightnessFactor: 1, tintColor: '#ffffff', tintAlpha: 0 };
   }
 
-  let totalLight = 0.28; // base ambient bounce
+  let totalLight = 0.22;
   let dominantTint = '#ffffff';
   let highestContribution = 0;
-
-  const pitchRad = (layerWorld.rotationX * Math.PI) / 180;
-  const yawRad = (layerWorld.rotationY * Math.PI) / 180;
-  // Layer surface normal vector
-  const nx = Math.sin(yawRad) * Math.cos(pitchRad);
-  const ny = -Math.sin(pitchRad);
-  const nz = -Math.cos(yawRad) * Math.cos(pitchRad);
+  const normal = rotateVector3({ x: 0, y: 0, z: -1 }, layerWorld.orientation);
 
   for (const light of lights) {
-    const lp = light.lightProps;
-    if (!lp) continue;
-    const lTf = resolveWorldTransform(light, allClips, globalTime);
-    const intensity = clamp(lp.intensity / 100, 0, 2);
+    const props = light.lightProps;
+    if (!props) continue;
+    const lightWorld = resolveWorldTransform(light, allClips, globalTime);
+    const intensity = clamp(props.intensity / 100, 0, 2);
 
-    if (lp.lightType === 'ambient') {
+    if (props.lightType === 'ambient') {
       totalLight += 0.65 * intensity;
       if (intensity > highestContribution) {
         highestContribution = intensity;
-        dominantTint = lp.color;
+        dominantTint = props.color;
       }
       continue;
     }
 
-    const lightZ = -420 + lTf.z;
-    const vx = lTf.x - layerWorld.x;
-    const vy = lTf.y - layerWorld.y;
-    const vz = lightZ - layerWorld.z;
-    const dist = Math.max(1, Math.hypot(vx, vy, vz));
-    const lx = vx / dist;
-    const ly = vy / dist;
-    const lz = vz / dist;
-
-    const dot = Math.max(0.15, Math.abs(nx * lx + ny * ly + nz * lz));
-    const falloff = lp.lightType === 'parallel' ? 1 : clamp(680 / (dist + 220), 0.25, 1.35);
+    const lightPosition = { x: lightWorld.x, y: lightWorld.y, z: -420 + lightWorld.z };
+    const vector = {
+      x: lightPosition.x - layerWorld.x,
+      y: lightPosition.y - layerWorld.y,
+      z: lightPosition.z - layerWorld.z,
+    };
+    const distance = Math.max(1, Math.hypot(vector.x, vector.y, vector.z));
+    const direction = {
+      x: vector.x / distance,
+      y: vector.y / distance,
+      z: vector.z / distance,
+    };
+    const diffuse = Math.max(0, normal.x * direction.x + normal.y * direction.y + normal.z * direction.z);
+    const falloff = props.lightType === 'parallel'
+      ? 1
+      : clamp(680 / (distance + 220), 0.25, 1.35);
 
     let spotFactor = 1;
-    if (lp.lightType === 'spot') {
-      const radial = Math.hypot(vx, vy);
-      const maxSpread = Math.tan(((lp.coneAngle * 0.5) * Math.PI) / 180) * Math.max(200, Math.abs(vz));
-      spotFactor = clamp(1 - radial / Math.max(80, maxSpread * 1.4), 0.15, 1);
+    if (props.lightType === 'spot') {
+      const radial = Math.hypot(vector.x, vector.y);
+      const spread = Math.tan(((props.coneAngle * 0.5) * DEG)) * Math.max(200, Math.abs(vector.z));
+      spotFactor = clamp(1 - radial / Math.max(80, spread * 1.4), 0.08, 1);
     }
 
-    const contrib = dot * intensity * falloff * spotFactor;
-    totalLight += contrib;
-
-    if (contrib > highestContribution && lp.color.toLowerCase() !== '#ffffff') {
-      highestContribution = contrib;
-      dominantTint = lp.color;
+    const contribution = diffuse * intensity * falloff * spotFactor;
+    totalLight += contribution;
+    if (contribution > highestContribution && props.color.toLowerCase() !== '#ffffff') {
+      highestContribution = contribution;
+      dominantTint = props.color;
     }
   }
 
   return {
-    brightnessFactor: clamp(totalLight, 0.3, 1.65),
+    brightnessFactor: clamp(totalLight, 0.25, 1.65),
     tintColor: dominantTint,
-    tintAlpha: dominantTint.toLowerCase() === '#ffffff' ? 0 : clamp(highestContribution * 0.24, 0, 0.42),
+    tintAlpha: dominantTint.toLowerCase() === '#ffffff'
+      ? 0
+      : clamp(highestContribution * 0.24, 0, 0.42),
   };
 }
 
-/**
- * Computes screen-space geometry center when layer has non-zero anchor point,
- * scale, skew, and rotation applied around (cx, cy).
- */
+/** Computes screen-space center when a layer uses an anchor offset. */
 export function computeAnchorScreenCenter(
   cx: number,
   cy: number,
@@ -254,9 +353,7 @@ export function computeAnchorScreenCenter(
   rotationRad: number,
   skewX: number = 0
 ): { screenCx: number; screenCy: number } {
-  if (anchorX === 0 && anchorY === 0) {
-    return { screenCx: cx, screenCy: cy };
-  }
+  if (anchorX === 0 && anchorY === 0) return { screenCx: cx, screenCy: cy };
   const lx = -anchorX * effScaleX;
   const ly = -anchorY * effScaleY;
   const sx = lx + skewX * ly;
@@ -269,21 +366,18 @@ export function computeAnchorScreenCenter(
   };
 }
 
-/**
- * Applies a Luma Track Matte in-place on RGBA image pixel arrays using Rec.709 luminance * matte alpha.
- */
+/** Applies a Rec.709 luma matte in-place on RGBA image pixels. */
 export function applyLumaMatteToPixels(
   targetRgba: Uint8ClampedArray,
   matteRgba: Uint8ClampedArray
 ): void {
-  const len = Math.min(targetRgba.length, matteRgba.length);
-  for (let i = 0; i < len; i += 4) {
-    const r = matteRgba[i];
-    const g = matteRgba[i + 1];
-    const b = matteRgba[i + 2];
-    const ma = matteRgba[i + 3] / 255;
+  const length = Math.min(targetRgba.length, matteRgba.length);
+  for (let index = 0; index < length; index += 4) {
+    const r = matteRgba[index];
+    const g = matteRgba[index + 1];
+    const b = matteRgba[index + 2];
+    const alpha = matteRgba[index + 3] / 255;
     const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-    targetRgba[i + 3] = Math.round(targetRgba[i + 3] * luma * ma);
+    targetRgba[index + 3] = Math.round(targetRgba[index + 3] * luma * alpha);
   }
 }
-
