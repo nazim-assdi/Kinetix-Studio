@@ -39,7 +39,8 @@ export type AnimatableProperty =
   | 'anchorX'
   | 'anchorY'
   | 'shapeWidth'
-  | 'shapeHeight';
+  | 'shapeHeight'
+  | 'volume';
 
 export type ToolMode = 'select' | 'razor' | 'pen' | 'pin' | 'mask' | 'text' | 'shape' | 'hand';
 
@@ -93,7 +94,15 @@ export type TextAnimatorPreset =
   | 'typewriter'
   | 'slide-up'
   | 'word-pop'
-  | 'glitch-decode';
+  | 'glitch-decode'
+  | `animator-${number}`;
+
+export interface SpeedRampPoint {
+  id: string;
+  /** Clip-local timeline time in seconds. */
+  time: number;
+  speed: number;
+}
 
 export type TrackMatteMode = 'none' | 'alpha' | 'alpha-inverted' | 'luma';
 
@@ -136,6 +145,8 @@ export interface TransformState {
   /** Shape dimensions, animated independently from layer transform. */
   shapeWidth?: number;
   shapeHeight?: number;
+  /** Animated audio volume percentage, when volume keyframes are present. */
+  volume?: number;
 }
 
 export type KeyframeMap = Partial<Record<AnimatableProperty, Keyframe[]>>;
@@ -338,7 +349,13 @@ export interface TimelineClip {
   blendMode: BlendMode;
   trackMatte?: TrackMatteMode;
   speed?: number; // 0.25 .. 4.0 (default 1)
+  speedRamp?: SpeedRampPoint[];
   reversed?: boolean;
+  /** Marks a recorded/dialogue clip as a voiceover source for automatic music ducking. */
+  isVoiceover?: boolean;
+  duckingEnabled?: boolean;
+  duckingAmount?: number; // dB reduction applied to other active audio
+  noiseReduction?: number; // 0..100 noise gate + low-frequency rumble reduction
   transform: TransformState;
   keyframes: KeyframeMap;
   expressions?: ExpressionMap;
