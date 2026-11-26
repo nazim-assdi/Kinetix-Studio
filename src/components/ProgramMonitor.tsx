@@ -333,7 +333,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       const candidates = clips.filter((c) =>
         c.trackId === track.id && !['adjustment', 'camera', 'light', 'audio'].includes(c.kind) &&
         playheadTime >= c.start && playheadTime <= c.start + c.duration
-      );
+      ).sort((a, b) => Number(b.id === selectedClipId) - Number(a.id === selectedClipId));
       for (const c of candidates) {
         const world = resolveWorldTransform(c, clips, playheadTime);
         let cx = composition.width / 2 + world.x;
@@ -395,9 +395,14 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           (c.kind === 'text' || c.kind === 'shape') &&
           Math.abs(localX) <= rotatePadding &&
           Math.abs(localY + halfH + 34 / Math.max(0.01, Math.abs(effScaleY))) <= rotatePadding;
+        const pivotHandleHit =
+          c.id === selectedClipId &&
+          tool === 'pin' &&
+          Math.hypot(compX - cx, compY - cy) <= 16;
         let isInside =
           (Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding) ||
-          rotationHandleHit;
+          rotationHandleHit ||
+          pivotHandleHit;
 
         if (c.is3D) {
           const anchorX = world.anchorX ?? 0;
@@ -445,11 +450,16 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     const transform = evaluateClipTransform(hitClip, playheadTime);
 
     if (tool === 'pin') {
-      // The pointer position is expressed in layer-local space, measured from
-      // the visible layer center. Moving the pivot must not move the artwork.
-      const nextAnchorX = localX / (layerScaleX || 1);
-      const nextAnchorY = localY / (layerScaleY || 1);
-      onSetAnchorCanvas(hitClip.id, nextAnchorX, nextAnchorY);
+      // Drag the existing pivot marker, or click elsewhere on the artwork to
+      // move the pivot there. Both operations preserve the visible artwork.
+      const draggingExistingPivot = Math.hypot(compX - centerX, compY - centerY) <= 16;
+      const nextAnchorX = draggingExistingPivot
+        ? (transform.anchorX ?? 0)
+        : localX / (layerScaleX || 1);
+      const nextAnchorY = draggingExistingPivot
+        ? (transform.anchorY ?? 0)
+        : localY / (layerScaleY || 1);
+      if (!draggingExistingPivot) onSetAnchorCanvas(hitClip.id, nextAnchorX, nextAnchorY);
       dragRef.current = {
         mode: 'move-anchor',
         clipId: hitClip.id,
