@@ -62,12 +62,18 @@ function pointInProjectedQuad(
 }
 
 const SEQUENCE_PRESETS = [
+  { id: 'youtube1080', label: 'YouTube · 16:9 · Full HD', width: 1920, height: 1080, fps: 30 },
+  { id: 'youtube4k', label: 'YouTube · 16:9 · 4K UHD', width: 3840, height: 2160, fps: 30 },
   { id: 'hd720', label: '16:9 HD · 1280×720', width: 1280, height: 720, fps: 30 },
-  { id: 'fhd1080', label: '16:9 Full HD · 1920×1080', width: 1920, height: 1080, fps: 30 },
-  { id: 'uhd4k', label: '16:9 4K UHD · 3840×2160', width: 3840, height: 2160, fps: 30 },
-  { id: 'reels916', label: '9:16 Reels · 1080×1920', width: 1080, height: 1920, fps: 60 },
-  { id: 'sq1080', label: '1:1 Square · 1080×1080', width: 1080, height: 1080, fps: 30 },
+  { id: 'reels916', label: 'Instagram Reels · 9:16', width: 1080, height: 1920, fps: 60 },
+  { id: 'tiktok916', label: 'TikTok · 9:16', width: 1080, height: 1920, fps: 30 },
+  { id: 'shorts916', label: 'YouTube Shorts · 9:16', width: 1080, height: 1920, fps: 60 },
+  { id: 'facebookSquare', label: 'Facebook Feed · 1:1 Square', width: 1080, height: 1080, fps: 30 },
+  { id: 'facebookPortrait', label: 'Facebook / Instagram · 4:5', width: 1080, height: 1350, fps: 30 },
+  { id: 'cinema239', label: 'Cinema · 2.39:1', width: 2560, height: 1072, fps: 24 },
   { id: 'scope21', label: '21:9 Cinema · 2560×1080', width: 2560, height: 1080, fps: 24 },
+  { id: 'square2k', label: 'Square · 2160×2160', width: 2160, height: 2160, fps: 30 },
+  { id: 'story4k', label: 'Vertical · 4K', width: 2160, height: 3840, fps: 30 },
 ] as const;
 
 interface ProgramMonitorProps {
