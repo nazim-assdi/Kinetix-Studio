@@ -91,7 +91,8 @@ interface ExportAudioChannel {
   element: HTMLAudioElement | HTMLVideoElement;
   gain: GainNode;
   rumbleCut: BiquadFilterNode;
-  noiseGate: DynamicsCompressorNode;
+  noiseAnalyser: AnalyserNode;
+  noiseGate: GainNode;
   track: TimelineTrack;
 }
 
@@ -163,12 +164,11 @@ async function createExportAudioSession(
       rumbleCut.frequency.value = 30;
       rumbleCut.Q.value = 0.7;
 
-      const noiseGate = context.createDynamicsCompressor();
-      noiseGate.threshold.value = 0;
-      noiseGate.knee.value = 0;
-      noiseGate.ratio.value = 1;
-      noiseGate.attack.value = 0.003;
-      noiseGate.release.value = 0.16;
+      const noiseAnalyser = context.createAnalyser();
+      noiseAnalyser.fftSize = 512;
+      noiseAnalyser.smoothingTimeConstant = 0.35;
+      const noiseGate = context.createGain();
+      noiseGate.gain.value = 1;
 
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = track.compressor ? -20 : 0;
@@ -180,7 +180,8 @@ async function createExportAudioSession(
       gain.gain.value = 0;
 
       source.connect(rumbleCut);
-      rumbleCut.connect(noiseGate);
+      rumbleCut.connect(noiseAnalyser);
+      noiseAnalyser.connect(noiseGate);
       noiseGate.connect(low);
       low.connect(mid);
       mid.connect(high);
@@ -189,7 +190,7 @@ async function createExportAudioSession(
       pan.connect(gain);
       gain.connect(destination);
 
-      channels.push({ clip, element, gain, rumbleCut, noiseGate, track });
+      channels.push({ clip, element, gain, rumbleCut, noiseAnalyser, noiseGate, track });
     }
 
     if (channels.length === 0) {
@@ -223,7 +224,7 @@ async function createExportAudioSession(
         (maximum, { clip }) => Math.max(maximum, clip.duckingAmount ?? 12),
         0
       );
-      for (const { clip, element, gain, track, rumbleCut, noiseGate } of channels) {
+      for (const { clip, element, gain, track, rumbleCut, noiseAnalyser, noiseGate } of channels) {
         const clipEnd = clip.start + clip.duration;
         const active = time >= clip.start && time < clipEnd;
         if (!active) {
@@ -238,8 +239,25 @@ async function createExportAudioSession(
         element.playbackRate = Math.max(0.1, Math.min(8, speed));
         const reduction = Math.max(0, Math.min(100, clip.noiseReduction ?? 0));
         rumbleCut.frequency.value = reduction > 0 ? 80 + reduction * 1.25 : 30;
-        noiseGate.threshold.value = reduction > 0 ? -65 + reduction * 0.4 : 0;
-        noiseGate.ratio.value = reduction > 0 ? 1 + reduction * 0.18 : 1;
+        if (reduction <= 0) {
+          noiseGate.gain.setTargetAtTime(1, context.currentTime, 0.04);
+        } else {
+          const samples = new Uint8Array(noiseAnalyser.fftSize);
+          noiseAnalyser.getByteTimeDomainData(samples);
+          let sumSquares = 0;
+          for (const sample of samples) {
+            const normalized = (sample - 128) / 128;
+            sumSquares += normalized * normalized;
+          }
+          const rms = Math.sqrt(sumSquares / samples.length);
+          const threshold = Math.pow(10, (-72 + reduction * 0.32) / 20);
+          const gateGain = rms >= threshold ? 1 : 0.035;
+          noiseGate.gain.setTargetAtTime(
+            gateGain,
+            context.currentTime,
+            gateGain > 0.5 ? 0.012 : 0.09
+          );
+        }
         if (Number.isFinite(element.duration) && element.duration > 0) {
           const safeTime = Math.min(targetTime, Math.max(0, element.duration - 0.04));
           if (Math.abs(element.currentTime - safeTime) > 0.22) {
