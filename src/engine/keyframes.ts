@@ -30,15 +30,11 @@ export function getClipSpeedAtLocalTime(clip: TimelineClip, localTime: number): 
   if (points.length === 0) return clamp(clip.speed ?? 1, 0.1, 8);
 
   const baseSpeed = clamp(clip.speed ?? 1, 0.1, 8);
-  const anchors = [
-    { time: 0, speed: baseSpeed },
-    ...points.filter((point) => point.time > 0 && point.time < clip.duration),
-    { time: clip.duration, speed: baseSpeed },
-  ];
-  const startOverride = points.find((point) => point.time <= 0);
-  const endOverride = [...points].reverse().find((point) => point.time >= clip.duration);
-  if (startOverride) anchors[0] = { time: 0, speed: startOverride.speed };
-  if (endOverride) anchors[anchors.length - 1] = { time: clip.duration, speed: endOverride.speed };
+  const byTime = new Map<number, number>([[0, baseSpeed], [clip.duration, baseSpeed]]);
+  points.forEach((point) => byTime.set(point.time, point.speed));
+  const anchors = [...byTime.entries()]
+    .map(([time, speed]) => ({ time, speed }))
+    .sort((a, b) => a.time - b.time);
 
   const t = clamp(localTime, 0, clip.duration);
   if (t <= anchors[0].time) return anchors[0].speed;
