@@ -32,6 +32,7 @@ import {
   rotateVector3,
 } from './math3d';
 import { applyMotionPresetToClip } from '../data/motionPresets';
+import { applyCatalogMotionVariant, buildCatalogColorGrade } from './catalogVariants';
 import { MEGA_CATALOG, DAVINCI_LUTS } from '../data/megaCatalog';
 import { SFX_LIBRARY } from '../data/sfxLibrary';
 import {
@@ -344,6 +345,47 @@ test('MEGA_CATALOG contains 1000+ presets, transitions with SFX, and DaVinci LUT
   assert.ok(sfxTransitions.length >= 100);
   assert.ok(DAVINCI_LUTS.length >= 6);
   assert.ok(MEGA_CATALOG.every((item) => item.vendor === 'FX'));
+});
+
+test('creative library exposes 4,362 unique and usable catalog entries', () => {
+  assert.equal(MEGA_CATALOG.length, 4362);
+  assert.equal(new Set(MEGA_CATALOG.map((item) => item.id)).size, MEGA_CATALOG.length);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Shapes').length, 1680);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Titles').length, 100);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Particles').length, 300);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Visualizers').length, 120);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Backgrounds').length, 100);
+  assert.equal(MEGA_CATALOG.filter((item) => item.assetTemplate).length, 2300);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Animation' && item.motionVariant).length, 1400);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Transition' && item.motionVariant).length, 240);
+});
+
+test('catalog motion variants change direction, strength, timing and LUT grade', () => {
+  const leftPreset = MEGA_CATALOG.find((item) =>
+    item.category === 'Animation' && item.motionVariant?.direction === 'left'
+  );
+  assert.ok(leftPreset?.basePresetId && leftPreset.motionVariant);
+  const source = makeClip({ duration: 4, transform: { ...makeClip().transform, x: 30, y: -20 } });
+  const animated = applyCatalogMotionVariant(
+    applyMotionPresetToClip(source, leftPreset.basePresetId),
+    leftPreset.motionVariant
+  );
+  assert.equal(animated.keyframes.x?.length, 2);
+  assert.ok((animated.keyframes.x?.[0].value ?? 0) < source.transform.x);
+  assert.equal(animated.keyframes.x?.[1].value, source.transform.x);
+  assert.equal(animated.keyframes.x?.[1].time, leftPreset.motionVariant.duration);
+
+  const lutPreset = MEGA_CATALOG.find((item) =>
+    item.category === 'Color LUT' && item.lutStrength === 0.5 && item.lutMood === 'sci-fi'
+  );
+  assert.ok(lutPreset?.lutName);
+  const lut = DAVINCI_LUTS.find((item) => item.name === lutPreset.lutName);
+  assert.ok(lut);
+  const grade = buildCatalogColorGrade(lutPreset, lut.grade);
+  assert.equal(grade.enabled, true);
+  assert.ok(grade.lut.includes('sci-fi'));
+  assert.ok(grade.lut.includes('50%'));
+  assert.notEqual(grade.contrast, lut.grade.contrast);
 });
 
 test('SFX library contains 100 unique draggable presets', () => {

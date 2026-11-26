@@ -1,11 +1,15 @@
 import {
   ColorWheelGrade,
   EffectType,
+  EasingType,
   MotionPresetItem,
-  PresetCategory,
+  ParticleLayerProps,
   PresetPackVendor,
+  ShapeLayerProps,
 } from '../types/editor';
 import { MOTION_PRESET_PACKS } from './motionPresets';
+import { COLOR_PALETTES } from './colorPalettes';
+import { TEXT_ANIMATORS } from './textAnimators';
 
 export interface DaVinciLutPreset {
   id: string;
@@ -163,8 +167,24 @@ function buildMegaCatalog(): MotionPresetItem[] {
     { prefix: '3D Card Spin', basePresetId: 'flip_3d_in', sfxPreset: 'sfx-whoosh', accentColor: '#8B5CF6' },
     { prefix: 'Impact Slam', basePresetId: 'kinetic_scale_drop', sfxPreset: 'sfx-boom', accentColor: '#6366F1' },
   ];
-  const directions = ['Left', 'Right', 'Up', 'Down', 'Diagonal', 'Fast', 'Smooth', 'Ultra', 'Pro', 'V2'];
-  const intensities = ['Soft', 'Medium', 'Hard', 'Turbo'];
+  const directions: { label: string; value: NonNullable<MotionPresetItem['motionVariant']>['direction'] }[] = [
+    { label: 'From Left', value: 'left' },
+    { label: 'From Right', value: 'right' },
+    { label: 'From Top', value: 'up' },
+    { label: 'From Bottom', value: 'down' },
+    { label: 'Top Left', value: 'top-left' },
+    { label: 'Top Right', value: 'top-right' },
+    { label: 'Bottom Left', value: 'bottom-left' },
+    { label: 'Bottom Right', value: 'bottom-right' },
+    { label: 'Center Punch', value: 'center' },
+    { label: 'Diagonal Sweep', value: 'bottom-right' },
+  ];
+  const intensities = [
+    { label: 'Soft', value: 0.65, duration: 0.85 },
+    { label: 'Medium', value: 0.9, duration: 0.65 },
+    { label: 'Hard', value: 1.2, duration: 0.48 },
+    { label: 'Turbo', value: 1.55, duration: 0.32 },
+  ];
 
   let seq = 1;
   for (const tb of transitionBases) {
@@ -173,20 +193,21 @@ function buildMegaCatalog(): MotionPresetItem[] {
         const vendor = vendors[seq % vendors.length];
         items.push({
           id: `mega_tr_${seq}`,
-          name: `${tb.prefix} ${dir} · ${inten}`,
+          name: `${tb.prefix} · ${dir.label} · ${inten.label}`,
           vendor,
           category: 'Transition',
-          description: `${vendor} transition with synced ${tb.sfxPreset.replace('sfx-', '').toUpperCase()} SFX.`,
+          description: `Distinct ${dir.label.toLowerCase()} transition · ${inten.label.toLowerCase()} intensity · ${inten.duration.toFixed(2)}s timing with synced ${tb.sfxPreset.replace('sfx-', '').toUpperCase()} SFX.`,
           accentColor: tb.accentColor,
           sfxPreset: tb.sfxPreset,
           basePresetId: tb.basePresetId,
+          motionVariant: { direction: dir.value, intensity: inten.value, duration: inten.duration },
         });
         seq++;
       }
     }
   }
 
-  // 2. Animation Presets (260 items)
+  // 2. Real motion variants: every direction, curve and duration changes applied keyframes.
   const animBases: { prefix: string; basePresetId: string; color: string }[] = [
     { prefix: 'Elastic Bounce', basePresetId: 'elastic_pop_in', color: '#3B82F6' },
     { prefix: 'Overshoot Glide', basePresetId: 'smooth_slide_in', color: '#3B82F6' },
@@ -194,23 +215,46 @@ function buildMegaCatalog(): MotionPresetItem[] {
     { prefix: 'Kinetic Slam', basePresetId: 'kinetic_scale_drop', color: '#6366F1' },
     { prefix: 'Parallax Drift', basePresetId: 'parallax_float', color: '#0EA5E9' },
   ];
-  const speeds = ['0.3s Snap', '0.5s Snappy', '0.8s Smooth', '1.2s Cinema', '1.6s Dreamy'];
-  const curves = ['Expo', 'Back', 'Quart', 'Elastic', 'Spring', 'Quint', 'Sine', 'Circ', 'Quad', 'Cubic', 'Pro'];
+  const speeds = [
+    { label: '0.30s Snap', duration: 0.30, intensity: 0.75 },
+    { label: '0.50s Snappy', duration: 0.50, intensity: 0.9 },
+    { label: '0.80s Smooth', duration: 0.80, intensity: 1 },
+    { label: '1.20s Cinema', duration: 1.20, intensity: 1.18 },
+    { label: '1.60s Dreamy', duration: 1.60, intensity: 1.35 },
+  ];
+  const curves: { label: string; easing: EasingType }[] = [
+    { label: 'Linear', easing: 'linear' },
+    { label: 'Ease In', easing: 'ease-in' },
+    { label: 'Ease Out', easing: 'ease-out' },
+    { label: 'Ease In Out', easing: 'ease-in-out' },
+    { label: 'Elastic', easing: 'elastic' },
+    { label: 'Overshoot', easing: 'overshoot' },
+    { label: 'Bezier', easing: 'bezier' },
+  ];
+  const animationDirections = directions.slice(0, 8);
   for (const ab of animBases) {
     for (const sp of speeds) {
       for (const cv of curves) {
-        if (items.length >= 520) break;
-        const vendor = vendors[seq % vendors.length];
-        items.push({
-          id: `mega_an_${seq}`,
-          name: `${ab.prefix} (${cv} · ${sp})`,
-          vendor,
-          category: 'Animation',
-          description: `${vendor} keyframe rig with ${cv} Bezier easing.`,
-          accentColor: ab.color,
-          basePresetId: ab.basePresetId,
-        });
-        seq++;
+        for (const dir of animationDirections) {
+          const intensity = sp.intensity * (cv.easing === 'elastic' || cv.easing === 'overshoot' ? 1.08 : 1);
+          items.push({
+            id: `mega_an_${seq}`,
+            name: `${ab.prefix} · ${dir.label} · ${cv.label} · ${sp.label}`,
+            vendor: vendors[seq % vendors.length],
+            category: 'Animation',
+            description: `Applies a ${dir.label.toLowerCase()} motion rig with ${cv.label.toLowerCase()} interpolation, ${sp.duration.toFixed(2)}s timing and ${intensity.toFixed(2)}x motion strength.`,
+            accentColor: ab.color,
+            basePresetId: ab.basePresetId,
+            motionVariant: {
+              direction: dir.value,
+              intensity,
+              duration: sp.duration,
+              easing: cv.easing,
+              ...(cv.easing === 'bezier' ? { bezier: [0.16, 1, 0.3, 1] as [number, number, number, number] } : {}),
+            },
+          });
+          seq++;
+        }
       }
     }
   }
@@ -328,61 +372,216 @@ function buildMegaCatalog(): MotionPresetItem[] {
     });
   }
 
-  // 4. DaVinci Color LUTs & Looks (160 items)
-  const lutMoods = ['Cinema', 'Commercial', 'Documentary', 'Music Video', 'Wedding', 'Sci-Fi', 'Travel', 'Tech'];
+  // 4. DaVinci color looks: strength and mood are applied to the grade, not just the label.
+  const lutMoods: { label: string; id: NonNullable<MotionPresetItem['lutMood']> }[] = [
+    { label: 'Cinema', id: 'cinema' }, { label: 'Commercial', id: 'commercial' },
+    { label: 'Documentary', id: 'documentary' }, { label: 'Music Video', id: 'music-video' },
+    { label: 'Wedding', id: 'wedding' }, { label: 'Sci-Fi', id: 'sci-fi' },
+    { label: 'Travel', id: 'travel' }, { label: 'Tech', id: 'tech' },
+  ];
   for (const lut of DAVINCI_LUTS) {
     for (const mood of lutMoods) {
-      for (const strength of ['50%', '75%', '100%']) {
-        const vendor = vendors[seq % vendors.length];
+      for (const strength of [{ label: '50%', value: 0.5 }, { label: '75%', value: 0.75 }, { label: '100%', value: 1 }]) {
         items.push({
           id: `mega_lut_${seq}`,
-          name: `${lut.name} · ${mood} ${strength}`,
-          vendor,
+          name: `${lut.name} · ${mood.label} ${strength.label}`,
+          vendor: vendors[seq % vendors.length],
           category: 'Color LUT',
-          description: `DaVinci 3-Way Color Wheel LUT (${lut.name}).`,
+          description: `${mood.label} look · ${strength.label} grade mix · ${lut.name} color-wheel profile.`,
           accentColor: '#F59E0B',
           lutName: lut.name,
+          lutMood: mood.id,
+          lutStrength: strength.value,
         });
         seq++;
       }
     }
   }
 
-  // 5. Graphics, Lower-Thirds, HUD & 3D Rigs (160 items)
-  const gfxBases: {
-    prefix: string;
-    category: PresetCategory;
-    basePresetId: string;
-    color: string;
-  }[] = [
-    { prefix: 'Lower-Third Plate', category: 'Graphics', basePresetId: 'lower_third_pack', color: '#14B8A6' },
-    { prefix: 'HUD Telemetry Ring', category: 'Graphics', basePresetId: 'hud_callout_pack', color: '#10B981' },
-    { prefix: 'Cyber Neon Title', category: 'Graphics', basePresetId: 'cyber_neon_title', color: '#38BDF8' },
-    { prefix: '3D Dolly Camera Rig', category: '3D Rig', basePresetId: 'camera_3d_push', color: '#F59E0B' },
-    { prefix: 'Studio 3-Point Light', category: '3D Rig', basePresetId: 'three_point_light', color: '#FDE047' },
+  // Curated 3D rig entries stay single-instance; avoid fake edition duplicates.
+  return items;
+}
+
+function buildCreativeAssetLibrary(): MotionPresetItem[] {
+  const items: MotionPresetItem[] = [];
+  const shapes: { type: ShapeLayerProps['shapeType']; label: string; sides?: number }[] = [
+    { type: 'rect', label: 'Rectangle' }, { type: 'rounded-rect', label: 'Rounded Rectangle' },
+    { type: 'circle', label: 'Circle' }, { type: 'ellipse', label: 'Ellipse' }, { type: 'ring', label: 'Ring' },
+    { type: 'polygon', label: 'Polygon', sides: 6 }, { type: 'triangle', label: 'Triangle' },
+    { type: 'diamond', label: 'Diamond' }, { type: 'pentagon', label: 'Pentagon' }, { type: 'hexagon', label: 'Hexagon' },
+    { type: 'heptagon', label: 'Heptagon' }, { type: 'octagon', label: 'Octagon' },
+    { type: 'star', label: 'Five Point Star' }, { type: 'star-6', label: 'Six Point Star' },
+    { type: 'burst', label: 'Sun Burst' }, { type: 'heart', label: 'Heart' }, { type: 'arrow', label: 'Arrow' },
+    { type: 'chevron', label: 'Chevron' }, { type: 'cross', label: 'Cross' }, { type: 'plus', label: 'Plus' },
+    { type: 'minus', label: 'Minus' }, { type: 'trapezoid', label: 'Trapezoid' },
+    { type: 'parallelogram', label: 'Parallelogram' }, { type: 'speech-bubble', label: 'Speech Bubble' },
+    { type: 'cloud', label: 'Cloud' }, { type: 'lightning', label: 'Lightning' },
+    { type: 'line', label: 'Line' }, { type: 'lower-third', label: 'Lower Third' },
   ];
-  const styles = ['Minimal', 'Tech', 'Broadcast', 'Sports', 'Esports', 'Corporate', 'Luxury', 'Editorial'];
-  const editions = ['Alpha', 'Beta', 'Pro', 'Studio'];
-
-  for (const gb of gfxBases) {
-    for (const st of styles) {
-      for (const ed of editions) {
-        const vendor = vendors[seq % vendors.length];
+  const shapeStyles = [
+    { id: 'solid', label: 'Solid Fill', strokeWidth: 2 },
+    { id: 'outline', label: 'Outline', strokeWidth: 7 },
+    { id: 'duotone', label: 'Duotone', strokeWidth: 4 },
+  ] as const;
+  let index = 1;
+  for (const shape of shapes) {
+    for (const palette of COLOR_PALETTES) {
+      for (const style of shapeStyles) {
+        const fillColor = style.id === 'outline' || shape.type === 'ring' || shape.type === 'line'
+          ? 'transparent'
+          : style.id === 'duotone' ? palette.colors[2] : palette.colors[0];
+        const strokeColor = style.id === 'solid' ? palette.colors[2] : style.id === 'duotone' ? palette.colors[0] : palette.colors[3];
         items.push({
-          id: `mega_gfx_${seq}`,
-          name: `${gb.prefix} · ${st} ${ed}`,
-          vendor,
-          category: gb.category,
-          description: `${vendor} ${gb.category} template ready for timeline.`,
-          accentColor: gb.color,
-          basePresetId: gb.basePresetId,
+          id: `lib_shape_${index}`,
+          name: `${shape.label} · ${palette.name} · ${style.label}`,
+          vendor: 'FX',
+          category: 'Shapes',
+          description: `Editable vector ${shape.label.toLowerCase()} with ${style.label.toLowerCase()} styling. Resize, rotate, recolor and animate on the canvas.`,
+          accentColor: palette.colors[2],
+          assetTemplate: {
+            kind: 'shape',
+            duration: 8,
+            defaultShape: {
+              shapeType: shape.type,
+              width: shape.type === 'line' ? 520 : shape.type === 'lower-third' ? 760 : 280,
+              height: shape.type === 'line' ? 8 : shape.type === 'lower-third' ? 150 : 240,
+              fillColor,
+              strokeColor,
+              strokeWidth: shapeStyles.find((entry) => entry.id === style.id)!.strokeWidth,
+              cornerRadius: 22,
+              sides: shape.sides ?? 6,
+            },
+          },
         });
-        seq++;
+        index++;
       }
     }
   }
+
+  const titleStyles = [
+    { label: 'Cinematic Main Title', text: 'YOUR STORY', fontSize: 84, fontWeight: 800, letterSpacing: 7, align: 'center' as const },
+    { label: 'Minimal Subtitle', text: 'A NEW CHAPTER', fontSize: 36, fontWeight: 500, letterSpacing: 5, align: 'center' as const },
+    { label: 'Bold Impact Title', text: 'MAKE IT COUNT', fontSize: 76, fontWeight: 900, letterSpacing: 1, align: 'center' as const },
+    { label: 'Editorial Quote', text: '“A BETTER WAY”', fontSize: 58, fontWeight: 600, letterSpacing: 2, align: 'left' as const },
+    { label: 'Broadcast Nameplate', text: 'NAME · TITLE', fontSize: 32, fontWeight: 700, letterSpacing: 3, align: 'left' as const },
+  ];
+  index = 1;
+  COLOR_PALETTES.forEach((palette, paletteIndex) => {
+    titleStyles.forEach((style, styleIndex) => {
+      const animator = TEXT_ANIMATORS[(paletteIndex * titleStyles.length + styleIndex) % TEXT_ANIMATORS.length];
+      items.push({
+        id: `lib_title_${index}`,
+        name: `${style.label} · ${palette.name}`,
+        vendor: 'FX',
+        category: 'Titles',
+        description: `Ready-to-edit title layer with ${animator.name.toLowerCase()} text animation and ${palette.name.toLowerCase()} colors.`,
+        accentColor: palette.colors[2],
+        assetTemplate: {
+          kind: 'text',
+          duration: 6,
+          defaultText: {
+            text: style.text,
+            fontSize: style.fontSize,
+            color: palette.colors[0],
+            fontWeight: style.fontWeight,
+            letterSpacing: style.letterSpacing,
+            align: style.align,
+            backgroundColor: style.label === 'Broadcast Nameplate' ? palette.colors[1] : undefined,
+            animator: animator.id,
+          },
+        },
+      });
+      index++;
+    });
+  });
+
+  const particleStyles: ParticleLayerProps['style'][] = ['sparks', 'snow', 'bokeh', 'matrix', 'confetti'];
+  const particleLevels = [
+    { label: 'Sparse', count: 60, speed: 0.55, size: 3 },
+    { label: 'Balanced', count: 140, speed: 1, size: 5 },
+    { label: 'Dense', count: 240, speed: 1.45, size: 7 },
+  ];
+  index = 1;
+  for (const palette of COLOR_PALETTES) {
+    for (const particleStyle of particleStyles) {
+      for (const level of particleLevels) {
+        items.push({
+          id: `lib_particle_${index}`,
+          name: `${particleStyle[0].toUpperCase() + particleStyle.slice(1)} · ${palette.name} · ${level.label}`,
+          vendor: 'FX',
+          category: 'Particles',
+          description: `${level.label} ${particleStyle} generator preset · ${level.count} particles · ${level.speed.toFixed(2)}x speed.`,
+          accentColor: palette.colors[2],
+          assetTemplate: {
+            kind: 'particles',
+            duration: 8,
+            defaultParticles: {
+              style: particleStyle,
+              count: level.count,
+              speed: level.speed,
+              size: level.size,
+              color: palette.colors[2],
+            },
+          },
+        });
+        index++;
+      }
+    }
+  }
+
+  const visualizerStyles = ['bars', 'radial', 'waveform'] as const;
+  const sensitivities = [{ label: 'Soft', value: 0.7 }, { label: 'Punchy', value: 1.6 }];
+  index = 1;
+  for (const palette of COLOR_PALETTES) {
+    for (const visualizerStyle of visualizerStyles) {
+      for (const sensitivity of sensitivities) {
+        items.push({
+          id: `lib_visualizer_${index}`,
+          name: `${visualizerStyle[0].toUpperCase() + visualizerStyle.slice(1)} Visualizer · ${palette.name} · ${sensitivity.label}`,
+          vendor: 'FX',
+          category: 'Visualizers',
+          description: `Audio-reactive ${visualizerStyle} visualizer preset with ${sensitivity.label.toLowerCase()} sensitivity.`,
+          accentColor: palette.colors[2],
+          assetTemplate: {
+            kind: 'visualizer',
+            duration: 8,
+            defaultVisualizer: {
+              style: visualizerStyle,
+              color: palette.colors[2],
+              accentColor: palette.colors[4],
+              sensitivity: sensitivity.value,
+            },
+          },
+        });
+        index++;
+      }
+    }
+  }
+
+  index = 1;
+  COLOR_PALETTES.forEach((palette) => {
+    palette.colors.forEach((color, colorIndex) => {
+      items.push({
+        id: `lib_background_${index}`,
+        name: `${palette.name} · Background ${colorIndex + 1}`,
+        vendor: 'FX',
+        category: 'Backgrounds',
+        description: `Full-frame solid matte from the ${palette.name.toLowerCase()} palette. Use as a background, card or color plate.`,
+        accentColor: color,
+        assetTemplate: {
+          kind: 'solid',
+          duration: 10,
+          defaultSolid: { color, width: 1920, height: 1080 },
+        },
+      });
+      index++;
+    });
+  });
 
   return items;
 }
 
-export const MEGA_CATALOG: MotionPresetItem[] = buildMegaCatalog();
+export const MEGA_CATALOG: MotionPresetItem[] = [
+  ...buildMegaCatalog(),
+  ...buildCreativeAssetLibrary(),
+];

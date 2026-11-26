@@ -455,7 +455,30 @@ export type PresetCategory =
   | 'Graphics'
   | '3D Rig'
   | 'Effects'
-  | 'Color LUT';
+  | 'Color LUT'
+  | 'Titles'
+  | 'Shapes'
+  | 'Backgrounds'
+  | 'Particles'
+  | 'Visualizers';
+
+export interface CatalogAssetTemplate {
+  kind: Extract<MediaKind, 'text' | 'shape' | 'solid' | 'particles' | 'visualizer'>;
+  duration?: number;
+  defaultText?: TextLayerProps;
+  defaultShape?: ShapeLayerProps;
+  defaultSolid?: SolidLayerProps;
+  defaultParticles?: ParticleLayerProps;
+  defaultVisualizer?: VisualizerLayerProps;
+}
+
+export interface CatalogMotionVariant {
+  direction?: 'left' | 'right' | 'up' | 'down' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
+  intensity?: number;
+  duration?: number;
+  easing?: EasingType;
+  bezier?: [number, number, number, number];
+}
 
 export interface MotionPresetItem {
   id: string;
@@ -469,6 +492,10 @@ export interface MotionPresetItem {
   effectType?: EffectType;
   effectParams?: Record<string, number>;
   lutName?: string;
+  lutStrength?: number;
+  lutMood?: 'cinema' | 'commercial' | 'documentary' | 'music-video' | 'wedding' | 'sci-fi' | 'travel' | 'tech';
+  motionVariant?: CatalogMotionVariant;
+  assetTemplate?: CatalogAssetTemplate;
 }
 
 export interface SavedProjectPayload {

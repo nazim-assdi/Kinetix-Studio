@@ -32,6 +32,7 @@ import {
   generateWaveformPeaks,
 } from './data/demoProject';
 import { applyMotionPresetToClip } from './data/motionPresets';
+import { applyCatalogMotionVariant, buildCatalogColorGrade } from './engine/catalogVariants';
 import { DAVINCI_LUTS } from './data/megaCatalog';
 import {
   evaluateClipTransform,
@@ -1490,15 +1491,36 @@ export default function App() {
   ) => {
     const targetClip = clips.find((clip) => clip.id === targetClipId) ?? null;
 
+    // Library assets are complete editable layers, so they can be added without a selected clip.
+    if (item.assetTemplate) {
+      const template = item.assetTemplate;
+      const asset: ProjectAsset = {
+        id: `asset_library_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name: item.name,
+        kind: template.kind,
+        duration: template.duration ?? 6,
+        defaultText: template.defaultText,
+        defaultShape: template.defaultShape,
+        defaultSolid: template.defaultSolid,
+        defaultParticles: template.defaultParticles,
+        defaultVisualizer: template.defaultVisualizer,
+      };
+      const newClip = buildClipFromAsset(asset, undefined, targetClip?.start ?? playheadRef.current);
+      if (!newClip) return;
+      setAssets((previous) => [asset, ...previous]);
+      commitHistory(tracks, [...clips, newClip]);
+      setSelectedClipId(newClip.id);
+      setSaveBadgeText('Added from Library');
+      window.setTimeout(() => setSaveBadgeText(null), 1800);
+      return;
+    }
+
     // Color LUTs are grades only; they must never trigger FX or transitions.
     if (item.category === 'Color LUT' && item.lutName && targetClipId) {
       const lut = DAVINCI_LUTS.find((candidate) => candidate.name === item.lutName);
       if (lut) {
-        updateClipById(
-          targetClipId,
-          (clip) => ({ ...clip, colorGrade: { ...lut.grade, enabled: true } }),
-          true
-        );
+        const grade = buildCatalogColorGrade(item, lut.grade);
+        updateClipById(targetClipId, (clip) => ({ ...clip, colorGrade: grade }), true);
       }
       return;
     }
@@ -1534,7 +1556,7 @@ export default function App() {
       const baseId = item.basePresetId || item.id;
       let nextClips = clips.map((clip) => {
         if (clip.id !== targetClip.id) return clip;
-        const animated = applyMotionPresetToClip(clip, baseId);
+        const animated = applyCatalogMotionVariant(applyMotionPresetToClip(clip, baseId), item.motionVariant);
         return {
           ...animated,
           appliedPresetIds: [...(clip.appliedPresetIds ?? []), item.id],
@@ -1577,6 +1599,16 @@ export default function App() {
 
     if (item.effectType && targetClipId) {
       handleAddEffect(targetClipId, item.effectType);
+      return;
+    }
+
+    if (item.category === 'Animation' && targetClipId) {
+      const baseId = item.basePresetId || item.id;
+      updateClipById(
+        targetClipId,
+        (clip) => applyCatalogMotionVariant(applyMotionPresetToClip(clip, baseId), item.motionVariant),
+        true
+      );
       return;
     }
 
