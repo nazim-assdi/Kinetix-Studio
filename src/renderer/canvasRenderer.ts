@@ -1410,38 +1410,38 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         switch (advancedAnimator.family) {
           case 'fade-rise':
             animOffsetY = (1 - eased) * 56 * amount;
-            targetCtx.globalAlpha *= eased;
+            renderCtx.globalAlpha *= eased;
             break;
           case 'fade-drop':
             animOffsetY = -(1 - eased) * 56 * amount;
-            targetCtx.globalAlpha *= eased;
+            renderCtx.globalAlpha *= eased;
             break;
           case 'scale-pop':
             animScale = 0.28 + eased * 0.72;
-            targetCtx.globalAlpha *= eased;
+            renderCtx.globalAlpha *= eased;
             break;
           case 'rotate-reveal':
             animRotation = (1 - eased) * 0.35 * amount;
             animScale = 0.85 + eased * 0.15;
-            targetCtx.globalAlpha *= eased;
+            renderCtx.globalAlpha *= eased;
             break;
           case 'tracking-reveal':
             animTracking = (1 - eased) * 24 * amount;
-            targetCtx.globalAlpha *= eased;
+            renderCtx.globalAlpha *= eased;
             break;
           case 'soft-blur':
             animBlur = (1 - eased) * 18 * amount;
-            targetCtx.globalAlpha *= eased;
+            renderCtx.globalAlpha *= eased;
             break;
           case 'wave-in':
             animOffsetY = (1 - eased) * 38 * amount + Math.sin(localT * 12 + advancedAnimator.variant) * (1 - eased) * 13;
-            targetCtx.globalAlpha *= eased;
+            renderCtx.globalAlpha *= eased;
             break;
           case 'bounce-in': {
             const bounce = 1 + Math.sin(progress * Math.PI * 3) * (1 - progress) * 0.16 * amount;
             animScale = Math.max(0.1, eased * bounce);
             animOffsetY = (1 - eased) * 46 * amount;
-            targetCtx.globalAlpha *= eased;
+            renderCtx.globalAlpha *= eased;
             break;
           }
           case 'typewriter': {
