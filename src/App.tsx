@@ -1505,7 +1505,7 @@ export default function App() {
         defaultParticles: template.defaultParticles,
         defaultVisualizer: template.defaultVisualizer,
       };
-      const newClip = buildClipFromAsset(asset);
+      const newClip = buildClipFromAsset(asset, undefined, targetClip?.start ?? playheadRef.current);
       if (!newClip) return;
       setAssets((previous) => [asset, ...previous]);
       commitHistory(tracks, [...clips, newClip]);
