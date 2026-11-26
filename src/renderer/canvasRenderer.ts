@@ -294,7 +294,9 @@ function drawFittedMedia(
   drawHeight: number,
   frameWidth: number,
   frameHeight: number,
-  fitMode: 'contain' | 'cover' | 'stretch'
+  fitMode: 'contain' | 'cover' | 'stretch',
+  fitPositionX = 50,
+  fitPositionY = 50
 ): { width: number; height: number } {
   ctx.save();
   if (fitMode === 'cover') {
@@ -302,7 +304,17 @@ function drawFittedMedia(
     ctx.rect(-frameWidth / 2, -frameHeight / 2, frameWidth, frameHeight);
     ctx.clip();
   }
-  ctx.drawImage(source, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+  const overflowX = Math.max(0, drawWidth - frameWidth);
+  const overflowY = Math.max(0, drawHeight - frameHeight);
+  const offsetX = (Math.max(0, Math.min(100, fitPositionX)) / 100 - 0.5) * overflowX;
+  const offsetY = (Math.max(0, Math.min(100, fitPositionY)) / 100 - 0.5) * overflowY;
+  ctx.drawImage(
+    source,
+    -drawWidth / 2 - offsetX,
+    -drawHeight / 2 - offsetY,
+    drawWidth,
+    drawHeight
+  );
   ctx.restore();
   return fitMode === 'contain'
     ? { width: drawWidth, height: drawHeight }
@@ -1359,11 +1371,31 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          const fitted = drawFittedMedia(renderCtx, keyed, mediaSize.width, mediaSize.height, width, height, fitMode);
+          const fitted = drawFittedMedia(
+            renderCtx,
+            keyed,
+            mediaSize.width,
+            mediaSize.height,
+            width,
+            height,
+            fitMode,
+            composition.fitPositionX ?? 50,
+            composition.fitPositionY ?? 50
+          );
           baseW = fitted.width;
           baseH = fitted.height;
         } else {
-          const fitted = drawFittedMedia(renderCtx, img, mediaSize.width, mediaSize.height, width, height, fitMode);
+          const fitted = drawFittedMedia(
+            renderCtx,
+            img,
+            mediaSize.width,
+            mediaSize.height,
+            width,
+            height,
+            fitMode,
+            composition.fitPositionX ?? 50,
+            composition.fitPositionY ?? 50
+          );
           baseW = fitted.width;
           baseH = fitted.height;
         }
@@ -1396,11 +1428,31 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          const fitted = drawFittedMedia(renderCtx, keyed, mediaSize.width, mediaSize.height, width, height, fitMode);
+          const fitted = drawFittedMedia(
+            renderCtx,
+            keyed,
+            mediaSize.width,
+            mediaSize.height,
+            width,
+            height,
+            fitMode,
+            composition.fitPositionX ?? 50,
+            composition.fitPositionY ?? 50
+          );
           baseW = fitted.width;
           baseH = fitted.height;
         } else {
-          const fitted = drawFittedMedia(renderCtx, video, mediaSize.width, mediaSize.height, width, height, fitMode);
+          const fitted = drawFittedMedia(
+            renderCtx,
+            video,
+            mediaSize.width,
+            mediaSize.height,
+            width,
+            height,
+            fitMode,
+            composition.fitPositionX ?? 50,
+            composition.fitPositionY ?? 50
+          );
           baseW = fitted.width;
           baseH = fitted.height;
         }
