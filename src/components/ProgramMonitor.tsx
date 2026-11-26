@@ -297,17 +297,17 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         let effScaleX = world.scale / 100;
         let effScaleY = world.scale / 100;
         let skewX = 0;
+        let rotationRad = (world.rotation * Math.PI) / 180;
         if (c.is3D) {
-          const proj = projectLayerThroughCamera(world, activeCamera, clips, playheadTime, composition.width, composition.height);
-          if (!proj.visible) continue;
-          cx = proj.screenX;
-          cy = proj.screenY;
-          effScaleX = proj.perspectiveScale * proj.scaleX;
-          effScaleY = proj.perspectiveScale * proj.scaleY;
-          skewX = proj.skewX;
+          const projection = projectLayerThroughCamera(world, activeCamera, clips, playheadTime, composition.width, composition.height);
+          if (!projection.visible) continue;
+          cx = projection.screenX;
+          cy = projection.screenY;
+          effScaleX = projection.perspectiveScale * projection.scaleX;
+          effScaleY = projection.perspectiveScale * projection.scaleY;
+          skewX = projection.skewX;
+          rotationRad = projection.rotationRad;
         }
-
-        const rotationRad = (world.rotation * Math.PI) / 180;
         const { screenCx, screenCy } = computeAnchorScreenCenter(
           cx, cy, world.anchorX ?? 0, world.anchorY ?? 0,
           effScaleX, effScaleY, rotationRad, skewX
