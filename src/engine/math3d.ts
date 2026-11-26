@@ -18,7 +18,7 @@ export interface WorldTransform3D extends Vector3 {
   rotationY: number;
   opacity: number;
   /** Full world orientation, composed from every parent and local transform. */
-  orientation: Quaternion;
+  orientation?: Quaternion;
 }
 
 export function quaternionMultiply(a: Quaternion, b: Quaternion): Quaternion {
@@ -57,6 +57,10 @@ export function rotateVector3(vector: Vector3, orientation: Quaternion): Vector3
     inverse
   );
   return { x: rotated.x, y: rotated.y, z: rotated.z };
+}
+
+function getWorldOrientation(world: WorldTransform3D): Quaternion {
+  return world.orientation ?? quaternionFromEuler(world.rotationX, world.rotationY, world.rotation);
 }
 
 function normalizeQuaternion(q: Quaternion): Quaternion {
@@ -226,8 +230,8 @@ export function projectLayerThroughCamera(
   const safeDepth = Math.max(nearClip, depth);
   const perspectiveScale = focalPx / safeDepth;
 
-  const worldAxisX = rotateVector3({ x: 1, y: 0, z: 0 }, world.orientation);
-  const worldAxisY = rotateVector3({ x: 0, y: 1, z: 0 }, world.orientation);
+  const worldAxisX = rotateVector3({ x: 1, y: 0, z: 0 }, getWorldOrientation(world));
+  const worldAxisY = rotateVector3({ x: 0, y: 1, z: 0 }, getWorldOrientation(world));
   const viewAxisX = rotateVector3(worldAxisX, cameraInverse);
   const viewAxisY = rotateVector3(worldAxisY, cameraInverse);
   const layerScale = world.scale / 100;
@@ -284,7 +288,7 @@ export function computeLightShading(
   let totalLight = 0.22;
   let dominantTint = '#ffffff';
   let highestContribution = 0;
-  const normal = rotateVector3({ x: 0, y: 0, z: -1 }, layerWorld.orientation);
+  const normal = rotateVector3({ x: 0, y: 0, z: -1 }, getWorldOrientation(layerWorld));
 
   for (const light of lights) {
     const props = light.lightProps;
