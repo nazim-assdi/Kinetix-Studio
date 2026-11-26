@@ -287,6 +287,30 @@ export function upsertKeyframe(
   };
 }
 
+/** Move one existing keyframe without mutating the source clip. */
+export function moveKeyframe(
+  clip: TimelineClip,
+  prop: AnimatableProperty,
+  keyframeId: string,
+  localTime: number,
+  value: number
+): TimelineClip {
+  const existing = clip.keyframes[prop] ?? [];
+  if (!existing.some((keyframe) => keyframe.id === keyframeId)) return clip;
+  const clampedTime = clamp(Number(localTime.toFixed(4)), 0, clip.duration);
+  const nextList = existing
+    .map((keyframe) =>
+      keyframe.id === keyframeId
+        ? { ...keyframe, time: clampedTime, value }
+        : keyframe
+    )
+    .sort((a, b) => a.time - b.time || a.id.localeCompare(b.id));
+  return {
+    ...clip,
+    keyframes: { ...clip.keyframes, [prop]: nextList },
+  };
+}
+
 export function togglePropertyKeyframing(
   clip: TimelineClip,
   prop: AnimatableProperty,
