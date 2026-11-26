@@ -23,7 +23,8 @@ class StudioAudioEngine {
       mid: BiquadFilterNode;
       high: BiquadFilterNode;
       rumbleCut: BiquadFilterNode;
-      noiseGate: DynamicsCompressorNode;
+      noiseAnalyser: AnalyserNode;
+      noiseGate: GainNode;
       compressor: DynamicsCompressorNode;
       pan: StereoPannerNode;
       gain: GainNode;
@@ -126,12 +127,11 @@ class StudioAudioEngine {
             rumbleCut.frequency.value = 30;
             rumbleCut.Q.value = 0.7;
 
-            const noiseGate = ctx.createDynamicsCompressor();
-            noiseGate.threshold.value = 0;
-            noiseGate.knee.value = 0;
-            noiseGate.ratio.value = 1;
-            noiseGate.attack.value = 0.003;
-            noiseGate.release.value = 0.16;
+            const noiseAnalyser = ctx.createAnalyser();
+            noiseAnalyser.fftSize = 512;
+            noiseAnalyser.smoothingTimeConstant = 0.35;
+            const noiseGate = ctx.createGain();
+            noiseGate.gain.value = 1;
 
             const compressor = ctx.createDynamicsCompressor();
             compressor.threshold.value = -18;
@@ -141,7 +141,8 @@ class StudioAudioEngine {
             const gain = ctx.createGain();
 
             source.connect(rumbleCut);
-            rumbleCut.connect(noiseGate);
+            rumbleCut.connect(noiseAnalyser);
+            noiseAnalyser.connect(noiseGate);
             noiseGate.connect(low);
             low.connect(mid);
             mid.connect(high);
@@ -156,6 +157,7 @@ class StudioAudioEngine {
               mid,
               high,
               rumbleCut,
+              noiseAnalyser,
               noiseGate,
               compressor,
               pan,
@@ -173,8 +175,26 @@ class StudioAudioEngine {
           chain.high.gain.value = track.eqHigh ?? 0;
           const reduction = Math.max(0, Math.min(100, clip.noiseReduction ?? 0));
           chain.rumbleCut.frequency.value = reduction > 0 ? 80 + reduction * 1.25 : 30;
-          chain.noiseGate.threshold.value = reduction > 0 ? -65 + reduction * 0.4 : 0;
-          chain.noiseGate.ratio.value = reduction > 0 ? 1 + reduction * 0.18 : 1;
+          if (reduction <= 0) {
+            chain.noiseGate.gain.setTargetAtTime(1, ctx?.currentTime ?? 0, 0.04);
+          } else {
+            const samples = new Uint8Array(chain.noiseAnalyser.fftSize);
+            chain.noiseAnalyser.getByteTimeDomainData(samples);
+            let sumSquares = 0;
+            for (const sample of samples) {
+              const normalized = (sample - 128) / 128;
+              sumSquares += normalized * normalized;
+            }
+            const rms = Math.sqrt(sumSquares / samples.length);
+            const thresholdDb = -72 + reduction * 0.32;
+            const threshold = Math.pow(10, thresholdDb / 20);
+            const targetGate = rms >= threshold ? 1 : 0.035;
+            chain.noiseGate.gain.setTargetAtTime(
+              targetGate,
+              ctx?.currentTime ?? 0,
+              targetGate > 0.5 ? 0.012 : 0.09
+            );
+          }
           chain.compressor.ratio.value = track.compressor ? 4 : 1;
           chain.compressor.threshold.value = track.compressor ? -20 : 0;
           chain.pan.pan.value = track.pan ?? 0;
