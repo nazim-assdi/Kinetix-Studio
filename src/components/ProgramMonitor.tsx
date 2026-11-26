@@ -62,12 +62,18 @@ function pointInProjectedQuad(
 }
 
 const SEQUENCE_PRESETS = [
+  { id: 'youtube1080', label: 'YouTube · 16:9 · Full HD', width: 1920, height: 1080, fps: 30 },
+  { id: 'youtube4k', label: 'YouTube · 16:9 · 4K UHD', width: 3840, height: 2160, fps: 30 },
   { id: 'hd720', label: '16:9 HD · 1280×720', width: 1280, height: 720, fps: 30 },
-  { id: 'fhd1080', label: '16:9 Full HD · 1920×1080', width: 1920, height: 1080, fps: 30 },
-  { id: 'uhd4k', label: '16:9 4K UHD · 3840×2160', width: 3840, height: 2160, fps: 30 },
-  { id: 'reels916', label: '9:16 Reels · 1080×1920', width: 1080, height: 1920, fps: 60 },
-  { id: 'sq1080', label: '1:1 Square · 1080×1080', width: 1080, height: 1080, fps: 30 },
+  { id: 'reels916', label: 'Instagram Reels · 9:16', width: 1080, height: 1920, fps: 60 },
+  { id: 'tiktok916', label: 'TikTok · 9:16', width: 1080, height: 1920, fps: 30 },
+  { id: 'shorts916', label: 'YouTube Shorts · 9:16', width: 1080, height: 1920, fps: 60 },
+  { id: 'facebookSquare', label: 'Facebook Feed · 1:1 Square', width: 1080, height: 1080, fps: 30 },
+  { id: 'facebookPortrait', label: 'Facebook / Instagram · 4:5', width: 1080, height: 1350, fps: 30 },
+  { id: 'cinema239', label: 'Cinema · 2.39:1', width: 2560, height: 1072, fps: 24 },
   { id: 'scope21', label: '21:9 Cinema · 2560×1080', width: 2560, height: 1080, fps: 24 },
+  { id: 'square2k', label: 'Square · 2160×2160', width: 2160, height: 2160, fps: 30 },
+  { id: 'story4k', label: 'Vertical · 4K', width: 2160, height: 3840, fps: 30 },
 ] as const;
 
 interface ProgramMonitorProps {
@@ -583,7 +589,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       className="flex-1 min-w-0 bg-[#111215] flex flex-col min-h-0"
     >
       {/* Monitor Header Strip with View Modes (1 / 2H / 2V / 4 Quad) */}
-      <div className="h-9 shrink-0 px-3 bg-[#16181D] border-b border-[#2B303A] flex items-center justify-between gap-2">
+      <div className="h-9 shrink-0 px-3 bg-[#16181D] border-b border-[#2B303A] flex items-center justify-between gap-2 relative z-30">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-xs font-semibold text-[#E6E8EC] truncate">
             {composition.name}
@@ -593,13 +599,23 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
               aria-label="Sequence Aspect & Resolution Preset"
               value={
                 SEQUENCE_PRESETS.find(
-                  (p) => p.width === composition.width && p.height === composition.height
+                  (p) =>
+                    p.width === composition.width &&
+                    p.height === composition.height &&
+                    p.fps === composition.fps
                 )?.id ?? 'custom'
               }
               onChange={(e) => {
                 const p = SEQUENCE_PRESETS.find((x) => x.id === e.target.value);
                 if (p) {
-                  onUpdateComposition({ width: p.width, height: p.height, fps: p.fps });
+                  onUpdateComposition({
+                    width: p.width,
+                    height: p.height,
+                    fps: p.fps,
+                    fitMode: 'cover',
+                    fitPositionX: 50,
+                    fitPositionY: 50,
+                  });
                 }
               }}
               className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[11px] font-mono-tabular text-[#C8CDD6] focus:outline-none hover:border-[#3B82F6]"
@@ -610,7 +626,10 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                 </option>
               ))}
               {!SEQUENCE_PRESETS.some(
-                (p) => p.width === composition.width && p.height === composition.height
+                (p) =>
+                  p.width === composition.width &&
+                  p.height === composition.height &&
+                  p.fps === composition.fps
               ) && (
                 <option value="custom">
                   {composition.width}×{composition.height} · {composition.fps}fps
@@ -621,6 +640,117 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             <span className="text-[11px] text-[#7E8594] font-mono-tabular whitespace-nowrap">
               {composition.width}×{composition.height} · {composition.fps}fps
             </span>
+          )}
+          {onUpdateComposition && (
+            <details className="relative">
+              <summary className="list-none cursor-pointer rounded border border-[#2B303A] bg-[#111215] px-2 py-0.5 text-[10px] text-[#C8CDD6] hover:border-[#3B82F6]">Custom</summary>
+              <div className="absolute left-0 top-full mt-1 w-56 rounded border border-[#303744] bg-[#181A1F] p-2.5 shadow-2xl z-[90] space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[10px] text-[#9BA1AD]">Width
+                    <input
+                      type="number"
+                      aria-label="Custom Sequence Width"
+                      min={1}
+                      max={8192}
+                      step={2}
+                      value={composition.width}
+                      onChange={(e) => {
+                        const width = Math.max(1, Math.min(8192, Math.round(Number(e.target.value) || composition.width)));
+                        onUpdateComposition({ width });
+                      }}
+                      onBlur={() => {
+                        if (composition.width < 64) onUpdateComposition({ width: 64 });
+                      }}
+                      className="mt-1 w-full bg-[#0B0D10] border border-[#2B303A] rounded px-1.5 py-1 text-[11px] text-white"
+                    />
+                  </label>
+                  <label className="text-[10px] text-[#9BA1AD]">Height
+                    <input
+                      type="number"
+                      aria-label="Custom Sequence Height"
+                      min={1}
+                      max={8192}
+                      step={2}
+                      value={composition.height}
+                      onChange={(e) => {
+                        const height = Math.max(1, Math.min(8192, Math.round(Number(e.target.value) || composition.height)));
+                        onUpdateComposition({ height });
+                      }}
+                      onBlur={() => {
+                        if (composition.height < 64) onUpdateComposition({ height: 64 });
+                      }}
+                      className="mt-1 w-full bg-[#0B0D10] border border-[#2B303A] rounded px-1.5 py-1 text-[11px] text-white"
+                    />
+                  </label>
+                </div>
+                <label className="block text-[10px] text-[#9BA1AD]">Frame Rate · {composition.fps}fps
+                  <input
+                    type="range"
+                    aria-label="Custom Sequence Frame Rate"
+                    min={12}
+                    max={120}
+                    step={1}
+                    value={composition.fps}
+                    onChange={(e) => onUpdateComposition({ fps: Number(e.target.value) })}
+                    className="mt-1 w-full studio-slider"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => onUpdateComposition({ fitMode: 'cover', fitPositionX: 50, fitPositionY: 50 })}
+                  className="text-[9px] text-[#93C5FD] hover:text-white"
+                >Reset crop to center</button>
+              </div>
+            </details>
+          )}
+          {onUpdateComposition && (
+            <select
+              aria-label="Sequence Media Fit Mode"
+              title="Choose how footage fits or crops in this sequence"
+              value={composition.fitMode ?? 'contain'}
+              onChange={(e) => onUpdateComposition({ fitMode: e.target.value as 'contain' | 'cover' | 'stretch' })}
+              className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[10px] text-[#C8CDD6] focus:outline-none"
+            >
+              <option value="cover">Crop to Fill</option>
+              <option value="contain">Fit / Letterbox</option>
+              <option value="stretch">Stretch</option>
+            </select>
+          )}
+          {onUpdateComposition && composition.fitMode === 'cover' && (
+            <details className="relative">
+              <summary className="list-none cursor-pointer rounded border border-[#2B303A] bg-[#111215] px-2 py-0.5 text-[10px] text-[#C8CDD6] hover:border-[#3B82F6]">Crop Position</summary>
+              <div className="absolute left-0 top-full mt-1 w-56 rounded border border-[#303744] bg-[#181A1F] p-2.5 shadow-2xl z-[90] space-y-2">
+                <label className="block text-[10px] text-[#9BA1AD]">
+                  Horizontal · {Math.round(composition.fitPositionX ?? 50)}%
+                  <input
+                    type="range"
+                    aria-label="Crop Horizontal Position"
+                    min={0}
+                    max={100}
+                    value={composition.fitPositionX ?? 50}
+                    onChange={(e) => onUpdateComposition({ fitPositionX: Number(e.target.value) })}
+                    className="mt-1 w-full studio-slider"
+                  />
+                </label>
+                <label className="block text-[10px] text-[#9BA1AD]">
+                  Vertical · {Math.round(composition.fitPositionY ?? 50)}%
+                  <input
+                    type="range"
+                    aria-label="Crop Vertical Position"
+                    min={0}
+                    max={100}
+                    value={composition.fitPositionY ?? 50}
+                    onChange={(e) => onUpdateComposition({ fitPositionY: Number(e.target.value) })}
+                    className="mt-1 w-full studio-slider"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => onUpdateComposition({ fitPositionX: 50, fitPositionY: 50 })}
+                  className="text-[9px] text-[#93C5FD] hover:text-white"
+                >Center Crop</button>
+              </div>
+            </details>
           )}
         </div>
 

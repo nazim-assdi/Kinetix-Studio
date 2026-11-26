@@ -1,4 +1,5 @@
 import { SfxPresetName, SynthPreset, TimelineClip, TimelineTrack } from '../types/editor';
+import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
 
 export function dbToGain(db: number): number {
   if (db <= -36) return 0;
@@ -21,6 +22,9 @@ class StudioAudioEngine {
       low: BiquadFilterNode;
       mid: BiquadFilterNode;
       high: BiquadFilterNode;
+      rumbleCut: BiquadFilterNode;
+      noiseAnalyser: AnalyserNode;
+      noiseGate: GainNode;
       compressor: DynamicsCompressorNode;
       pan: StereoPannerNode;
       gain: GainNode;
@@ -70,6 +74,17 @@ class StudioAudioEngine {
       const tracks = getTracks();
 
       const hasSolo = tracks.some((tr) => tr.solo);
+      const activeVoiceovers = clips.filter((voice) =>
+        voice.isVoiceover &&
+        voice.duckingEnabled !== false &&
+        t >= voice.start &&
+        t <= voice.start + voice.duration &&
+        tracks.some((track) => track.id === voice.trackId && !track.muted && (!hasSolo || track.solo))
+      );
+      const duckDb = activeVoiceovers.reduce(
+        (maximum, voice) => Math.max(maximum, voice.duckingAmount ?? 12),
+        0
+      );
 
       // Sync real audio & video embedded audio + Fairlight 3-Band EQ / Comp / Pan / dB gain
       for (const clip of clips) {
@@ -107,6 +122,17 @@ class StudioAudioEngine {
             high.type = 'highshelf';
             high.frequency.value = 6000;
 
+            const rumbleCut = ctx.createBiquadFilter();
+            rumbleCut.type = 'highpass';
+            rumbleCut.frequency.value = 30;
+            rumbleCut.Q.value = 0.7;
+
+            const noiseAnalyser = ctx.createAnalyser();
+            noiseAnalyser.fftSize = 512;
+            noiseAnalyser.smoothingTimeConstant = 0.35;
+            const noiseGate = ctx.createGain();
+            noiseGate.gain.value = 1;
+
             const compressor = ctx.createDynamicsCompressor();
             compressor.threshold.value = -18;
             compressor.ratio.value = 1;
@@ -114,7 +140,10 @@ class StudioAudioEngine {
             const pan = ctx.createStereoPanner();
             const gain = ctx.createGain();
 
-            source.connect(low);
+            source.connect(rumbleCut);
+            rumbleCut.connect(noiseAnalyser);
+            noiseAnalyser.connect(noiseGate);
+            noiseGate.connect(low);
             low.connect(mid);
             mid.connect(high);
             high.connect(compressor);
@@ -127,6 +156,9 @@ class StudioAudioEngine {
               low,
               mid,
               high,
+              rumbleCut,
+              noiseAnalyser,
+              noiseGate,
               compressor,
               pan,
               gain,
@@ -141,27 +173,71 @@ class StudioAudioEngine {
           chain.low.gain.value = track.eqLow ?? 0;
           chain.mid.gain.value = track.eqMid ?? 0;
           chain.high.gain.value = track.eqHigh ?? 0;
+          const reduction = Math.max(0, Math.min(100, clip.noiseReduction ?? 0));
+          chain.rumbleCut.frequency.value = reduction > 0 ? 80 + reduction * 1.25 : 30;
+          if (reduction <= 0) {
+            chain.noiseGate.gain.setTargetAtTime(1, ctx?.currentTime ?? 0, 0.04);
+          } else {
+            const samples = new Uint8Array(chain.noiseAnalyser.fftSize);
+            chain.noiseAnalyser.getByteTimeDomainData(samples);
+            let sumSquares = 0;
+            for (const sample of samples) {
+              const normalized = (sample - 128) / 128;
+              sumSquares += normalized * normalized;
+            }
+            const rms = Math.sqrt(sumSquares / samples.length);
+            const thresholdDb = -72 + reduction * 0.32;
+            const threshold = Math.pow(10, thresholdDb / 20);
+            const targetGate = rms >= threshold ? 1 : 0.035;
+            chain.noiseGate.gain.setTargetAtTime(
+              targetGate,
+              ctx?.currentTime ?? 0,
+              targetGate > 0.5 ? 0.012 : 0.09
+            );
+          }
           chain.compressor.ratio.value = track.compressor ? 4 : 1;
           chain.compressor.threshold.value = track.compressor ? -20 : 0;
           chain.pan.pan.value = track.pan ?? 0;
           const dbGain = dbToGain(track.volumeDb ?? 0);
-          chain.gain.gain.value = Math.min(
-            1.6,
-            Math.max(0, (clip.volume / 100) * dbGain)
+          const animatedVolume = (clip.keyframes.volume?.length ?? 0) > 0
+            ? evaluateClipTransform(clip, t).volume ?? clip.volume
+            : clip.volume;
+          const localTime = Math.max(0, t - clip.start);
+          let fadeGain = 1;
+          if (clip.fadeIn > 0) fadeGain *= Math.min(1, localTime / clip.fadeIn);
+          if (clip.fadeOut > 0) fadeGain *= Math.min(1, (clip.duration - localTime) / clip.fadeOut);
+          const duckGain = activeVoiceovers.length > 0 && !clip.isVoiceover
+            ? dbToGain(-duckDb)
+            : 1;
+          chain.gain.gain.setTargetAtTime(
+            Math.min(1.6, Math.max(0, (animatedVolume / 100) * dbGain * fadeGain * duckGain)),
+            ctx?.currentTime ?? 0,
+            0.035
           );
         }
 
         if (active) {
-          const speed = clip.speed ?? 1;
-          el.playbackRate = Math.max(0.25, Math.min(4, speed));
-          const targetTime = clip.sourceIn + (t - clip.start) * speed;
+          const timelineLocal = Math.max(0, Math.min(clip.duration, t - clip.start));
+          const speed = getClipSpeedAtLocalTime(clip, timelineLocal);
+          el.playbackRate = Math.max(0.1, Math.min(8, speed));
+          const targetTime = clip.sourceIn + getClipLocalTime(clip, t);
           if (Math.abs(el.currentTime - targetTime) > 0.25) {
             el.currentTime = targetTime;
           }
+          const animatedVolume = (clip.keyframes.volume?.length ?? 0) > 0
+            ? evaluateClipTransform(clip, t).volume ?? clip.volume
+            : clip.volume;
+          const localTime = Math.max(0, t - clip.start);
+          let fadeGain = 1;
+          if (clip.fadeIn > 0) fadeGain *= Math.min(1, localTime / clip.fadeIn);
+          if (clip.fadeOut > 0) fadeGain *= Math.min(1, (clip.duration - localTime) / clip.fadeOut);
+          const duckGain = activeVoiceovers.length > 0 && !clip.isVoiceover
+            ? dbToGain(-duckDb)
+            : 1;
           const dbGain = dbToGain(track?.volumeDb ?? 0);
           el.volume = chain
             ? 1
-            : Math.min(1, Math.max(0, (clip.volume / 100) * dbGain * 0.8));
+            : Math.min(1, Math.max(0, (animatedVolume / 100) * fadeGain * duckGain * dbGain * 0.8));
           if (el.paused) {
             el.play().catch(() => {});
           }

@@ -7,6 +7,7 @@ import {
 } from '../types/editor';
 import { DAVINCI_LUTS, DEFAULT_COLOR_GRADE } from '../data/megaCatalog';
 import { VideoScopesPanel } from './VideoScopesPanel';
+import { ColorPalettePicker } from './ColorPalettePicker';
 
 interface DaVinciColorPanelProps {
   selectedClip: TimelineClip | null;
@@ -184,6 +185,15 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
   };
 
   const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.lut}`;
+  const paletteColorToWheel = (hex: string): ColorWheelChannel => {
+    const value = Number.parseInt(hex.replace('#', ''), 16);
+    return {
+      r: (((value >> 16) & 255) / 255 - 0.5) * 0.72,
+      g: (((value >> 8) & 255) / 255 - 0.5) * 0.72,
+      b: ((value & 255) / 255 - 0.5) * 0.72,
+      luma: 0,
+    };
+  };
 
   return (
     <div className="space-y-2.5 p-1" data-testid="davinci-color-panel">
@@ -241,6 +251,19 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
           ))}
         </select>
       </div>
+
+      <ColorPalettePicker
+        onApply={(palette) =>
+          onUpdateColorGrade(selectedClip.id, {
+            ...grade,
+            enabled: true,
+            lift: paletteColorToWheel(palette.colors[0]),
+            gamma: paletteColorToWheel(palette.colors[2]),
+            gain: paletteColorToWheel(palette.colors[4]),
+            lut: 'Rec.709 Neutral',
+          })
+        }
+      />
 
       {/* 3-Way Color Wheels */}
       <div className="grid grid-cols-3 gap-1.5">

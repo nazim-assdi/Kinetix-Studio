@@ -33,6 +33,7 @@ const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
   opacity: 'Opacity',
   shapeWidth: 'Shape Width',
   shapeHeight: 'Shape Height',
+  volume: 'Audio Volume',
 };
 
 const PRESET_CURVES: { label: string; bezier: [number, number, number, number] }[] = [

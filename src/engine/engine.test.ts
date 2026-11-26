@@ -8,6 +8,8 @@ import {
   togglePropertyKeyframing,
   solveCubicBezier,
   getClipLocalTime,
+  getClipSpeedAtLocalTime,
+  getClipSourceElapsedTime,
 } from './keyframes';
 import {
   splitClipAtTime,
@@ -41,6 +43,8 @@ import { evaluateExpression, validateExpressionSyntax } from './expressions';
 import { computeVideoScopes, generateSrtSubtitles } from './scopes';
 import { parseSrtSubtitles } from './srt';
 import { TimelineClip } from '../types/editor';
+import { TEXT_ANIMATORS, getTextAnimatorDefinition } from '../data/textAnimators';
+import { COLOR_PALETTES } from '../data/colorPalettes';
 
 function makeClip(overrides: Partial<TimelineClip> = {}): TimelineClip {
   return {
@@ -514,3 +518,57 @@ test('getClipLocalTime handles speed multiplier and reversed playback', () => {
   assert.equal(getClipLocalTime(rev, 3), 3);
 });
 
+
+
+test('smooth speed ramps integrate source time and expose varying playback rates', () => {
+  const clip = makeClip({
+    start: 10,
+    duration: 4,
+    speed: 1,
+    speedRamp: [
+      { id: 'ramp-start', time: 0, speed: 1 },
+      { id: 'ramp-mid', time: 2, speed: 2 },
+      { id: 'ramp-end', time: 4, speed: 1 },
+    ],
+  });
+
+  assert.equal(getClipSpeedAtLocalTime(clip, 0), 1);
+  assert.equal(getClipSpeedAtLocalTime(clip, 2), 2);
+  assert.equal(getClipSpeedAtLocalTime(clip, 4), 1);
+  assert.ok(Math.abs(getClipSpeedAtLocalTime(clip, 1) - 1.5) < 0.0001);
+  assert.ok(Math.abs(getClipSourceElapsedTime(clip, 2) - 3) < 0.0001);
+  assert.ok(Math.abs(getClipLocalTime(clip, 12) - 3) < 0.0001);
+  assert.ok(Math.abs(getClipSourceElapsedTime(clip, 4) - 6) < 0.0001);
+
+  const reversed = { ...clip, reversed: true };
+  assert.ok(Math.abs(getClipLocalTime(reversed, 12) - 1) < 0.0001);
+});
+
+test('volume keyframes evaluate independently from transform properties', () => {
+  const clip = makeClip({ volume: 80 });
+  const keyed = upsertKeyframe(clip, 'volume', 0, 20, 'linear');
+  const keyed2 = upsertKeyframe(keyed, 'volume', 4, 100, 'linear');
+  assert.equal(evaluateClipTransform(keyed2, 2).volume, 20);
+  assert.equal(evaluateClipTransform(keyed2, 4).volume, 60);
+  const frozen = togglePropertyKeyframing(keyed2, 'volume', 2);
+  assert.equal(frozen.volume, 60);
+  assert.equal(frozen.keyframes.volume, undefined);
+});
+
+test('text animator catalogue has 100 distinct usable animation presets', () => {
+  assert.equal(TEXT_ANIMATORS.length, 100);
+  assert.equal(new Set(TEXT_ANIMATORS.map((item) => item.id)).size, 100);
+  assert.ok(TEXT_ANIMATORS.every((item) => item.duration > 0 && item.intensity > 0));
+  assert.equal(getTextAnimatorDefinition('animator-100')?.variant, 10);
+  assert.equal(getTextAnimatorDefinition('none'), undefined);
+});
+
+test('color palette library provides named five-color palettes', () => {
+  assert.ok(COLOR_PALETTES.length >= 15);
+  assert.equal(new Set(COLOR_PALETTES.map((palette) => palette.id)).size, COLOR_PALETTES.length);
+  assert.ok(COLOR_PALETTES.every((palette) =>
+    palette.name.length > 0 &&
+    palette.colors.length === 5 &&
+    palette.colors.every((color) => /^#[0-9A-F]{6}$/i.test(color))
+  ));
+});

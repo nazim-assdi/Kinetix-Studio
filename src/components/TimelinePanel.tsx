@@ -27,6 +27,7 @@ import {
   WorkAreaRange,
 } from '../types/editor';
 import { findSnapTime, formatRulerTime, formatTimecode } from '../engine/timecode';
+import { VoiceoverRecorder } from './VoiceoverRecorder';
 
 interface TimelinePanelProps {
   composition: CompositionSettings;
@@ -60,6 +61,14 @@ interface TimelinePanelProps {
     kfId: string,
     easing: EasingType
   ) => void;
+  onMoveKeyframe?: (
+    clipId: string,
+    prop: AnimatableProperty,
+    kfId: string,
+    time: number,
+    value: number
+  ) => void;
+  onAddVoiceover?: (file: File) => void;
   onDropEffect?: (clipId: string, effectType: EffectType) => void;
   onDropPreset?: (clipId: string, item: MotionPresetItem) => void;
   panelHeight?: number;
@@ -89,6 +98,8 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onAddTrack,
   onDropAssetOnTrack,
   onUpdateKeyframeEasing,
+  onMoveKeyframe,
+  onAddVoiceover,
   onDropEffect,
   onDropPreset,
   panelHeight = 300,
@@ -104,6 +115,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   } | null>(null);
 
   const lanesScrollRef = useRef<HTMLDivElement>(null);
+  const keyframeDragDidMoveRef = useRef(false);
 
   const totalWidth = Math.max(1100, Math.ceil((composition.duration + 4) * pxPerSecond));
 
@@ -223,6 +235,67 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     window.addEventListener('pointerup', onUp);
   };
 
+  const handleKeyframePointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    clip: TimelineClip,
+    prop: AnimatableProperty,
+    keyframe: NonNullable<TimelineClip['keyframes'][AnimatableProperty]>[number]
+  ) => {
+    event.stopPropagation();
+    if (!onMoveKeyframe) return;
+    keyframeDragDidMoveRef.current = false;
+    const track = tracks.find((item) => item.id === clip.trackId);
+    if (track?.locked) return;
+    onSelectClip(clip.id);
+    setSelectedKf({
+      clipId: clip.id,
+      prop,
+      kfId: keyframe.id,
+      easing: keyframe.easing,
+    });
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startTime = keyframe.time;
+    const startValue = keyframe.value;
+    const unitsPerPixel =
+      prop === 'rotation' || prop === 'rotationX' || prop === 'rotationY' ? 2 :
+      prop === 'scale' || prop === 'opacity' || prop === 'volume' ? 1 : 2;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const pixelDeltaX = moveEvent.clientX - startX;
+      const pixelDeltaY = moveEvent.clientY - startY;
+      if (Math.abs(pixelDeltaX) + Math.abs(pixelDeltaY) > 2) {
+        keyframeDragDidMoveRef.current = true;
+      }
+      const deltaX = pixelDeltaX / pxPerSecond;
+      let nextTime = Math.max(0, Math.min(clip.duration, startTime + deltaX));
+      if (snapEnabled) nextTime = Math.round(nextTime * composition.fps) / composition.fps;
+      const deltaValue = -pixelDeltaY * unitsPerPixel;
+      let nextValue = startValue + deltaValue;
+      if (prop === 'opacity') nextValue = Math.max(0, Math.min(100, nextValue));
+      else if (prop === 'volume') nextValue = Math.max(0, Math.min(200, nextValue));
+      else if (prop === 'shapeWidth' || prop === 'shapeHeight') nextValue = Math.max(1, nextValue);
+      onMoveKeyframe(
+        clip.id,
+        prop,
+        keyframe.id,
+        Number(nextTime.toFixed(4)),
+        Number(nextValue.toFixed(2))
+      );
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.setTimeout(() => {
+        keyframeDragDidMoveRef.current = false;
+      }, 0);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+    window.addEventListener('pointercancel', onUp, { once: true });
+  };
+
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
 
   // Build tick marks every second
@@ -261,6 +334,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             <Plus className="w-3 h-3" />
             <span>Audio Track</span>
           </button>
+          {onAddVoiceover && <VoiceoverRecorder onRecorded={onAddVoiceover} />}
 
           <button
             type="button"
@@ -677,7 +751,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                           )}
 
                           {/* AE Keyframe Diamonds inside Clip */}
-                          {showKeyframeDopeSheet && clip.kind !== 'audio' && (
+                          {showKeyframeDopeSheet && (
                             <div className="absolute inset-x-0 bottom-1 h-4 pointer-events-none">
                               {allKfs.map(([prop, list]) =>
                                 list.map((kf) => {
@@ -701,8 +775,13 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                                         onUpdateKeyframeEasing(clip.id, prop, kf.id, easing);
                                         setSelectedKf({ clipId: clip.id, prop, kfId: kf.id, easing });
                                       }}
+                                      onPointerDown={(ev) => handleKeyframePointerDown(ev, clip, prop, kf)}
                                       onClick={(ev) => {
                                         ev.stopPropagation();
+                                        if (keyframeDragDidMoveRef.current) {
+                                          keyframeDragDidMoveRef.current = false;
+                                          return;
+                                        }
                                         onSeek(clip.start + kf.time);
                                         onSelectClip(clip.id);
                                         setSelectedKf({
@@ -712,8 +791,9 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                                           easing: kf.easing,
                                         });
                                       }}
-                                      style={{ left: Math.max(2, kfLeft - 5) }}
-                                      className={`pointer-events-auto absolute top-0.5 transition-transform hover:scale-125 ${
+                                      data-testid={`keyframe-${kf.id}`}
+                                      style={{ left: Math.max(2, kfLeft - 5), touchAction: 'none' }}
+                                      className={`pointer-events-auto absolute top-0.5 cursor-ew-resize transition-transform hover:scale-125 ${
                                         isKfSelected
                                           ? 'text-white'
                                           : 'text-[#F59E0B]'

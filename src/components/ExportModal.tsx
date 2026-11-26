@@ -11,6 +11,7 @@ import {
   MediaCache,
   renderCompositionFrame,
 } from '../renderer/canvasRenderer';
+import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -30,6 +31,16 @@ const RESOLUTION_PRESETS = [
   { id: '4k', label: '4K UHD (3840×2160)', width: 3840, height: 2160, bitrate: 40_000_000 },
   { id: '6k', label: '6K Cinema (6144×3160)', width: 6144, height: 3160, bitrate: 60_000_000 },
   { id: '8k', label: '8K UHD (7680×4320)', width: 7680, height: 4320, bitrate: 80_000_000 },
+] as const;
+
+const ASPECT_PRESETS = [
+  { id: 'sequence', label: 'Use Sequence', ratio: null },
+  { id: '16:9', label: 'YouTube · 16:9', ratio: 16 / 9 },
+  { id: '9:16', label: 'Reels / TikTok · 9:16', ratio: 9 / 16 },
+  { id: '1:1', label: 'Square · 1:1', ratio: 1 },
+  { id: '4:5', label: 'Facebook Feed · 4:5', ratio: 4 / 5 },
+  { id: '4:3', label: 'Classic · 4:3', ratio: 4 / 3 },
+  { id: '2.39:1', label: 'Cinema · 2.39:1', ratio: 2.39 },
 ] as const;
 
 type CaptureVideoTrack = MediaStreamTrack & { requestFrame?: () => void };
@@ -79,6 +90,9 @@ interface ExportAudioChannel {
   clip: TimelineClip;
   element: HTMLAudioElement | HTMLVideoElement;
   gain: GainNode;
+  rumbleCut: BiquadFilterNode;
+  noiseAnalyser: AnalyserNode;
+  noiseGate: GainNode;
   track: TimelineTrack;
 }
 
@@ -145,6 +159,17 @@ async function createExportAudioSession(
       high.frequency.value = 6000;
       high.gain.value = track.eqHigh ?? 0;
 
+      const rumbleCut = context.createBiquadFilter();
+      rumbleCut.type = 'highpass';
+      rumbleCut.frequency.value = 30;
+      rumbleCut.Q.value = 0.7;
+
+      const noiseAnalyser = context.createAnalyser();
+      noiseAnalyser.fftSize = 512;
+      noiseAnalyser.smoothingTimeConstant = 0.35;
+      const noiseGate = context.createGain();
+      noiseGate.gain.value = 1;
+
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = track.compressor ? -20 : 0;
       compressor.ratio.value = track.compressor ? 4 : 1;
@@ -154,7 +179,10 @@ async function createExportAudioSession(
       const gain = context.createGain();
       gain.gain.value = 0;
 
-      source.connect(low);
+      source.connect(rumbleCut);
+      rumbleCut.connect(noiseAnalyser);
+      noiseAnalyser.connect(noiseGate);
+      noiseGate.connect(low);
       low.connect(mid);
       mid.connect(high);
       high.connect(compressor);
@@ -162,7 +190,7 @@ async function createExportAudioSession(
       pan.connect(gain);
       gain.connect(destination);
 
-      channels.push({ clip, element, gain, track });
+      channels.push({ clip, element, gain, rumbleCut, noiseAnalyser, noiseGate, track });
     }
 
     if (channels.length === 0) {
@@ -185,7 +213,18 @@ async function createExportAudioSession(
     destination,
     updateAt(time: number) {
       if (disposed) return;
-      for (const { clip, element, gain, track } of channels) {
+      const activeVoiceovers = channels.filter(({ clip, track }) =>
+        clip.isVoiceover &&
+        clip.duckingEnabled !== false &&
+        time >= clip.start &&
+        time < clip.start + clip.duration &&
+        !track.muted
+      );
+      const duckDb = activeVoiceovers.reduce(
+        (maximum, { clip }) => Math.max(maximum, clip.duckingAmount ?? 12),
+        0
+      );
+      for (const { clip, element, gain, track, rumbleCut, noiseAnalyser, noiseGate } of channels) {
         const clipEnd = clip.start + clip.duration;
         const active = time >= clip.start && time < clipEnd;
         if (!active) {
@@ -194,9 +233,31 @@ async function createExportAudioSession(
           continue;
         }
 
-        const speed = Math.max(0.25, Math.min(4, clip.speed ?? 1));
-        const targetTime = Math.max(0, clip.sourceIn + (time - clip.start) * speed);
-        element.playbackRate = speed;
+        const localTimeline = Math.max(0, Math.min(clip.duration, time - clip.start));
+        const speed = getClipSpeedAtLocalTime(clip, localTimeline);
+        const targetTime = Math.max(0, clip.sourceIn + getClipLocalTime(clip, time));
+        element.playbackRate = Math.max(0.1, Math.min(8, speed));
+        const reduction = Math.max(0, Math.min(100, clip.noiseReduction ?? 0));
+        rumbleCut.frequency.value = reduction > 0 ? 80 + reduction * 1.25 : 30;
+        if (reduction <= 0) {
+          noiseGate.gain.setTargetAtTime(1, context.currentTime, 0.04);
+        } else {
+          const samples = new Uint8Array(noiseAnalyser.fftSize);
+          noiseAnalyser.getByteTimeDomainData(samples);
+          let sumSquares = 0;
+          for (const sample of samples) {
+            const normalized = (sample - 128) / 128;
+            sumSquares += normalized * normalized;
+          }
+          const rms = Math.sqrt(sumSquares / samples.length);
+          const threshold = Math.pow(10, (-72 + reduction * 0.32) / 20);
+          const gateGain = rms >= threshold ? 1 : 0.035;
+          noiseGate.gain.setTargetAtTime(
+            gateGain,
+            context.currentTime,
+            gateGain > 0.5 ? 0.012 : 0.09
+          );
+        }
         if (Number.isFinite(element.duration) && element.duration > 0) {
           const safeTime = Math.min(targetTime, Math.max(0, element.duration - 0.04));
           if (Math.abs(element.currentTime - safeTime) > 0.22) {
@@ -214,10 +275,14 @@ async function createExportAudioSession(
           }
         }
 
-        let level = (clip.volume / 100) * Math.pow(10, (track.volumeDb ?? 0) / 20);
+        const animatedVolume = (clip.keyframes.volume?.length ?? 0) > 0
+          ? evaluateClipTransform(clip, time).volume ?? clip.volume
+          : clip.volume;
+        let level = (animatedVolume / 100) * Math.pow(10, (track.volumeDb ?? 0) / 20);
         if (clip.fadeIn > 0) level *= Math.min(1, Math.max(0, (time - clip.start) / clip.fadeIn));
         if (clip.fadeOut > 0) level *= Math.min(1, Math.max(0, (clipEnd - time) / clip.fadeOut));
-        gain.gain.setTargetAtTime(Math.max(0, Math.min(1.6, level)), context.currentTime, 0.015);
+        if (activeVoiceovers.length > 0 && !clip.isVoiceover) level *= Math.pow(10, -duckDb / 20);
+        gain.gain.setTargetAtTime(Math.max(0, Math.min(1.6, level)), context.currentTime, 0.035);
 
         if (element.paused) {
           void element.play().catch(() => {
@@ -252,6 +317,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   workArea,
 }) => {
   const [resId, setResId] = useState<string>('1080p');
+  const [aspectId, setAspectId] = useState<string>('sequence');
   const [exportFps, setExportFps] = useState(composition.fps);
   const [codecPref, setCodecPref] = useState<'webm' | 'mp4'>('webm');
   const [rangeMode, setRangeMode] = useState<'full' | 'workArea'>(
@@ -292,8 +358,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const preset =
     RESOLUTION_PRESETS.find((r) => r.id === resId) ?? RESOLUTION_PRESETS[1];
-  const outW = preset.width;
-  const outH = preset.height;
+  const aspectPreset = ASPECT_PRESETS.find((item) => item.id === aspectId) ?? ASPECT_PRESETS[0];
+  const exportRatio = aspectPreset.ratio ?? composition.width / Math.max(1, composition.height);
+  const portrait = exportRatio < 1;
+  const outW = portrait ? preset.height : preset.width;
+  const outH = Math.max(1, Math.round(outW / exportRatio));
 
   const startSec =
     rangeMode === 'workArea' && workArea ? Math.max(0, workArea.inTime) : 0;
@@ -311,7 +380,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       offscreen.height = outH;
       renderCompositionFrame({
         canvas: offscreen,
-        composition: { ...composition, width: outW, height: outH },
+        composition: {
+        ...composition,
+        width: outW,
+        height: outH,
+        fitMode: aspectId === 'sequence' ? composition.fitMode ?? 'contain' : 'cover',
+      },
         tracks,
         clips,
         playheadTime,
@@ -496,6 +570,25 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
         <div className="p-4 space-y-3.5">
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="export-aspect-select"
+                className="block text-[11px] text-[#9BA1AD] mb-1"
+              >
+                Aspect Ratio / Crop
+              </label>
+              <select
+                id="export-aspect-select"
+                disabled={status === 'rendering'}
+                value={aspectId}
+                onChange={(e) => setAspectId(e.target.value)}
+                className="w-full bg-[#111215] border border-[#2B303A] rounded px-2.5 py-1.5 text-xs text-white"
+              >
+                {ASPECT_PRESETS.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label
                 htmlFor="export-res-select"

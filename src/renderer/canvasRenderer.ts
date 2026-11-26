@@ -21,7 +21,8 @@ import {
   resolveWorldTransform,
   rotateVector3,
 } from '../engine/math3d';
-import { evaluateClipTransform, getClipLocalTime } from '../engine/keyframes';
+import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
+import { getTextAnimatorDefinition } from '../data/textAnimators';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -272,6 +273,54 @@ function drawExtrudedShapeSides(
   ctx.restore();
 }
 
+function getFittedMediaSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  frameWidth: number,
+  frameHeight: number,
+  fitMode: 'contain' | 'cover' | 'stretch'
+): { width: number; height: number } {
+  if (fitMode === 'stretch') return { width: frameWidth, height: frameHeight };
+  const scale = fitMode === 'cover'
+    ? Math.max(frameWidth / Math.max(1, sourceWidth), frameHeight / Math.max(1, sourceHeight))
+    : Math.min(frameWidth / Math.max(1, sourceWidth), frameHeight / Math.max(1, sourceHeight));
+  return { width: sourceWidth * scale, height: sourceHeight * scale };
+}
+
+function drawFittedMedia(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  drawWidth: number,
+  drawHeight: number,
+  frameWidth: number,
+  frameHeight: number,
+  fitMode: 'contain' | 'cover' | 'stretch',
+  fitPositionX = 50,
+  fitPositionY = 50
+): { width: number; height: number } {
+  ctx.save();
+  if (fitMode === 'cover') {
+    ctx.beginPath();
+    ctx.rect(-frameWidth / 2, -frameHeight / 2, frameWidth, frameHeight);
+    ctx.clip();
+  }
+  const overflowX = Math.max(0, drawWidth - frameWidth);
+  const overflowY = Math.max(0, drawHeight - frameHeight);
+  const offsetX = (Math.max(0, Math.min(100, fitPositionX)) / 100 - 0.5) * overflowX;
+  const offsetY = (Math.max(0, Math.min(100, fitPositionY)) / 100 - 0.5) * overflowY;
+  ctx.drawImage(
+    source,
+    -drawWidth / 2 - offsetX,
+    -drawHeight / 2 - offsetY,
+    drawWidth,
+    drawHeight
+  );
+  ctx.restore();
+  return fitMode === 'contain'
+    ? { width: drawWidth, height: drawHeight }
+    : { width: frameWidth, height: frameHeight };
+}
+
 function getOrLoadImage(
   cache: MediaCache,
   src: string,
@@ -295,7 +344,9 @@ function getOrLoadVideo(
   src: string,
   localMediaTime: number,
   isPlaying: boolean,
-  onReady?: () => void
+  onReady?: () => void,
+  playbackRate = 1,
+  reversed = false
 ): HTMLVideoElement | null {
   let video = cache.videos.get(src);
   if (!video) {
@@ -316,9 +367,17 @@ function getOrLoadVideo(
       0,
       Math.min(video.duration || localMediaTime, localMediaTime)
     );
-    if (isPlaying) {
+    if (reversed) {
+      // HTMLVideoElement does not provide reliable negative playbackRate support.
+      // Pause and seek to the exact reverse source time on every preview frame.
+      if (!video.paused) video.pause();
+      if (Math.abs(video.currentTime - clampedTarget) > 0.012) {
+        video.currentTime = clampedTarget;
+      }
+    } else if (isPlaying) {
+      video.playbackRate = Math.max(0.1, Math.min(8, playbackRate));
       if (video.paused) video.play().catch(() => {});
-      if (Math.abs(video.currentTime - clampedTarget) > 0.25) {
+      if (Math.abs(video.currentTime - clampedTarget) > 0.22) {
         video.currentTime = clampedTarget;
       }
     } else {
@@ -1304,62 +1363,112 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     } else if (clip.kind === 'image' && clip.src) {
       const img = getOrLoadImage(mediaCache, clip.src, onMediaLoaded);
       if (img) {
-        const aspect = img.naturalWidth / img.naturalHeight;
-        const compAspect = width / height;
-        if (aspect > compAspect) {
-          baseW = width;
-          baseH = width / aspect;
-        } else {
-          baseH = height;
-          baseW = height * aspect;
-        }
+        const fitMode = composition.fitMode ?? 'contain';
+        const mediaSize = getFittedMediaSize(
+          img.naturalWidth,
+          img.naturalHeight,
+          width,
+          height,
+          fitMode
+        );
         if (chromaFx) {
           const keyed = applyChromaKeyToSource(
             mediaCache,
             img,
-            baseW,
-            baseH,
+            mediaSize.width,
+            mediaSize.height,
             chromaFx.params.hueTarget ?? 120,
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          renderCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
+          const fitted = drawFittedMedia(
+            renderCtx,
+            keyed,
+            mediaSize.width,
+            mediaSize.height,
+            width,
+            height,
+            fitMode,
+            composition.fitPositionX ?? 50,
+            composition.fitPositionY ?? 50
+          );
+          baseW = fitted.width;
+          baseH = fitted.height;
         } else {
-          renderCtx.drawImage(img, -baseW / 2, -baseH / 2, baseW, baseH);
+          const fitted = drawFittedMedia(
+            renderCtx,
+            img,
+            mediaSize.width,
+            mediaSize.height,
+            width,
+            height,
+            fitMode,
+            composition.fitPositionX ?? 50,
+            composition.fitPositionY ?? 50
+          );
+          baseW = fitted.width;
+          baseH = fitted.height;
         }
       }
     } else if (clip.kind === 'video' && clip.src) {
       const mediaTime = clip.sourceIn + localPlayT;
+      const timelineLocalT = Math.max(0, Math.min(clip.duration, playheadTime - clip.start));
+      const mediaSpeed = getClipSpeedAtLocalTime(clip, timelineLocalT);
       const video = getOrLoadVideo(
         mediaCache,
         clip.src,
         mediaTime,
         isPlaying,
-        onMediaLoaded
+        onMediaLoaded,
+        mediaSpeed,
+        Boolean(clip.reversed)
       );
       if (video) {
-        const aspect = video.videoWidth / video.videoHeight || 16 / 9;
-        const compAspect = width / height;
-        if (aspect > compAspect) {
-          baseW = width;
-          baseH = width / aspect;
-        } else {
-          baseH = height;
-          baseW = height * aspect;
-        }
+        const fitMode = composition.fitMode ?? 'contain';
+        const mediaSize = getFittedMediaSize(
+          video.videoWidth || width,
+          video.videoHeight || height,
+          width,
+          height,
+          fitMode
+        );
         if (chromaFx) {
           const keyed = applyChromaKeyToSource(
             mediaCache,
             video,
-            baseW,
-            baseH,
+            mediaSize.width,
+            mediaSize.height,
             chromaFx.params.hueTarget ?? 120,
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          renderCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
+          const fitted = drawFittedMedia(
+            renderCtx,
+            keyed,
+            mediaSize.width,
+            mediaSize.height,
+            width,
+            height,
+            fitMode,
+            composition.fitPositionX ?? 50,
+            composition.fitPositionY ?? 50
+          );
+          baseW = fitted.width;
+          baseH = fitted.height;
         } else {
-          renderCtx.drawImage(video, -baseW / 2, -baseH / 2, baseW, baseH);
+          const fitted = drawFittedMedia(
+            renderCtx,
+            video,
+            mediaSize.width,
+            mediaSize.height,
+            width,
+            height,
+            fitMode,
+            composition.fitPositionX ?? 50,
+            composition.fitPositionY ?? 50
+          );
+          baseW = fitted.width;
+          baseH = fitted.height;
         }
       }
     } else if (clip.kind === 'text' && clip.textProps) {
@@ -1369,6 +1478,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       let renderText = tp.text;
       let animOffsetY = 0;
       let animScale = 1;
+      let animRotation = 0;
+      let animBlur = 0;
+      let animTracking = 0;
 
       if (anim === 'typewriter') {
         const revealDur = Math.min(2.2, Math.max(0.4, clip.duration * 0.45));
@@ -1398,11 +1510,76 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           .join('');
       }
 
+      const advancedAnimator = getTextAnimatorDefinition(tp.animator);
+      if (advancedAnimator) {
+        const progress = Math.min(1, Math.max(0, localT / advancedAnimator.duration));
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const amount = advancedAnimator.intensity;
+        switch (advancedAnimator.family) {
+          case 'fade-rise':
+            animOffsetY = (1 - eased) * 56 * amount;
+            renderCtx.globalAlpha *= eased;
+            break;
+          case 'fade-drop':
+            animOffsetY = -(1 - eased) * 56 * amount;
+            renderCtx.globalAlpha *= eased;
+            break;
+          case 'scale-pop':
+            animScale = 0.28 + eased * 0.72;
+            renderCtx.globalAlpha *= eased;
+            break;
+          case 'rotate-reveal':
+            animRotation = (1 - eased) * 0.35 * amount;
+            animScale = 0.85 + eased * 0.15;
+            renderCtx.globalAlpha *= eased;
+            break;
+          case 'tracking-reveal':
+            animTracking = (1 - eased) * 24 * amount;
+            renderCtx.globalAlpha *= eased;
+            break;
+          case 'soft-blur':
+            animBlur = (1 - eased) * 18 * amount;
+            renderCtx.globalAlpha *= eased;
+            break;
+          case 'wave-in':
+            animOffsetY = (1 - eased) * 38 * amount + Math.sin(localT * 12 + advancedAnimator.variant) * (1 - eased) * 13;
+            renderCtx.globalAlpha *= eased;
+            break;
+          case 'bounce-in': {
+            const bounce = 1 + Math.sin(progress * Math.PI * 3) * (1 - progress) * 0.16 * amount;
+            animScale = Math.max(0.1, eased * bounce);
+            animOffsetY = (1 - eased) * 46 * amount;
+            renderCtx.globalAlpha *= eased;
+            break;
+          }
+          case 'typewriter': {
+            const chars = Math.max(0, Math.floor(progress * tp.text.length));
+            renderText = tp.text.slice(0, chars);
+            break;
+          }
+          case 'glitch': {
+            if (progress < 1) {
+              const glyphs = '01#@%&XZ';
+              const settled = Math.floor(progress * tp.text.length);
+              renderText = tp.text
+                .split('')
+                .map((character, index) =>
+                  index < settled || character === ' '
+                    ? character
+                    : glyphs[(index * 7 + Math.floor(localT * 36) + advancedAnimator.variant) % glyphs.length]
+                )
+                .join('');
+            }
+            break;
+          }
+        }
+      }
+
       renderCtx.font = `${tp.fontWeight} ${tp.fontSize}px "Plus Jakarta Sans", sans-serif`;
       renderCtx.textAlign = tp.align;
       renderCtx.textBaseline = 'middle';
       if ('letterSpacing' in renderCtx) {
-        (renderCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${tp.letterSpacing}px`;
+        (renderCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${tp.letterSpacing + animTracking}px`;
       }
       const metrics = renderCtx.measureText(tp.text);
       baseW = Math.max(120, metrics.width + 40);
@@ -1410,7 +1587,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
       renderCtx.save();
       renderCtx.translate(0, animOffsetY);
+      if (animRotation !== 0) renderCtx.rotate(animRotation);
       if (animScale !== 1) renderCtx.scale(animScale, animScale);
+      if (animBlur > 0) renderCtx.filter = `blur(${animBlur.toFixed(1)}px)`;
       if (tp.backgroundColor) {
         renderCtx.fillStyle = tp.backgroundColor;
         const rx =
