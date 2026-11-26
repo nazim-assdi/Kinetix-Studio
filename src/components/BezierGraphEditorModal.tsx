@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Activity, Play, Pause, Sparkles, Move } from 'lucide-react';
-import { AnimatableProperty, TimelineClip } from '../types/editor';
+import { AnimatableProperty, EasingType, TimelineClip } from '../types/editor';
 import { solveCubicBezier } from '../engine/keyframes';
 
 interface BezierGraphEditorModalProps {
@@ -47,7 +47,7 @@ const PRESET_CURVES: { label: string; bezier: [number, number, number, number] }
   { label: 'Overshoot', bezier: [0.34, 1.4, 0.64, 1] },
 ];
 
-function curveForEasing(easing?: TimelineClip['keyframes'][AnimatableProperty] extends (infer K)[] | undefined ? K extends { easing: infer E } ? E : never : never): [number, number, number, number] {
+function curveForEasing(easing?: EasingType): [number, number, number, number] {
   switch (easing) {
     case 'linear': return [0, 0, 1, 1];
     case 'ease-in': return [0.42, 0, 1, 1];
