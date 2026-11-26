@@ -1288,6 +1288,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     mediaCache,
     onMediaLoaded,
     drawGizmo = true,
+    activeTool = 'select',
   } = options;
 
   const ctx = canvas.getContext('2d');
