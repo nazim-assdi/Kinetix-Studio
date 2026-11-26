@@ -4,6 +4,7 @@ import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
 import {
   interpolateKeyframes,
   evaluateClipTransform,
+  moveKeyframe,
   upsertKeyframe,
   togglePropertyKeyframing,
   solveCubicBezier,
@@ -106,6 +107,34 @@ test('interpolateKeyframes and solveCubicBezier compute linear and custom curves
 
   const bez = solveCubicBezier(0.5, 0.16, 1, 0.3, 1);
   assert.ok(bez > 0.8 && bez <= 1);
+});
+
+test('moveKeyframe updates one keyframe repeatedly and keeps the list ordered', () => {
+  let clip = makeClip({
+    keyframes: {
+      x: [
+        { id: 'left', time: 0, value: 0, easing: 'linear' },
+        { id: 'middle', time: 1, value: 100, easing: 'bezier', bezier: [0.16, 1, 0.3, 1] },
+        { id: 'right', time: 2, value: 200, easing: 'linear' },
+      ],
+    },
+  });
+
+  clip = moveKeyframe(clip, 'x', 'middle', 1.5, 140);
+  assert.deepEqual(clip.keyframes.x?.map((keyframe) => [keyframe.id, keyframe.time, keyframe.value]), [
+    ['left', 0, 0],
+    ['right', 2, 200],
+    ['middle', 1.5, 140],
+  ].sort((a, b) => Number(a[1]) - Number(b[1])));
+
+  clip = moveKeyframe(clip, 'x', 'middle', 0.5, 60);
+  assert.deepEqual(clip.keyframes.x?.map((keyframe) => [keyframe.id, keyframe.time, keyframe.value]), [
+    ['left', 0, 0],
+    ['middle', 0.5, 60],
+    ['right', 2, 200],
+  ]);
+  assert.deepEqual(clip.keyframes.x?.[1].bezier, [0.16, 1, 0.3, 1]);
+  assert.equal(moveKeyframe(clip, 'x', 'missing', 1, 50), clip);
 });
 
 test('togglePropertyKeyframing seeds and freezes keyframes cleanly', () => {
