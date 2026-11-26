@@ -10,6 +10,7 @@ import {
 import { MOTION_PRESET_PACKS } from './motionPresets';
 import { COLOR_PALETTES } from './colorPalettes';
 import { TEXT_ANIMATORS } from './textAnimators';
+import { EXTENDED_LIBRARY } from './extendedLibrary';
 
 export interface DaVinciLutPreset {
   id: string;
@@ -584,4 +585,5 @@ function buildCreativeAssetLibrary(): MotionPresetItem[] {
 export const MEGA_CATALOG: MotionPresetItem[] = [
   ...buildMegaCatalog(),
   ...buildCreativeAssetLibrary(),
+  ...EXTENDED_LIBRARY,
 ];

@@ -1491,26 +1491,48 @@ export default function App() {
   ) => {
     const targetClip = clips.find((clip) => clip.id === targetClipId) ?? null;
 
-    // Library assets are complete editable layers, so they can be added without a selected clip.
-    if (item.assetTemplate) {
-      const template = item.assetTemplate;
-      const asset: ProjectAsset = {
-        id: `asset_library_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name: item.name,
-        kind: template.kind,
-        duration: template.duration ?? 6,
-        defaultText: template.defaultText,
-        defaultShape: template.defaultShape,
-        defaultSolid: template.defaultSolid,
-        defaultParticles: template.defaultParticles,
-        defaultVisualizer: template.defaultVisualizer,
-      };
-      const newClip = buildClipFromAsset(asset, undefined, targetClip?.start ?? playheadRef.current);
-      if (!newClip) return;
-      setAssets((previous) => [asset, ...previous]);
-      commitHistory(tracks, [...clips, newClip]);
-      setSelectedClipId(newClip.id);
-      setSaveBadgeText('Added from Library');
+    // Library assets are complete editable layers. Multi-layer kits insert every part
+    // as its own timeline clip so text, accents, panels and charts can be edited independently.
+    const templates = item.assetTemplates?.length
+      ? item.assetTemplates
+      : item.assetTemplate ? [item.assetTemplate] : [];
+    if (templates.length > 0) {
+      const startTime = targetClip?.start ?? playheadRef.current;
+      const newAssets: ProjectAsset[] = [];
+      const newClips: TimelineClip[] = [];
+      templates.forEach((template, index) => {
+        const asset: ProjectAsset = {
+          id: `asset_library_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 7)}`,
+          name: templates.length > 1 ? `${item.name} · Layer ${index + 1}` : item.name,
+          kind: template.kind,
+          duration: template.duration ?? 6,
+          defaultText: template.defaultText,
+          defaultShape: template.defaultShape,
+          defaultSolid: template.defaultSolid,
+          defaultParticles: template.defaultParticles,
+          defaultVisualizer: template.defaultVisualizer,
+          defaultPath: template.defaultPath,
+          defaultCaption: template.defaultCaption,
+        };
+        const newClip = buildClipFromAsset(asset, undefined, startTime);
+        if (!newClip) return;
+        const offset = template.offset ?? {};
+        newClip.transform = {
+          ...newClip.transform,
+          x: offset.x ?? 0,
+          y: offset.y ?? 0,
+          scale: offset.scale ?? 100,
+          rotation: offset.rotation ?? 0,
+          opacity: offset.opacity ?? 100,
+        };
+        newAssets.push(asset);
+        newClips.push(newClip);
+      });
+      if (newClips.length === 0) return;
+      setAssets((previous) => [...newAssets, ...previous]);
+      commitHistory(tracks, [...clips, ...newClips]);
+      setSelectedClipId(newClips[newClips.length - 1].id);
+      setSaveBadgeText(newClips.length > 1 ? `Added ${newClips.length} editable layers` : 'Added from Library');
       window.setTimeout(() => setSaveBadgeText(null), 1800);
       return;
     }

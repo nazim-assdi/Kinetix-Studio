@@ -410,6 +410,16 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
               >
                 <option value="All">All Categories ({MEGA_CATALOG.length.toLocaleString()})</option>
                 <option value="Titles">Titles &amp; Typography</option>
+                <option value="Icons">Vector Icon Kits</option>
+                <option value="Frames">Frames &amp; Borders</option>
+                <option value="Callouts">Callouts &amp; Labels</option>
+                <option value="Dividers">Dividers &amp; Line Accents</option>
+                <option value="Captions">Subtitle &amp; Caption Styles</option>
+                <option value="Infographics">Infographics &amp; Data Cards</option>
+                <option value="Social Kits">Social Media Kits</option>
+                <option value="UI Elements">UI Elements &amp; Widgets</option>
+                <option value="Decorative">Decorative Overlays</option>
+                <option value="Textures">Texture &amp; Finishing Effects</option>
                 <option value="Shapes">Vector Shapes</option>
                 <option value="Backgrounds">Backgrounds &amp; Solids</option>
                 <option value="Particles">Particles &amp; Atmosphere</option>
@@ -526,7 +536,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
           <div className="space-y-1.5">
             {filteredPacks.slice(0, packLimit).map((preset) => {
               const isFavorite = favoriteIds.includes(preset.id);
-              const isAsset = Boolean(preset.assetTemplate);
+              const isAsset = Boolean(preset.assetTemplate || preset.assetTemplates?.length);
               const needsSelectedClip =
                 activeTab !== 'sfx' && !isAsset &&
                 preset.category !== '3D Rig' &&
