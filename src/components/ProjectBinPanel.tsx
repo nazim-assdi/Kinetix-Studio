@@ -70,7 +70,7 @@ const SFX_LIBRARY: MotionPresetItem[] = SFX_FAMILIES.flatMap((family, familyInde
       category: 'Effects',
       description: `Procedural ${family.toLowerCase()} ${texture.toLowerCase()} sound variation ${String(index).padStart(3, '0')}.`,
       accentColor: '#14B8A6',
-      sfxPreset: `sfx-pack-${index}`,
+      sfxPreset: `sfx-pack-${index}` as `sfx-pack-${number}`,
     };
   })
 );
