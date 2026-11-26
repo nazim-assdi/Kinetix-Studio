@@ -209,7 +209,7 @@ export function projectLayerThroughCamera(
         cameraWorld.rotation
       );
     } else {
-      cameraOrientation = cameraWorld.orientation;
+      cameraOrientation = cameraWorld.orientation ?? quaternionFromEuler(cameraWorld.rotationX, cameraWorld.rotationY, cameraWorld.rotation);
     }
   }
 
