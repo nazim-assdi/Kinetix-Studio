@@ -36,6 +36,8 @@ const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
   volume: 'Audio Volume',
 };
 
+const DEFAULT_CURVE: [number, number, number, number] = [0.16, 1, 0.3, 1];
+
 const PRESET_CURVES: { label: string; bezier: [number, number, number, number] }[] = [
   { label: 'Linear', bezier: [0, 0, 1, 1] },
   { label: 'Ease', bezier: [0.25, 0.1, 0.25, 1] },
@@ -44,6 +46,18 @@ const PRESET_CURVES: { label: string; bezier: [number, number, number, number] }
   { label: 'Expo Snap', bezier: [0.16, 1, 0.3, 1] },
   { label: 'Overshoot', bezier: [0.34, 1.4, 0.64, 1] },
 ];
+
+function curveForEasing(easing?: TimelineClip['keyframes'][AnimatableProperty] extends (infer K)[] | undefined ? K extends { easing: infer E } ? E : never : never): [number, number, number, number] {
+  switch (easing) {
+    case 'linear': return [0, 0, 1, 1];
+    case 'ease-in': return [0.42, 0, 1, 1];
+    case 'ease-out': return [0, 0, 0.58, 1];
+    case 'ease-in-out': return [0.42, 0, 0.58, 1];
+    case 'overshoot': return [0.34, 1.4, 0.64, 1];
+    case 'bezier': return DEFAULT_CURVE;
+    default: return DEFAULT_CURVE;
+  }
+}
 
 export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
   isOpen,
@@ -54,9 +68,7 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
 }) => {
   const [selectedProp, setSelectedProp] = useState<AnimatableProperty>('scale');
   const [segmentIdx, setSegmentIdx] = useState<number>(0);
-  const [curve, setCurve] = useState<[number, number, number, number]>([
-    0.16, 1, 0.3, 1,
-  ]);
+  const [curve, setCurve] = useState<[number, number, number, number]>(DEFAULT_CURVE);
   const [draggingHandle, setDraggingHandle] = useState<'p1' | 'p2' | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(true);
   const [previewT, setPreviewT] = useState(0);
@@ -80,35 +92,27 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
 
   // Sync selected property with first keyframed property on clip
   useEffect(() => {
-    if (!clip) return;
+    if (!isOpen || !clip) return;
     const keys = Object.keys(clip.keyframes) as AnimatableProperty[];
     const firstWithKfs = keys.find((k) => (clip.keyframes[k]?.length ?? 0) >= 1);
     if (firstWithKfs) {
       setSelectedProp(firstWithKfs);
       setSegmentIdx(0);
       const kf = clip.keyframes[firstWithKfs]?.[0];
-      if (kf?.bezier) setCurve(kf.bezier);
+      setCurve(kf?.bezier ?? curveForEasing(kf?.easing));
+    } else {
+      setSelectedProp('scale');
+      setSegmentIdx(0);
+      setCurve(DEFAULT_CURVE);
     }
-  }, [clip?.id]);
+  }, [isOpen, clip?.id]);
 
   // Sync curve from selected keyframe segment
   useEffect(() => {
     if (!clip) return;
     const kfs = clip.keyframes[selectedProp] ?? [];
     const kf = kfs[segmentIdx];
-    if (kf?.bezier) {
-      setCurve(kf.bezier);
-    } else if (kf?.easing === 'linear') {
-      setCurve([0, 0, 1, 1]);
-    } else if (kf?.easing === 'ease-in') {
-      setCurve([0.42, 0, 1, 1]);
-    } else if (kf?.easing === 'ease-out') {
-      setCurve([0, 0, 0.58, 1]);
-    } else if (kf?.easing === 'ease-in-out') {
-      setCurve([0.42, 0, 0.58, 1]);
-    } else if (kf?.easing === 'overshoot') {
-      setCurve([0.34, 1.4, 0.64, 1]);
-    }
+    setCurve(kf?.bezier ?? curveForEasing(kf?.easing));
   }, [clip, selectedProp, segmentIdx]);
 
   // Animated curve dot loop
@@ -143,32 +147,55 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
 
   const handleSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!draggingHandle || !svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const svgX = ((e.clientX - rect.left) / rect.width) * 360;
-    const svgY = ((e.clientY - rect.top) / rect.height) * 260;
+
+    // Convert screen coordinates through the SVG's real CTM. This accounts for
+    // responsive sizing, viewBox letterboxing and the graph panel's aspect ratio.
+    const svg = svgRef.current;
+    let svgX: number;
+    let svgY: number;
+    const matrix = svg.getScreenCTM();
+    if (matrix) {
+      const point = svg.createSVGPoint();
+      point.x = e.clientX;
+      point.y = e.clientY;
+      const local = point.matrixTransform(matrix.inverse());
+      svgX = local.x;
+      svgY = local.y;
+    } else {
+      const rect = svg.getBoundingClientRect();
+      const scale = Math.min(rect.width / 360, rect.height / 260) || 1;
+      const renderedWidth = 360 * scale;
+      const renderedHeight = 260 * scale;
+      const offsetX = (rect.width - renderedWidth) / 2;
+      const offsetY = (rect.height - renderedHeight) / 2;
+      svgX = (e.clientX - rect.left - offsetX) / scale;
+      svgY = (e.clientY - rect.top - offsetY) / scale;
+    }
 
     const nx = Math.max(0, Math.min(1, Number(((svgX - gx0) / gw).toFixed(3))));
-    const ny = Math.max(
-      -0.35,
-      Math.min(1.35, Number(((gy0 - svgY) / gh).toFixed(3)))
-    );
+    const ny = Math.max(-0.35, Math.min(1.35, Number(((gy0 - svgY) / gh).toFixed(3))));
 
-    if (draggingHandle === 'p1') {
-      setCurve([nx, ny, x2, y2]);
-    } else {
-      setCurve([x1, y1, nx, ny]);
+    setCurve((previous) =>
+      draggingHandle === 'p1'
+        ? [nx, ny, previous[2], previous[3]]
+        : [previous[0], previous[1], nx, ny]
+    );
+  };
+
+  const finishGraphHandleDrag = (pointerId: number) => {
+    if (!draggingHandle) return;
+    try {
+      if (svgRef.current?.hasPointerCapture(pointerId)) {
+        svgRef.current.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // Pointer capture may already have been released by the browser.
     }
+    setDraggingHandle(null);
   };
 
   const handleSvgPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (draggingHandle) {
-      try {
-        svgRef.current?.releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
-      setDraggingHandle(null);
-    }
+    finishGraphHandleDrag(e.pointerId);
   };
 
   const easedPreviewY = solveCubicBezier(previewT, x1, y1, x2, y2);
@@ -342,6 +369,7 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
             data-testid="bezier-graph-svg"
             onPointerMove={handleSvgPointerMove}
             onPointerUp={handleSvgPointerUp}
+            onPointerCancel={handleSvgPointerUp}
             className="w-full h-52 touch-none select-none cursor-crosshair"
           >
             {/* Grid lines */}
@@ -455,7 +483,7 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
               onPointerDown={(e) => {
                 e.stopPropagation();
                 setDraggingHandle('p1');
-                svgRef.current?.setPointerCapture(e.pointerId);
+                try { svgRef.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
               }}
             />
 
@@ -472,7 +500,7 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
               onPointerDown={(e) => {
                 e.stopPropagation();
                 setDraggingHandle('p2');
-                svgRef.current?.setPointerCapture(e.pointerId);
+                try { svgRef.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
               }}
             />
           </svg>
