@@ -16,6 +16,7 @@ import {
   TimelineClip,
   TimelineMarker,
   TimelineTrack,
+  SpeedRampPoint,
   SynthPreset,
   ToolMode,
   ViewLayoutMode,
@@ -651,6 +652,50 @@ export default function App() {
     [buildClipFromAsset, composition.duration, tracks, clips, commitHistory]
   );
 
+  const handleAddVoiceoverFile = useCallback(
+    (file: File) => {
+      const url = URL.createObjectURL(file);
+      const audio = new Audio();
+      audio.preload = 'metadata';
+      audio.src = url;
+      audio.onloadedmetadata = () => {
+        const duration = Number.isFinite(audio.duration) && audio.duration > 0
+          ? Number(audio.duration.toFixed(2))
+          : 8;
+        const asset: ProjectAsset = {
+          id: `asset_voiceover_${Date.now()}`,
+          name: file.name,
+          kind: 'audio',
+          src: url,
+          duration,
+          waveform: generateWaveformPeaks(Math.random() * 8, 120),
+        };
+        const audioTrack = tracks.find((track) => track.kind === 'audio' && !track.locked);
+        const clip = buildClipFromAsset(asset, audioTrack?.id, playheadRef.current);
+        if (!clip) {
+          setSaveBadgeText('Add an audio track first');
+          window.setTimeout(() => setSaveBadgeText(null), 2200);
+          return;
+        }
+        clip.isVoiceover = true;
+        clip.duckingEnabled = true;
+        clip.duckingAmount = 12;
+        clip.noiseReduction = 0;
+        setAssets((previous) => [asset, ...previous]);
+        commitHistory(tracks, [...clips, clip]);
+        setSelectedClipId(clip.id);
+        setSaveBadgeText('Voiceover added');
+        window.setTimeout(() => setSaveBadgeText(null), 1800);
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        setSaveBadgeText('Voiceover audio could not be loaded');
+        window.setTimeout(() => setSaveBadgeText(null), 2200);
+      };
+    },
+    [buildClipFromAsset, tracks, clips, commitHistory]
+  );
+
   const handleQuickAddLayer = useCallback(
     (kind: MediaKind) => {
       const defaults: Record<MediaKind, ProjectAsset> = {
@@ -1061,6 +1106,7 @@ export default function App() {
           if (!clip.shapeProps) return clip;
           return { ...clip, shapeProps: { ...clip.shapeProps, [prop === 'shapeWidth' ? 'width' : 'height']: value } };
         }
+        if (prop === 'volume') return { ...clip, volume: value };
         return { ...clip, transform: { ...clip.transform, [prop]: value } };
       });
     },
@@ -1129,6 +1175,26 @@ export default function App() {
       );
     },
     []
+  );
+
+  const handleMoveKeyframe = useCallback(
+    (
+      clipId: string,
+      prop: AnimatableProperty,
+      keyframeId: string,
+      time: number,
+      value: number
+    ) => {
+      updateClipById(clipId, (clip) => {
+        const list = (clip.keyframes[prop] ?? []).map((keyframe) =>
+          keyframe.id === keyframeId
+            ? { ...keyframe, time: clamp(time, 0, clip.duration), value }
+            : keyframe
+        ).sort((a, b) => a.time - b.time);
+        return { ...clip, keyframes: { ...clip.keyframes, [prop]: list } };
+      });
+    },
+    [updateClipById]
   );
 
   const handleToggleStopwatch = (clipId: string, prop: AnimatableProperty) => {
@@ -2154,6 +2220,13 @@ export default function App() {
               onUpdateSpeed={(clipId, patch) =>
                 updateClipById(clipId, (c) => ({ ...c, ...patch }), true)
               }
+              onUpdateSpeedRamp={(clipId, points) =>
+                updateClipById(
+                  clipId,
+                  (clip) => ({ ...clip, speedRamp: [...points].sort((a, b) => a.time - b.time) }),
+                  true
+                )
+              }
               onFreezeFrame={handleFreezeFrameClip}
               onDuplicateClip={handleDuplicateClip}
               onRippleDeleteClip={handleRippleDeleteClip}
@@ -2348,6 +2421,8 @@ export default function App() {
         }}
         onDropEffect={(clipId, effectType) => handleAddEffect(clipId, effectType)}
         onDropPreset={(clipId, item) => handleApplyCatalogPreset(item, clipId)}
+        onMoveKeyframe={handleMoveKeyframe}
+        onAddVoiceover={handleAddVoiceoverFile}
         onUpdateKeyframeEasing={(clipId, prop, kfId, easing: EasingType) =>
           updateClipById(
             clipId,
