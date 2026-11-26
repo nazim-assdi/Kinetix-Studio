@@ -21,6 +21,8 @@ import {
 import {
   resolveWorldTransform,
   projectLayerThroughCamera,
+  projectLayerPointThroughCamera,
+  resolveCameraViewState,
   computeLightShading,
   computeAnchorScreenCenter,
   applyLumaMatteToPixels,
@@ -263,6 +265,37 @@ test('physical camera lens, near/far clipping, roll and target aim affect projec
   }), [], 2);
   const targetProjection = projectLayerThroughCamera(targetWorld, targetCamera, [targetCamera], 2, 1280, 720);
   assert.ok(Math.abs(targetProjection.screenX - 640) < 0.01, 'look-at target should sit on the optical axis');
+});
+
+test('3D plane vertices project with local depth and shared physical camera state', () => {
+  const camera = makeClip({
+    id: 'mesh_camera',
+    kind: 'camera',
+    is3D: true,
+    cameraProps: {
+      fov: 60,
+      focalLength: 36,
+      sensorWidth: 36,
+      lookAtX: 0,
+      lookAtY: 0,
+      lookAtZ: 0,
+      depthOfField: false,
+      aperture: 2.8,
+    },
+  });
+  const layer = resolveWorldTransform(makeClip({ is3D: true }), [], 0);
+  const cameraState = resolveCameraViewState(camera, [camera], 0, 1280);
+  const flat = projectLayerPointThroughCamera(
+    layer, camera, [camera], 0, 1280, 720, 120, 0, 0, cameraState
+  );
+  const extrudedFront = projectLayerPointThroughCamera(
+    layer, camera, [camera], 0, 1280, 720, 120, 0, 100, cameraState
+  );
+  assert.equal(flat.visible, true);
+  assert.equal(extrudedFront.visible, true);
+  assert.ok(extrudedFront.depth < flat.depth, 'positive local Z must move the vertex towards the camera');
+  assert.ok(extrudedFront.x > flat.x, 'perspective projection must keep off-center vertices on the right');
+  assert.ok(extrudedFront.y === 360);
 });
 
 test('projectLayerThroughCamera and computeLightShading compute 3D depth and light', () => {
