@@ -1387,7 +1387,7 @@ export default function App() {
         if (list.length < 2) {
           const idBase = `kf_graph_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
           if (list.length === 0) {
-            const startValue = prop === 'scale' ? 25 : prop === 'opacity' ? 0 : prop === 'shapeWidth' || prop === 'shapeHeight' ? currentValue * 0.25 : prop === 'rotation' || prop === 'rotationX' || prop === 'rotationY' ? currentValue - 45 : currentValue - 160;
+            const startValue = prop === 'scale' ? 25 : prop === 'opacity' || prop === 'volume' ? 0 : prop === 'shapeWidth' || prop === 'shapeHeight' ? currentValue * 0.25 : prop === 'rotation' || prop === 'rotationX' || prop === 'rotationY' ? currentValue - 45 : currentValue - 160;
             const endTime = Math.max(0.001, Math.min(1, clip.duration));
             list = [
               { id: `${idBase}_a`, time: 0, value: startValue, easing: 'bezier', bezier },
