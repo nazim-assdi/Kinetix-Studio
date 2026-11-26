@@ -11,9 +11,11 @@ export const VoiceoverRecorder: React.FC<VoiceoverRecorderProps> = ({ onRecorded
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const discardOnStopRef = useRef(false);
 
   const startRecording = async () => {
     setError('');
+    discardOnStopRef.current = false;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setError('Microphone recording is not supported in this environment.');
       return;
@@ -75,6 +77,7 @@ export const VoiceoverRecorder: React.FC<VoiceoverRecorderProps> = ({ onRecorded
   };
 
   useEffect(() => () => {
+    discardOnStopRef.current = true;
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     streamRef.current?.getTracks().forEach((track) => track.stop());
