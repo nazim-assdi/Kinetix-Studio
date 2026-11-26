@@ -8,12 +8,98 @@ import {
 import { clamp } from './timecode';
 import { evaluateExpression } from './expressions';
 
+export function getClipTimelineTime(clip: TimelineClip, globalTime: number): number {
+  return clamp(globalTime - clip.start, 0, clip.duration);
+}
+
+function smoothStepIntegral(progress: number): number {
+  const t = clamp(progress, 0, 1);
+  return t * t * t - 0.5 * t * t * t * t;
+}
+
+/** Returns instantaneous playback speed at a clip-local timeline time. */
+export function getClipSpeedAtLocalTime(clip: TimelineClip, localTime: number): number {
+  const points = [...(clip.speedRamp ?? [])]
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.speed))
+    .map((point) => ({
+      ...point,
+      time: clamp(point.time, 0, clip.duration),
+      speed: clamp(point.speed, 0.1, 8),
+    }))
+    .sort((a, b) => a.time - b.time);
+  if (points.length === 0) return clamp(clip.speed ?? 1, 0.1, 8);
+
+  const baseSpeed = clamp(clip.speed ?? 1, 0.1, 8);
+  const anchors = [
+    { time: 0, speed: baseSpeed },
+    ...points.filter((point) => point.time > 0 && point.time < clip.duration),
+    { time: clip.duration, speed: baseSpeed },
+  ];
+  const startOverride = points.find((point) => point.time <= 0);
+  const endOverride = [...points].reverse().find((point) => point.time >= clip.duration);
+  if (startOverride) anchors[0] = { time: 0, speed: startOverride.speed };
+  if (endOverride) anchors[anchors.length - 1] = { time: clip.duration, speed: endOverride.speed };
+
+  const t = clamp(localTime, 0, clip.duration);
+  if (t <= anchors[0].time) return anchors[0].speed;
+  for (let index = 0; index < anchors.length - 1; index++) {
+    const a = anchors[index];
+    const b = anchors[index + 1];
+    if (t <= b.time) {
+      const u = (t - a.time) / Math.max(0.000001, b.time - a.time);
+      const eased = u * u * (3 - 2 * u);
+      return a.speed + (b.speed - a.speed) * eased;
+    }
+  }
+  return anchors[anchors.length - 1].speed;
+}
+
+/** Exact integral of the smoothstep speed curve; output is source-media elapsed seconds. */
+export function getClipSourceElapsedTime(clip: TimelineClip, timelineTime: number): number {
+  const t = clamp(timelineTime, 0, clip.duration);
+  const points = [...(clip.speedRamp ?? [])]
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.speed))
+    .map((point) => ({
+      ...point,
+      time: clamp(point.time, 0, clip.duration),
+      speed: clamp(point.speed, 0.1, 8),
+    }))
+    .sort((a, b) => a.time - b.time);
+  const baseSpeed = clamp(clip.speed ?? 1, 0.1, 8);
+  if (points.length === 0) return t * baseSpeed;
+
+  const byTime = new Map<number, number>([[0, baseSpeed], [clip.duration, baseSpeed]]);
+  points.forEach((point) => byTime.set(point.time, point.speed));
+  const anchors = [...byTime.entries()]
+    .map(([time, speed]) => ({ time, speed }))
+    .sort((a, b) => a.time - b.time);
+  let elapsed = 0;
+  for (let index = 0; index < anchors.length - 1; index++) {
+    const a = anchors[index];
+    const b = anchors[index + 1];
+    if (t <= a.time) break;
+    const span = b.time - a.time;
+    if (span <= 0) continue;
+    const end = Math.min(t, b.time);
+    const u = (end - a.time) / span;
+    elapsed += span * (
+      a.speed * u + (b.speed - a.speed) * smoothStepIntegral(u)
+    );
+    if (t <= b.time) break;
+  }
+  if (t > anchors[anchors.length - 1].time) {
+    elapsed += (t - anchors[anchors.length - 1].time) * anchors[anchors.length - 1].speed;
+  }
+  return elapsed;
+}
+
+/** Source-media playback time, including speed ramps and reverse playback. */
 export function getClipLocalTime(clip: TimelineClip, globalTime: number): number {
-  const raw = clamp(globalTime - clip.start, 0, clip.duration);
-  const speed = clamp(clip.speed ?? 1, 0.25, 4);
-  const scaled = (raw * speed) % Math.max(0.05, clip.duration);
-  const effective = raw * speed <= clip.duration ? raw * speed : scaled;
-  return clip.reversed ? Math.max(0, clip.duration - effective) : effective;
+  const timelineTime = getClipTimelineTime(clip, globalTime);
+  const sourceElapsed = getClipSourceElapsedTime(clip, timelineTime);
+  return clip.reversed
+    ? Math.max(0, clip.duration - sourceElapsed)
+    : sourceElapsed;
 }
 
 /**
@@ -115,7 +201,7 @@ export function evaluateClipTransform(
   clip: TimelineClip,
   globalTime: number
 ): TransformState {
-  const localTime = getClipLocalTime(clip, globalTime);
+  const localTime = getClipTimelineTime(clip, globalTime);
   const exp = clip.expressions ?? {};
 
   const evalProp = (
@@ -152,12 +238,14 @@ export function evaluateClipTransform(
     opacity: clamp(evalProp('opacity', clip.transform.opacity, 11.2), 0, 100),
     shapeWidth: evalProp('shapeWidth', clip.shapeProps?.width ?? 0, 12.1),
     shapeHeight: evalProp('shapeHeight', clip.shapeProps?.height ?? 0, 13.7),
+    volume: clamp(evalProp('volume', clip.volume, 14.9), 0, 200),
   };
 }
 
 function getAnimatableBaseValue(clip: TimelineClip, prop: AnimatableProperty): number {
   if (prop === 'shapeWidth') return clip.shapeProps?.width ?? 0;
   if (prop === 'shapeHeight') return clip.shapeProps?.height ?? 0;
+  if (prop === 'volume') return clip.volume;
   return clip.transform[prop] ?? 0;
 }
 
@@ -227,6 +315,9 @@ export function togglePropertyKeyframing(
         },
         keyframes: nextKeyframes,
       };
+    }
+    if (prop === 'volume') {
+      return { ...clip, volume: Number(frozenValue.toFixed(2)), keyframes: nextKeyframes };
     }
     return {
       ...clip,
