@@ -1,4 +1,4 @@
-import { SynthPreset, TimelineClip, TimelineTrack } from '../types/editor';
+import { SfxPresetName, SynthPreset, TimelineClip, TimelineTrack } from '../types/editor';
 
 export function dbToGain(db: number): number {
   if (db <= -36) return 0;
@@ -45,15 +45,10 @@ class StudioAudioEngine {
     return this.ctx;
   }
 
-  public previewSfx(
-    preset: Extract<
-      SynthPreset,
-      'sfx-whoosh' | 'sfx-glitch' | 'sfx-boom' | 'sfx-shimmer'
-    >
-  ) {
+  public previewSfx(preset: SfxPresetName) {
     const ctx = this.ensureContext();
     if (!ctx) return;
-    this.triggerTransitionSfx(ctx, preset, 0.22);
+    this.playSfxPreset(ctx, preset, 0.22);
   }
 
   public startPlayback(
@@ -204,15 +199,7 @@ class StudioAudioEngine {
             0.03,
             Math.min(0.5, (clip.volume / 100) * dbMult * 0.24)
           );
-          this.triggerTransitionSfx(
-            ctx,
-            clip.synthPreset as Extract<
-              SynthPreset,
-              'sfx-whoosh' | 'sfx-glitch' | 'sfx-boom' | 'sfx-shimmer'
-            >,
-            gainVal,
-            track
-          );
+          this.playSfxPreset(ctx, clip.synthPreset as SfxPresetName, gainVal, track);
         }
       }
 
@@ -302,14 +289,31 @@ class StudioAudioEngine {
     pan.connect(ctx.destination);
   }
 
+  private playSfxPreset(
+    ctx: AudioContext,
+    preset: SfxPresetName,
+    gainVal: number,
+    track?: TimelineTrack
+  ) {
+    const match = /^sfx-pack-(\d+)$/.exec(preset);
+    const variant = match ? Number(match[1]) : 0;
+    const families = ['sfx-whoosh', 'sfx-glitch', 'sfx-boom', 'sfx-shimmer'] as const;
+    const family = match
+      ? families[(Math.max(1, variant) - 1) % families.length]
+      : preset as typeof families[number];
+    this.triggerTransitionSfx(ctx, family, gainVal, track, variant);
+  }
+
   private triggerTransitionSfx(
     ctx: AudioContext,
     preset: 'sfx-whoosh' | 'sfx-glitch' | 'sfx-boom' | 'sfx-shimmer',
     gainVal: number,
-    track?: TimelineTrack
+    track?: TimelineTrack,
+    variant = 0
   ) {
     try {
       const now = ctx.currentTime;
+      const pitch = variant > 0 ? 0.65 + ((variant * 37) % 70) / 100 : 1;
       if (preset === 'sfx-whoosh') {
         const bufferSize = Math.floor(ctx.sampleRate * 0.45);
         const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
@@ -323,9 +327,9 @@ class StudioAudioEngine {
         const filter = ctx.createBiquadFilter();
         filter.type = 'bandpass';
         filter.Q.setValueAtTime(2.5, now);
-        filter.frequency.setValueAtTime(180, now);
-        filter.frequency.exponentialRampToValueAtTime(2400, now + 0.18);
-        filter.frequency.exponentialRampToValueAtTime(260, now + 0.44);
+        filter.frequency.setValueAtTime(180 * pitch, now);
+        filter.frequency.exponentialRampToValueAtTime(2400 * pitch, now + 0.18);
+        filter.frequency.exponentialRampToValueAtTime(260 * pitch, now + 0.44);
 
         const gain = ctx.createGain();
         gain.gain.setValueAtTime(0.001, now);
@@ -341,10 +345,10 @@ class StudioAudioEngine {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(840, now);
-        osc.frequency.setValueAtTime(210, now + 0.05);
-        osc.frequency.setValueAtTime(1240, now + 0.1);
-        osc.frequency.setValueAtTime(140, now + 0.15);
+        osc.frequency.setValueAtTime(840 * pitch, now);
+        osc.frequency.setValueAtTime(210 * pitch, now + 0.05);
+        osc.frequency.setValueAtTime(1240 * pitch, now + 0.1);
+        osc.frequency.setValueAtTime(140 * pitch, now + 0.15);
         gain.gain.setValueAtTime(gainVal * 0.7, now);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
         osc.connect(gain);
@@ -355,8 +359,8 @@ class StudioAudioEngine {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(145, now);
-        osc.frequency.exponentialRampToValueAtTime(34, now + 0.45);
+        osc.frequency.setValueAtTime(145 * pitch, now);
+        osc.frequency.exponentialRampToValueAtTime(34 * pitch, now + 0.45);
         gain.gain.setValueAtTime(gainVal * 1.4, now);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
         osc.connect(gain);
@@ -364,7 +368,7 @@ class StudioAudioEngine {
         osc.start(now);
         osc.stop(now + 0.56);
       } else {
-        const freqs = [523.25, 659.25, 783.99, 1046.5];
+        const freqs = [523.25, 659.25, 783.99, 1046.5].map((frequency) => frequency * pitch);
         freqs.forEach((f, idx) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();

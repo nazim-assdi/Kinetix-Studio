@@ -68,6 +68,15 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
   } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
   // Sync selected property with first keyframed property on clip
   useEffect(() => {
     if (!clip) return;
@@ -158,9 +167,6 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
         // ignore
       }
       setDraggingHandle(null);
-      if (hasSegments) {
-        onApplyCurveToProperty(clip.id, selectedProp, segmentIdx, curve);
-      }
     }
   };
 
@@ -227,7 +233,8 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => { event.stopPropagation(); onClose(); }}
           aria-label="Close Graph Editor"
           className="p-1 rounded text-[#9BA1AD] hover:text-white hover:bg-[#232730]"
         >
@@ -478,9 +485,6 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
               type="button"
               onClick={() => {
                 setCurve(p.bezier);
-                if (hasSegments) {
-                  onApplyCurveToProperty(clip.id, selectedProp, segmentIdx, p.bezier);
-                }
               }}
               className="py-1 px-2 rounded bg-[#232730] hover:bg-[#2C313D] text-[11px] text-[#E6E8EC] transition-colors"
             >
@@ -493,9 +497,10 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
         <div className="flex items-center gap-2 pt-1">
           <button
             type="button"
-            onClick={() =>
-              onApplyCurveToProperty(clip.id, selectedProp, hasSegments ? segmentIdx : 0, curve)
-            }
+            onClick={() => {
+              onApplyCurveToProperty(clip.id, selectedProp, hasSegments ? segmentIdx : 0, curve);
+              onClose();
+            }}
             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-[#3B82F6] hover:bg-[#2563EB] disabled:opacity-45 text-xs font-semibold text-white transition-colors"
           >
             <Activity className="w-3.5 h-3.5" />
@@ -509,11 +514,21 @@ export const BezierGraphEditorModal: React.FC<BezierGraphEditorModalProps> = ({
               } else {
                 onApplyCurveToProperty(clip.id, selectedProp, 'all', curve);
               }
+              onClose();
             }}
             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-[#8B5CF6] hover:bg-[#7C3AED] text-xs font-semibold text-white transition-colors"
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>Apply All Keys</span>
+          </button>
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onClose}
+            aria-label="Cancel Graph Editor changes"
+            className="px-3 py-1.5 rounded border border-[#3A414E] bg-[#20242C] hover:bg-[#303642] text-xs font-semibold text-[#C8CDD6]"
+          >
+            Cancel
           </button>
         </div>
       </div>

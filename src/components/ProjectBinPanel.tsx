@@ -49,15 +49,9 @@ import { MotionTrackerPanel } from './MotionTrackerPanel';
 import { FairlightMixerPanel } from './FairlightMixerPanel';
 import { FusionNodesPanel } from './FusionNodesPanel';
 import { CaptionsPanel } from './CaptionsPanel';
+import { SFX_LIBRARY } from '../data/sfxLibrary';
 
 export type { LeftDockTab } from '../types/editor';
-
-const SFX_LIBRARY: MotionPresetItem[] = [
-  { id: 'sfx-whoosh', name: 'Cinematic Whoosh', vendor: 'FX', category: 'Effects', description: 'Short sweeping transition sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-whoosh' },
-  { id: 'sfx-glitch', name: 'Digital Glitch', vendor: 'FX', category: 'Effects', description: 'Electronic glitch and data stutter sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-glitch' },
-  { id: 'sfx-boom', name: 'Impact Boom', vendor: 'FX', category: 'Effects', description: 'Low cinematic impact sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-boom' },
-  { id: 'sfx-shimmer', name: 'Light Shimmer', vendor: 'FX', category: 'Effects', description: 'Bright shimmer and sparkle sound.', accentColor: '#14B8A6', sfxPreset: 'sfx-shimmer' },
-];
 
 interface ProjectBinPanelProps {
   assets: ProjectAsset[];
@@ -453,6 +447,11 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                   key={fx.type}
                   type="button"
                   disabled={disabled}
+                  draggable={!disabled}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData('application/x-kinetix-effect', fx.type);
+                    event.dataTransfer.effectAllowed = 'copy';
+                  }}
                   onMouseEnter={() => onPreviewCatalogPreset(previewItem)}
                   onMouseLeave={() => onPreviewCatalogPreset(null)}
                   onClick={() => { onPreviewCatalogPreset(null); onApplyEffectToSelected(fx.type); }}
@@ -473,7 +472,11 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
         {(['packs', 'sfx', 'transitions'] as LeftDockTab[]).includes(activeTab) && (
           <div className="space-y-1.5">
             {filteredPacks.slice(0, packLimit).map((preset) => (
-              <div key={preset.id} onMouseEnter={() => { if (activeTab !== 'sfx') onPreviewCatalogPreset(preset); }} onMouseLeave={() => onPreviewCatalogPreset(null)} className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2">
+              <div key={preset.id} draggable={activeTab !== 'sfx'} onDragStart={(event) => {
+                if (activeTab === 'sfx') return;
+                event.dataTransfer.setData('application/x-kinetix-preset', JSON.stringify(preset));
+                event.dataTransfer.effectAllowed = 'copy';
+              }} onMouseEnter={() => { if (activeTab !== 'sfx') onPreviewCatalogPreset(preset); }} onMouseLeave={() => onPreviewCatalogPreset(null)} title={activeTab === 'sfx' ? undefined : 'Drag onto a timeline clip to apply'} className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">

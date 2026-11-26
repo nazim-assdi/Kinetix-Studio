@@ -1187,7 +1187,9 @@ export default function App() {
     const fx = createEffectInstance(type);
     updateClipById(
       clipId,
-      (clip) => ({ ...clip, effects: [...clip.effects, fx] }),
+      (clip) => clip.effects.some((existing) => existing.type === type)
+        ? clip
+        : { ...clip, effects: [...clip.effects, fx] },
       true
     );
   };
@@ -1351,16 +1353,29 @@ export default function App() {
   ) => handleApplyCurveToProperty(clipId, prop, 'all', bezier);
 
   const handleAddSfxToTimeline = (preset: SynthPreset) => {
+    const start = Number(playheadRef.current.toFixed(3));
+    const duplicate = clips.find((clip) =>
+      clip.kind === 'audio' &&
+      clip.synthPreset === preset &&
+      Math.abs(clip.start - start) < 0.25
+    );
+    if (duplicate) {
+      setSelectedClipId(duplicate.id);
+      setSaveBadgeText('SFX already on timeline');
+      window.setTimeout(() => setSaveBadgeText(null), 1800);
+      return;
+    }
+
     const asset: ProjectAsset = {
       id: `asset_sfx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      name: preset.replace('sfx-', '').replace('-', ' ').toUpperCase(),
+      name: preset.replace('sfx-', '').replace(/-/g, ' ').toUpperCase(),
       kind: 'audio',
       duration: 0.75,
       synthPreset: preset,
       waveform: generateWaveformPeaks(Math.random() * 9, 48),
     };
     const audioTrack = tracks.find((track) => track.kind === 'audio');
-    const clip = buildClipFromAsset(asset, audioTrack?.id, playheadRef.current);
+    const clip = buildClipFromAsset(asset, audioTrack?.id, start);
     if (!clip) return;
     setAssets((previous) => [asset, ...previous]);
     commitHistory(tracks, [...clips, clip]);
@@ -1368,65 +1383,103 @@ export default function App() {
   };
 
   // Apply any item from 1000+ Mega Catalog (Presets, Transitions w/ SFX, Live Shaders, DaVinci LUTs)
-  const handleApplyCatalogPreset = (item: MotionPresetItem) => {
-    if (item.lutName && selectedClipId) {
-      const lut = DAVINCI_LUTS.find((l) => l.name === item.lutName);
+  const handleApplyCatalogPreset = (
+    item: MotionPresetItem,
+    targetClipId: string | null = selectedClipId
+  ) => {
+    const targetClip = clips.find((clip) => clip.id === targetClipId) ?? null;
+
+    // Color LUTs are grades only; they must never trigger FX or transitions.
+    if (item.category === 'Color LUT' && item.lutName && targetClipId) {
+      const lut = DAVINCI_LUTS.find((candidate) => candidate.name === item.lutName);
       if (lut) {
         updateClipById(
-          selectedClipId,
-          (c) => ({ ...c, colorGrade: { ...lut.grade, enabled: true } }),
+          targetClipId,
+          (clip) => ({ ...clip, colorGrade: { ...lut.grade, enabled: true } }),
           true
         );
       }
       return;
     }
 
-    if (item.effectType && selectedClipId) {
+    // Effect cards apply the effect alone. Transition animation/SFX is handled
+    // only by the Transition category below.
+    if (item.category === 'Effects' || (item.effectType && item.category !== 'Transition')) {
+      if (!targetClipId || !item.effectType) return;
       const fx = createEffectInstance(item.effectType);
-      if (item.effectParams) {
-        fx.params = { ...fx.params, ...item.effectParams };
-      }
+      if (item.effectParams) fx.params = { ...fx.params, ...item.effectParams };
       fx.name = item.name;
       updateClipById(
-        selectedClipId,
-        (c) => ({ ...c, effects: [...c.effects, fx] }),
+        targetClipId,
+        (clip) => clip.effects.some((existing) =>
+          existing.type === fx.type && existing.name === item.name
+        )
+          ? clip
+          : { ...clip, effects: [...clip.effects, fx] },
         true
       );
       return;
     }
 
-    const baseId = item.basePresetId || item.id;
+    if (item.category === 'Transition') {
+      if (!targetClip) return;
+      if (targetClip.appliedPresetIds?.includes(item.id)) {
+        setSelectedClipId(targetClip.id);
+        setSaveBadgeText('Transition already applied');
+        window.setTimeout(() => setSaveBadgeText(null), 1800);
+        return;
+      }
 
-    // Transitions with SFX: spawn synced Web Audio SFX clip on Audio track + animate selected clip
-    if (item.sfxPreset) {
-      audioEngine.previewSfx(item.sfxPreset);
-      const selected = clips.find((c) => c.id === selectedClipId);
-      const sfxStart = selected ? selected.start : playheadTime;
-      const sfxAsset: ProjectAsset = {
-        id: `asset_sfx_${Date.now()}`,
-        name: `${item.name} · SFX`,
-        kind: 'audio',
-        duration: 0.75,
-        synthPreset: item.sfxPreset,
-        waveform: generateWaveformPeaks(Math.random() * 9, 48),
-      };
-      const audioTrack = tracks.find((t) => t.kind === 'audio');
-      const sfxClip = buildClipFromAsset(sfxAsset, audioTrack?.id, sfxStart);
+      const baseId = item.basePresetId || item.id;
+      let nextClips = clips.map((clip) => {
+        if (clip.id !== targetClip.id) return clip;
+        const animated = applyMotionPresetToClip(clip, baseId);
+        return {
+          ...animated,
+          appliedPresetIds: [...(clip.appliedPresetIds ?? []), item.id],
+        };
+      });
 
-      let nextClips = clips;
-      if (selected) {
-        nextClips = clips.map((c) =>
-          c.id === selected.id ? applyMotionPresetToClip(c, baseId) : c
+      if (item.sfxPreset) {
+        const sfxAlreadyExists = clips.some((clip) =>
+          clip.kind === 'audio' &&
+          clip.synthPreset === item.sfxPreset &&
+          Math.abs(clip.start - targetClip.start) < 0.25
         );
+        if (!sfxAlreadyExists) {
+          const sfxAsset: ProjectAsset = {
+            id: `asset_sfx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            name: `${item.name} · SFX`,
+            kind: 'audio',
+            duration: 0.75,
+            synthPreset: item.sfxPreset,
+            waveform: generateWaveformPeaks(Math.random() * 9, 48),
+          };
+          const audioTrack = tracks.find((track) => track.kind === 'audio');
+          const sfxClip = buildClipFromAsset(sfxAsset, audioTrack?.id, targetClip.start);
+          if (sfxClip) {
+            setAssets((previous) => [sfxAsset, ...previous]);
+            nextClips = [...nextClips, sfxClip];
+          }
+        }
       }
-      if (sfxClip) {
-        nextClips = [...nextClips, sfxClip];
-      }
+
       commitHistory(tracks, nextClips);
+      setSelectedClipId(targetClip.id);
       return;
     }
 
-    handleApplyMotionPreset(baseId);
+    if (item.sfxPreset) {
+      handleAddSfxToTimeline(item.sfxPreset);
+      return;
+    }
+
+    if (item.effectType && targetClipId) {
+      handleAddEffect(targetClipId, item.effectType);
+      return;
+    }
+
+    handleApplyMotionPreset(item.basePresetId || item.id);
   };
 
   // Project Save & Load: portable project files plus durable IndexedDB autosave.
@@ -2293,6 +2346,8 @@ export default function App() {
           const asset = assets.find((a) => a.id === assetId);
           if (asset) insertAssetToTimeline(asset, trackId, time);
         }}
+        onDropEffect={(clipId, effectType) => handleAddEffect(clipId, effectType)}
+        onDropPreset={(clipId, item) => handleApplyCatalogPreset(item, clipId)}
         onUpdateKeyframeEasing={(clipId, prop, kfId, easing: EasingType) =>
           updateClipById(
             clipId,
