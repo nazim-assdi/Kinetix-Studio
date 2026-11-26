@@ -642,6 +642,62 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             </span>
           )}
           {onUpdateComposition && (
+            <details className="relative">
+              <summary className="list-none cursor-pointer rounded border border-[#2B303A] bg-[#111215] px-2 py-0.5 text-[10px] text-[#C8CDD6] hover:border-[#3B82F6]">Custom</summary>
+              <div className="absolute left-0 top-full mt-1 w-56 rounded border border-[#303744] bg-[#181A1F] p-2.5 shadow-2xl z-[90] space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[10px] text-[#9BA1AD]">Width
+                    <input
+                      type="number"
+                      aria-label="Custom Sequence Width"
+                      min={64}
+                      max={8192}
+                      step={2}
+                      value={composition.width}
+                      onChange={(e) => {
+                        const width = Math.max(64, Math.min(8192, Math.round(Number(e.target.value) || composition.width)));
+                        onUpdateComposition({ width });
+                      }}
+                      className="mt-1 w-full bg-[#0B0D10] border border-[#2B303A] rounded px-1.5 py-1 text-[11px] text-white"
+                    />
+                  </label>
+                  <label className="text-[10px] text-[#9BA1AD]">Height
+                    <input
+                      type="number"
+                      aria-label="Custom Sequence Height"
+                      min={64}
+                      max={8192}
+                      step={2}
+                      value={composition.height}
+                      onChange={(e) => {
+                        const height = Math.max(64, Math.min(8192, Math.round(Number(e.target.value) || composition.height)));
+                        onUpdateComposition({ height });
+                      }}
+                      className="mt-1 w-full bg-[#0B0D10] border border-[#2B303A] rounded px-1.5 py-1 text-[11px] text-white"
+                    />
+                  </label>
+                </div>
+                <label className="block text-[10px] text-[#9BA1AD]">Frame Rate · {composition.fps}fps
+                  <input
+                    type="range"
+                    aria-label="Custom Sequence Frame Rate"
+                    min={12}
+                    max={120}
+                    step={1}
+                    value={composition.fps}
+                    onChange={(e) => onUpdateComposition({ fps: Number(e.target.value) })}
+                    className="mt-1 w-full studio-slider"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => onUpdateComposition({ fitMode: 'cover', fitPositionX: 50, fitPositionY: 50 })}
+                  className="text-[9px] text-[#93C5FD] hover:text-white"
+                >Reset crop to center</button>
+              </div>
+            </details>
+          )}
+          {onUpdateComposition && (
             <select
               aria-label="Sequence Media Fit Mode"
               title="Choose how footage fits or crops in this sequence"
