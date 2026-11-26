@@ -690,7 +690,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                                       title={`${prop} keyframe @ ${kf.time.toFixed(2)}s (${kf.easing})`}
                                       aria-label={`${prop} keyframe at ${kf.time.toFixed(2)}s`}
                                       onDragOver={(ev) => {
-                                        if (ev.dataTransfer.types.includes('application/x-kinetix-easing')) ev.preventDefault();
+                                        if (Array.from(ev.dataTransfer.types).includes('application/x-kinetix-easing')) ev.preventDefault();
                                       }}
                                       onDrop={(ev) => {
                                         const easing = ev.dataTransfer.getData('application/x-kinetix-easing') as EasingType;
