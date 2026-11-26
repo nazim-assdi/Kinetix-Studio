@@ -1117,11 +1117,46 @@ export default function App() {
     (clipId: string, anchorX: number, anchorY: number) => {
       updateClipById(clipId, (clip) => {
         const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
+        const current = evaluateClipTransform(clip, localTime);
+        const deltaAnchorX = anchorX - (current.anchorX ?? 0);
+        const deltaAnchorY = anchorY - (current.anchorY ?? 0);
+        const radians = (current.rotation * Math.PI) / 180;
+        const scale = current.scale / 100;
+        // Pan-behind behaviour: move the transform origin by the same amount
+        // as the pivot so the visible artwork remains exactly where it was.
+        const shiftX = (Math.cos(radians) * deltaAnchorX - Math.sin(radians) * deltaAnchorY) * scale;
+        const shiftY = (Math.sin(radians) * deltaAnchorX + Math.cos(radians) * deltaAnchorY) * scale;
         let next = clip;
         if ((clip.keyframes.anchorX?.length ?? 0) > 0) next = upsertKeyframe(next, 'anchorX', localTime, anchorX);
         else next = { ...next, transform: { ...next.transform, anchorX } };
         if ((clip.keyframes.anchorY?.length ?? 0) > 0) next = upsertKeyframe(next, 'anchorY', localTime, anchorY);
         else next = { ...next, transform: { ...next.transform, anchorY } };
+        const nextX = current.x + shiftX;
+        const nextY = current.y + shiftY;
+        if ((clip.keyframes.x?.length ?? 0) > 0) next = upsertKeyframe(next, 'x', localTime, nextX);
+        else next = { ...next, transform: { ...next.transform, x: nextX } };
+        if ((clip.keyframes.y?.length ?? 0) > 0) next = upsertKeyframe(next, 'y', localTime, nextY);
+        else next = { ...next, transform: { ...next.transform, y: nextY } };
+        return next;
+      });
+    },
+    [updateClipById]
+  );
+
+  const handleUpdateClipTransform = useCallback(
+    (clipId: string, patch: { scale?: number; rotation?: number }) => {
+      updateClipById(clipId, (clip) => {
+        const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
+        let next = clip;
+        if (patch.scale !== undefined) {
+          const value = Math.max(1, Math.min(1000, patch.scale));
+          if ((clip.keyframes.scale?.length ?? 0) > 0) next = upsertKeyframe(next, 'scale', localTime, value);
+          else next = { ...next, transform: { ...next.transform, scale: value } };
+        }
+        if (patch.rotation !== undefined) {
+          if ((clip.keyframes.rotation?.length ?? 0) > 0) next = upsertKeyframe(next, 'rotation', localTime, patch.rotation);
+          else next = { ...next, transform: { ...next.transform, rotation: patch.rotation } };
+        }
         return next;
       });
     },
@@ -2359,6 +2394,7 @@ export default function App() {
                 onSelectClip={setSelectedClipId}
                 onMoveClipCanvas={handleMoveClipCanvas}
                 onSetAnchorCanvas={handleSetAnchorCanvas}
+                onTransformClipCanvas={handleUpdateClipTransform}
                 onResizeShapeCanvas={handleResizeShapeCanvas}
                 onUpdateMaskCanvas={handleUpdateMaskCanvas}
                 onCreatePathClip={handleCreatePathClip}
