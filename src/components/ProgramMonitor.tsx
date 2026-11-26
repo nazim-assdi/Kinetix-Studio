@@ -389,7 +389,15 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         const localX = dx * Math.cos(-rotationRad) - dy * Math.sin(-rotationRad);
         const localY = dx * Math.sin(-rotationRad) + dy * Math.cos(-rotationRad);
         const hitPadding = 16 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
-        let isInside = Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding;
+        const rotatePadding = 14 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+        const rotationHandleHit =
+          c.id === selectedClipId &&
+          (c.kind === 'text' || c.kind === 'shape') &&
+          Math.abs(localX) <= rotatePadding &&
+          Math.abs(localY + halfH + 34 / Math.max(0.01, Math.abs(effScaleY))) <= rotatePadding;
+        let isInside =
+          (Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding) ||
+          rotationHandleHit;
 
         if (c.is3D) {
           const anchorX = world.anchorX ?? 0;
@@ -609,8 +617,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       onMoveClipCanvas(drag.clipId, Math.round(drag.origX + dx), Math.round(drag.origY + dy));
       return;
     }
-    const localDx = dx * Math.cos(-drag.rotationRad) - dy * Math.sin(drag.rotationRad);
-    const localDy = dx * Math.sin(-drag.rotationRad) + dy * Math.cos(drag.rotationRad);
+    const localDx = dx * Math.cos(drag.rotationRad) + dy * Math.sin(drag.rotationRad);
+    const localDy = -dx * Math.sin(drag.rotationRad) + dy * Math.cos(drag.rotationRad);
     const unscaledDx = localDx / (Math.abs(drag.scaleX) || 1);
     const unscaledDy = localDy / (Math.abs(drag.scaleY) || 1);
     if (drag.mode === 'move-anchor') {
