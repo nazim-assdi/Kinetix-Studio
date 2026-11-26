@@ -347,15 +347,30 @@ test('MEGA_CATALOG contains 1000+ presets, transitions with SFX, and DaVinci LUT
   assert.ok(MEGA_CATALOG.every((item) => item.vendor === 'FX'));
 });
 
-test('creative library exposes 4,362 unique and usable catalog entries', () => {
-  assert.equal(MEGA_CATALOG.length, 4362);
+test('creative library exposes 8,474 unique catalog entries with expanded asset categories', () => {
+  assert.equal(MEGA_CATALOG.length, 8474);
   assert.equal(new Set(MEGA_CATALOG.map((item) => item.id)).size, MEGA_CATALOG.length);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Shapes').length, 1680);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Titles').length, 100);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Particles').length, 300);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Visualizers').length, 120);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Backgrounds').length, 100);
-  assert.equal(MEGA_CATALOG.filter((item) => item.assetTemplate).length, 2300);
+  assert.equal(MEGA_CATALOG.filter((item) => item.assetTemplate || item.assetTemplates?.length).length, 6220);
+  assert.equal(MEGA_CATALOG.filter((item) => item.assetTemplates?.length).length, 3920);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Icons').length, 640);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Frames').length, 480);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Callouts').length, 560);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Dividers').length, 640);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Captions').length, 160);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Infographics').length, 240);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Social Kits').length, 240);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'UI Elements').length, 240);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Decorative').length, 480);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Backgrounds').length, 340);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Textures').length, 192);
+  assert.ok(MEGA_CATALOG.filter((item) => item.category === 'Icons').every((item) => item.assetTemplates?.some((layer) => layer.kind === 'path')));
+  assert.ok(MEGA_CATALOG.filter((item) => item.category === 'Captions').every((item) => item.assetTemplates?.some((layer) => layer.kind === 'caption')));
+  assert.ok(MEGA_CATALOG.filter((item) => item.assetTemplates && item.assetTemplates.length > 1).length > 2500);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Animation' && item.motionVariant).length, 1400);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Transition' && item.motionVariant).length, 240);
 });
