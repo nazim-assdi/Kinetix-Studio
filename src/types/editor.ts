@@ -216,6 +216,8 @@ export interface ShapeLayerProps {
   strokeWidth: number;
   cornerRadius: number;
   sides?: number;
+  /** Extrusion distance along local Z, in scene units. Used by 3D shape layers. */
+  depth?: number;
 }
 
 export interface PathPoint {
