@@ -1,6 +1,6 @@
 import { AnimatableProperty, ColorWheelGrade, MotionPresetItem, TimelineClip } from '../types/editor';
 
-function applyCatalogMotionVariant(
+export function applyCatalogMotionVariant(
   clip: TimelineClip,
   variant: MotionPresetItem['motionVariant']
 ): TimelineClip {
