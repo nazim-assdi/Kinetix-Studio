@@ -428,7 +428,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         }
 
         if (isInside) {
-          hitInfo = { clip: c, localX, localY, halfW, halfH, scaleX: effScaleX, scaleY: effScaleY, rotationRad, centerX: screenCx, centerY: screenCy, baseWidth: baseW, baseHeight: baseH };
+          hitInfo = { clip: c, localX, localY, halfW, halfH, scaleX: effScaleX, scaleY: effScaleY, rotationRad, centerX: cx, centerY: cy, baseWidth: baseW, baseHeight: baseH };
           break;
         }
       }
