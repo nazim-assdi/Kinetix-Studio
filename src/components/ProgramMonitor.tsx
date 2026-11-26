@@ -31,6 +31,7 @@ import {
 import { formatTimecode } from '../engine/timecode';
 import { evaluateClipTransform } from '../engine/keyframes';
 import { applyMotionPresetToClip } from '../data/motionPresets';
+import { applyCatalogMotionVariant, buildCatalogColorGrade } from '../engine/catalogVariants';
 import { DAVINCI_LUTS } from '../data/megaCatalog';
 import { createEffectInstance } from '../engine/timelineOps';
 import {
@@ -254,9 +255,9 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       preview = { ...original, effects: [...original.effects, effect] };
     } else if (previewPreset.lutName) {
       const lut = DAVINCI_LUTS.find((entry) => entry.name === previewPreset.lutName);
-      if (lut) preview = { ...original, colorGrade: { ...lut.grade, enabled: true } };
+      if (lut) preview = { ...original, colorGrade: buildCatalogColorGrade(previewPreset, lut.grade) };
     } else if (previewPreset.basePresetId) {
-      preview = applyMotionPresetToClip(original, previewPreset.basePresetId);
+      preview = applyCatalogMotionVariant(applyMotionPresetToClip(original, previewPreset.basePresetId), previewPreset.motionVariant);
     }
     return clips.map((clip, index) => index === selectedIndex ? preview : clip);
   }, [clips, selectedClipId, previewPreset]);
