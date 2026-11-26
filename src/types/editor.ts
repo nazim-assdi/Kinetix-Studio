@@ -219,7 +219,13 @@ export interface TextLayerProps {
 }
 
 export interface ShapeLayerProps {
-  shapeType: 'rect' | 'circle' | 'ring' | 'polygon' | 'lower-third';
+  shapeType:
+    | 'rect' | 'rounded-rect' | 'circle' | 'ellipse' | 'ring'
+    | 'polygon' | 'triangle' | 'diamond' | 'pentagon' | 'hexagon'
+    | 'heptagon' | 'octagon' | 'star' | 'star-6' | 'burst'
+    | 'heart' | 'arrow' | 'chevron' | 'cross' | 'plus' | 'minus'
+    | 'trapezoid' | 'parallelogram' | 'speech-bubble' | 'cloud'
+    | 'lightning' | 'line' | 'lower-third';
   width: number;
   height: number;
   fillColor: string;
