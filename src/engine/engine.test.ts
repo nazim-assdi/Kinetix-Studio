@@ -293,8 +293,8 @@ test('3D plane vertices project with local depth and shared physical camera stat
   );
   assert.equal(flat.visible, true);
   assert.equal(extrudedFront.visible, true);
-  assert.ok(extrudedFront.depth < flat.depth, 'positive local Z must move the vertex towards the camera');
-  assert.ok(extrudedFront.x > flat.x, 'perspective projection must keep off-center vertices on the right');
+  assert.ok(extrudedFront.depth > flat.depth, 'positive local Z moves vertices away from the camera');
+  assert.ok(extrudedFront.x < flat.x, 'greater depth reduces the apparent offset of off-center vertices');
   assert.ok(extrudedFront.y === 360);
 });
 
