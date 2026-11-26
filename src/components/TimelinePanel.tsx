@@ -241,11 +241,14 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     prop: AnimatableProperty,
     keyframe: NonNullable<TimelineClip['keyframes'][AnimatableProperty]>[number]
   ) => {
+    event.preventDefault();
     event.stopPropagation();
-    if (!onMoveKeyframe) return;
-    keyframeDragDidMoveRef.current = false;
     const track = tracks.find((item) => item.id === clip.trackId);
     if (track?.locked) return;
+
+    // Selection happens on pointer-down, not only on click, so it remains reliable
+    // when a user immediately starts dragging a diamond.
+    keyframeDragDidMoveRef.current = false;
     onSelectClip(clip.id);
     setSelectedKf({
       clipId: clip.id,
@@ -253,6 +256,16 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       kfId: keyframe.id,
       easing: keyframe.easing,
     });
+
+    if (!onMoveKeyframe) return;
+
+    const button = event.currentTarget;
+    const pointerId = event.pointerId;
+    try {
+      button.setPointerCapture(pointerId);
+    } catch {
+      // Window listeners below remain the fallback for older browsers.
+    }
 
     const startX = event.clientX;
     const startY = event.clientY;
@@ -262,7 +275,23 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       prop === 'rotation' || prop === 'rotationX' || prop === 'rotationY' ? 2 :
       prop === 'scale' || prop === 'opacity' || prop === 'volume' ? 1 : 2;
 
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', cleanup);
+      window.removeEventListener('pointercancel', cleanup);
+      try {
+        if (button.hasPointerCapture(pointerId)) button.releasePointerCapture(pointerId);
+      } catch {
+        // Pointer capture may already have been released by the browser.
+      }
+      // Let the browser dispatch the click before clearing the drag guard.
+      window.setTimeout(() => {
+        keyframeDragDidMoveRef.current = false;
+      }, 0);
+    };
+
     const onMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
       const pixelDeltaX = moveEvent.clientX - startX;
       const pixelDeltaY = moveEvent.clientY - startY;
       if (Math.abs(pixelDeltaX) + Math.abs(pixelDeltaY) > 2) {
@@ -271,8 +300,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       const deltaX = pixelDeltaX / pxPerSecond;
       let nextTime = Math.max(0, Math.min(clip.duration, startTime + deltaX));
       if (snapEnabled) nextTime = Math.round(nextTime * composition.fps) / composition.fps;
-      const deltaValue = -pixelDeltaY * unitsPerPixel;
-      let nextValue = startValue + deltaValue;
+      let nextValue = startValue - pixelDeltaY * unitsPerPixel;
       if (prop === 'opacity') nextValue = Math.max(0, Math.min(100, nextValue));
       else if (prop === 'volume') nextValue = Math.max(0, Math.min(200, nextValue));
       else if (prop === 'shapeWidth' || prop === 'shapeHeight') nextValue = Math.max(1, nextValue);
@@ -284,16 +312,10 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
         Number(nextValue.toFixed(2))
       );
     };
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.setTimeout(() => {
-        keyframeDragDidMoveRef.current = false;
-      }, 0);
-    };
+
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp, { once: true });
-    window.addEventListener('pointercancel', onUp, { once: true });
+    window.addEventListener('pointerup', cleanup, { once: true });
+    window.addEventListener('pointercancel', cleanup, { once: true });
   };
 
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
@@ -756,7 +778,10 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                               {allKfs.map(([prop, list]) =>
                                 list.map((kf) => {
                                   const kfLeft = kf.time * pxPerSecond;
-                                  const isKfSelected = selectedKf?.kfId === kf.id;
+                                  const isKfSelected =
+                                    selectedKf?.clipId === clip.id &&
+                                    selectedKf.prop === prop &&
+                                    selectedKf.kfId === kf.id;
                                   return (
                                     <button
                                       key={kf.id}
@@ -792,6 +817,8 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                                         });
                                       }}
                                       data-testid={`keyframe-${kf.id}`}
+                                      data-keyframe="true"
+                                      aria-pressed={isKfSelected}
                                       style={{ left: Math.max(2, kfLeft - 5), touchAction: 'none' }}
                                       className={`pointer-events-auto absolute top-0.5 cursor-ew-resize transition-transform hover:scale-125 ${
                                         isKfSelected
