@@ -605,7 +605,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
               onChange={(e) => {
                 const p = SEQUENCE_PRESETS.find((x) => x.id === e.target.value);
                 if (p) {
-                  onUpdateComposition({ width: p.width, height: p.height, fps: p.fps });
+                  onUpdateComposition({ width: p.width, height: p.height, fps: p.fps, fitMode: 'cover' });
                 }
               }}
               className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[11px] font-mono-tabular text-[#C8CDD6] focus:outline-none hover:border-[#3B82F6]"
@@ -627,6 +627,19 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             <span className="text-[11px] text-[#7E8594] font-mono-tabular whitespace-nowrap">
               {composition.width}×{composition.height} · {composition.fps}fps
             </span>
+          )}
+          {onUpdateComposition && (
+            <select
+              aria-label="Sequence Media Fit Mode"
+              title="Choose how footage fits or crops in this sequence"
+              value={composition.fitMode ?? 'contain'}
+              onChange={(e) => onUpdateComposition({ fitMode: e.target.value as 'contain' | 'cover' | 'stretch' })}
+              className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[10px] text-[#C8CDD6] focus:outline-none"
+            >
+              <option value="cover">Crop to Fill</option>
+              <option value="contain">Fit / Letterbox</option>
+              <option value="stretch">Stretch</option>
+            </select>
           )}
         </div>
 
