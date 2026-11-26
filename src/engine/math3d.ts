@@ -225,6 +225,7 @@ export function projectLayerPointThroughCamera(
   compHeight: number,
   localX: number,
   localY: number,
+  localZ = 0,
   cameraState?: CameraViewState
 ): { x: number; y: number; depth: number; visible: boolean } {
   const camera = cameraState ?? resolveCameraViewState(cameraClip, allClips, globalTime, compWidth);
@@ -232,7 +233,7 @@ export function projectLayerPointThroughCamera(
     {
       x: localX * world.scale / 100,
       y: localY * world.scale / 100,
-      z: 0,
+      z: localZ * world.scale / 100,
     },
     getWorldOrientation(world)
   );
