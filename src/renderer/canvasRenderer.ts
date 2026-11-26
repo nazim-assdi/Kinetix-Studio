@@ -1218,7 +1218,11 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
     renderCtx.save();
     renderCtx.setTransform(1, 0, 0, 1, 0, 0);
-    renderCtx.globalCompositeOperation = clip.is3D ? 'source-over' : toCompositeOp(clip.blendMode);
+    if (clip.is3D) {
+      renderCtx.globalCompositeOperation = 'source-over';
+    } else if (!ignoreBlendMode) {
+      renderCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
+    }
     renderCtx.globalAlpha = clip.is3D
       ? 1
       : Math.max(0, Math.min(1, world.opacity / 100));
