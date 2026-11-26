@@ -273,6 +273,42 @@ function drawExtrudedShapeSides(
   ctx.restore();
 }
 
+function getFittedMediaSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  frameWidth: number,
+  frameHeight: number,
+  fitMode: 'contain' | 'cover' | 'stretch'
+): { width: number; height: number } {
+  if (fitMode === 'stretch') return { width: frameWidth, height: frameHeight };
+  const scale = fitMode === 'cover'
+    ? Math.max(frameWidth / Math.max(1, sourceWidth), frameHeight / Math.max(1, sourceHeight))
+    : Math.min(frameWidth / Math.max(1, sourceWidth), frameHeight / Math.max(1, sourceHeight));
+  return { width: sourceWidth * scale, height: sourceHeight * scale };
+}
+
+function drawFittedMedia(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  drawWidth: number,
+  drawHeight: number,
+  frameWidth: number,
+  frameHeight: number,
+  fitMode: 'contain' | 'cover' | 'stretch'
+): { width: number; height: number } {
+  ctx.save();
+  if (fitMode === 'cover') {
+    ctx.beginPath();
+    ctx.rect(-frameWidth / 2, -frameHeight / 2, frameWidth, frameHeight);
+    ctx.clip();
+  }
+  ctx.drawImage(source, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+  ctx.restore();
+  return fitMode === 'contain'
+    ? { width: drawWidth, height: drawHeight }
+    : { width: frameWidth, height: frameHeight };
+}
+
 function getOrLoadImage(
   cache: MediaCache,
   src: string,
@@ -1305,28 +1341,31 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     } else if (clip.kind === 'image' && clip.src) {
       const img = getOrLoadImage(mediaCache, clip.src, onMediaLoaded);
       if (img) {
-        const aspect = img.naturalWidth / img.naturalHeight;
-        const compAspect = width / height;
-        if (aspect > compAspect) {
-          baseW = width;
-          baseH = width / aspect;
-        } else {
-          baseH = height;
-          baseW = height * aspect;
-        }
+        const fitMode = composition.fitMode ?? 'contain';
+        const mediaSize = getFittedMediaSize(
+          img.naturalWidth,
+          img.naturalHeight,
+          width,
+          height,
+          fitMode
+        );
         if (chromaFx) {
           const keyed = applyChromaKeyToSource(
             mediaCache,
             img,
-            baseW,
-            baseH,
+            mediaSize.width,
+            mediaSize.height,
             chromaFx.params.hueTarget ?? 120,
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          renderCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
+          const fitted = drawFittedMedia(renderCtx, keyed, mediaSize.width, mediaSize.height, width, height, fitMode);
+          baseW = fitted.width;
+          baseH = fitted.height;
         } else {
-          renderCtx.drawImage(img, -baseW / 2, -baseH / 2, baseW, baseH);
+          const fitted = drawFittedMedia(renderCtx, img, mediaSize.width, mediaSize.height, width, height, fitMode);
+          baseW = fitted.width;
+          baseH = fitted.height;
         }
       }
     } else if (clip.kind === 'video' && clip.src) {
@@ -1339,28 +1378,31 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         onMediaLoaded
       );
       if (video) {
-        const aspect = video.videoWidth / video.videoHeight || 16 / 9;
-        const compAspect = width / height;
-        if (aspect > compAspect) {
-          baseW = width;
-          baseH = width / aspect;
-        } else {
-          baseH = height;
-          baseW = height * aspect;
-        }
+        const fitMode = composition.fitMode ?? 'contain';
+        const mediaSize = getFittedMediaSize(
+          video.videoWidth || width,
+          video.videoHeight || height,
+          width,
+          height,
+          fitMode
+        );
         if (chromaFx) {
           const keyed = applyChromaKeyToSource(
             mediaCache,
             video,
-            baseW,
-            baseH,
+            mediaSize.width,
+            mediaSize.height,
             chromaFx.params.hueTarget ?? 120,
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          renderCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
+          const fitted = drawFittedMedia(renderCtx, keyed, mediaSize.width, mediaSize.height, width, height, fitMode);
+          baseW = fitted.width;
+          baseH = fitted.height;
         } else {
-          renderCtx.drawImage(video, -baseW / 2, -baseH / 2, baseW, baseH);
+          const fitted = drawFittedMedia(renderCtx, video, mediaSize.width, mediaSize.height, width, height, fitMode);
+          baseW = fitted.width;
+          baseH = fitted.height;
         }
       }
     } else if (clip.kind === 'text' && clip.textProps) {
