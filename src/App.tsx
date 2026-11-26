@@ -1464,7 +1464,6 @@ export default function App() {
         }
       }
 
-      audioEngine.previewSfx(item.sfxPreset ?? 'sfx-whoosh');
       commitHistory(tracks, nextClips);
       setSelectedClipId(targetClip.id);
       return;
