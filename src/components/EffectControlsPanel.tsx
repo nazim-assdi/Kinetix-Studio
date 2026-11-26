@@ -952,6 +952,9 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
             <span className="text-xs font-semibold text-[#E6E8EC] block">
               Solid Matte Settings
             </span>
+            <ColorPalettePicker
+              onApply={(palette) => onUpdateSolidProps(selectedClip.id, { color: palette.colors[1] })}
+            />
             <div className="flex items-center justify-between gap-2">
               <label className="text-[11px] text-[#C8CDD6]">Solid Color</label>
               <input
