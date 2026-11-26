@@ -1135,6 +1135,27 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
             <span className="text-xs font-semibold text-[#E6E8EC] block">
               Vector Shape
             </span>
+            {selectedClip.is3D ? (
+              <div className="rounded bg-[#111215] border border-[#8B5CF6]/30 p-2 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#C4B5FD] font-medium">3D Extrusion Depth</span>
+                  <span className="font-mono-tabular text-[#C4B5FD]">{selectedClip.shapeProps.depth ?? 0}</span>
+                </div>
+                <input
+                  type="range"
+                  aria-label="3D Shape Extrusion Depth"
+                  min={0}
+                  max={600}
+                  step={1}
+                  value={selectedClip.shapeProps.depth ?? 0}
+                  onChange={(e) => onUpdateShapeProps(selectedClip.id, { depth: Number(e.target.value) })}
+                  className="w-full studio-slider"
+                />
+                <span className="text-[9px] text-[#7E8594] block">0 = flat plane · Increase to create visible 3D side faces</span>
+              </div>
+            ) : (
+              <div className="text-[10px] text-[#7E8594]">Enable the 3D switch above to extrude this shape</div>
+            )}
             <div className="flex items-center justify-between gap-2">
               <label className="text-[11px] text-[#C8CDD6]">Shape Style</label>
               <select
