@@ -14,7 +14,9 @@ import {
   computeAnchorScreenCenter,
   computeLightShading,
   projectLayerThroughCamera,
+  quaternionFromEuler,
   resolveWorldTransform,
+  rotateVector3,
 } from '../engine/math3d';
 import { evaluateClipTransform, getClipLocalTime } from '../engine/keyframes';
 
@@ -649,7 +651,6 @@ function renderOrthographic3DView(
   ctx.fillStyle = '#0D0F14';
   ctx.fillRect(0, 0, width, height);
 
-  // Draw orthographic grid
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
   ctx.lineWidth = 1;
   const step = 64;
@@ -666,7 +667,6 @@ function renderOrthographic3DView(
     ctx.stroke();
   }
 
-  // Center axes
   ctx.strokeStyle = 'rgba(59, 130, 246, 0.35)';
   ctx.beginPath();
   ctx.moveTo(width / 2, 0);
@@ -676,97 +676,160 @@ function renderOrthographic3DView(
   ctx.stroke();
 
   const activeTracks = new Set(
-    tracks.filter((t) => t.kind === 'video' && t.visible).map((t) => t.id)
+    tracks.filter((track) => track.kind === 'video' && track.visible).map((track) => track.id)
   );
   const activeClips = clips.filter(
-    (c) =>
-      activeTracks.has(c.trackId) &&
-      playheadTime >= c.start &&
-      playheadTime <= c.start + c.duration
+    (clip) =>
+      activeTracks.has(clip.trackId) &&
+      playheadTime >= clip.start &&
+      playheadTime <= clip.start + clip.duration
   );
-
   const scale = 0.42;
+
+  const projectPoint = (point: { x: number; y: number; z: number }) => {
+    if (angle === 'top') {
+      return { x: width / 2 + point.x * scale, y: height / 2 + point.z * scale };
+    }
+    if (angle === 'front') {
+      return { x: width / 2 + point.x * scale, y: height / 2 + point.y * scale };
+    }
+    return { x: width / 2 + point.z * scale, y: height / 2 + point.y * scale };
+  };
 
   for (const clip of activeClips) {
     const world = resolveWorldTransform(clip, clips, playheadTime);
     const isSelected = clip.id === selectedClipId;
-
-    let sx = width / 2;
-    let sy = height / 2;
-    if (angle === 'top') {
-      sx = width / 2 + world.x * scale;
-      sy = height / 2 + world.z * scale;
-    } else if (angle === 'front') {
-      sx = width / 2 + world.x * scale;
-      sy = height / 2 + world.y * scale;
-    } else {
-      // right
-      sx = width / 2 + world.z * scale;
-      sy = height / 2 + world.y * scale;
-    }
+    const orientation = world.orientation ?? quaternionFromEuler(world.rotationX, world.rotationY, world.rotation);
+    const origin = { x: world.x, y: world.y, z: world.z };
 
     ctx.save();
-    ctx.translate(sx, sy);
-
     if (clip.kind === 'camera') {
-      // Camera frustum pyramid
-      ctx.strokeStyle = isSelected ? '#FBBF24' : '#F59E0B';
-      ctx.lineWidth = isSelected ? 2.5 : 1.8;
-      ctx.fillStyle = 'rgba(245, 158, 11, 0.14)';
-      ctx.beginPath();
-      if (angle === 'top' || angle === 'right') {
-        const camOffset = angle === 'top' ? -900 * scale : -900 * scale;
-        ctx.translate(angle === 'right' ? camOffset : 0, angle === 'top' ? camOffset : 0);
-        ctx.moveTo(0, 0);
-        ctx.lineTo(-90, 180);
-        ctx.lineTo(90, 180);
-        ctx.closePath();
-      } else {
-        ctx.rect(-34, -22, 68, 44);
+      const props = clip.cameraProps;
+      let cameraOrientation = orientation;
+      if (props?.useTarget) {
+        const cameraPosition = { x: world.x, y: world.y, z: -900 + world.z };
+        const direction = {
+          x: props.lookAtX - cameraPosition.x,
+          y: props.lookAtY - cameraPosition.y,
+          z: props.lookAtZ - cameraPosition.z,
+        };
+        const yaw = Math.atan2(direction.x, direction.z) * 180 / Math.PI;
+        const pitch = -Math.atan2(direction.y, Math.max(0.0001, Math.hypot(direction.x, direction.z))) * 180 / Math.PI;
+        cameraOrientation = quaternionFromEuler(pitch, yaw, world.rotation);
       }
+      const cameraOrigin = { x: world.x, y: world.y, z: -900 + world.z };
+      const distance = 420;
+      const focal = Math.max(8, props?.focalLength ?? 35);
+      const sensorWidth = Math.max(18, props?.sensorWidth ?? 36);
+      const halfW = Math.tan((sensorWidth / (2 * focal))) * distance;
+      const halfH = halfW / Math.max(0.1, width / height);
+      const corners = [
+        { x: -halfW, y: -halfH, z: distance },
+        { x: halfW, y: -halfH, z: distance },
+        { x: halfW, y: halfH, z: distance },
+        { x: -halfW, y: halfH, z: distance },
+      ].map((point) => {
+        const rotated = rotateVector3(point, cameraOrientation);
+        return { x: cameraOrigin.x + rotated.x, y: cameraOrigin.y + rotated.y, z: cameraOrigin.z + rotated.z };
+      });
+      const screenOrigin = projectPoint(cameraOrigin);
+      const screenCorners = corners.map(projectPoint);
+
+      ctx.strokeStyle = isSelected ? '#FBBF24' : '#F59E0B';
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.12)';
+      ctx.lineWidth = isSelected ? 2.5 : 1.5;
+      ctx.beginPath();
+      screenCorners.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      screenCorners.forEach((point) => {
+        ctx.beginPath();
+        ctx.moveTo(screenOrigin.x, screenOrigin.y);
+        ctx.lineTo(point.x, point.y);
+        ctx.stroke();
+      });
       ctx.fillStyle = '#FCD34D';
-      ctx.font = '600 13px "JetBrains Mono", monospace';
-      ctx.fillText('CAM', 12, -10);
+      ctx.beginPath();
+      ctx.arc(screenOrigin.x, screenOrigin.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '600 12px "JetBrains Mono", monospace';
+      ctx.fillText('CAM', screenOrigin.x + 10, screenOrigin.y - 8);
     } else if (clip.kind === 'light') {
       const color = clip.lightProps?.color ?? '#93C5FD';
+      const lightOrigin = projectPoint(origin);
+      const forward = rotateVector3({ x: 0, y: 0, z: 1 }, orientation);
+      const side = rotateVector3({ x: 1, y: 0, z: 0 }, orientation);
+      const up = rotateVector3({ x: 0, y: 1, z: 0 }, orientation);
+      const reach = 180;
+      const spread = clip.lightProps?.lightType === 'spot' ? 65 : 24;
+      const endPoints = [
+        { x: origin.x + forward.x * reach + side.x * spread + up.x * spread, y: origin.y + forward.y * reach + side.y * spread + up.y * spread, z: origin.z + forward.z * reach + side.z * spread + up.z * spread },
+        { x: origin.x + forward.x * reach - side.x * spread + up.x * spread, y: origin.y + forward.y * reach - side.y * spread + up.y * spread, z: origin.z + forward.z * reach - side.z * spread + up.z * spread },
+        { x: origin.x + forward.x * reach - side.x * spread - up.x * spread, y: origin.y + forward.y * reach - side.y * spread - up.y * spread, z: origin.z + forward.z * reach - side.z * spread - up.z * spread },
+        { x: origin.x + forward.x * reach + side.x * spread - up.x * spread, y: origin.y + forward.y * reach + side.y * spread - up.y * spread, z: origin.z + forward.z * reach + side.z * spread - up.z * spread },
+      ].map(projectPoint);
       ctx.strokeStyle = isSelected ? '#FFFFFF' : color;
       ctx.fillStyle = color;
+      ctx.lineWidth = isSelected ? 2.5 : 1.5;
       ctx.beginPath();
-      ctx.arc(0, 0, 10, 0, Math.PI * 2);
+      ctx.arc(lightOrigin.x, lightOrigin.y, 6, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(-44, 95);
-      ctx.lineTo(44, 95);
+      ctx.moveTo(endPoints[0].x, endPoints[0].y);
+      endPoints.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
       ctx.closePath();
-      ctx.globalAlpha = 0.22;
+      ctx.globalAlpha = 0.18;
       ctx.fill();
       ctx.globalAlpha = 1;
       ctx.stroke();
-      ctx.font = '600 12px "JetBrains Mono", monospace';
-      ctx.fillText('LIGHT', 14, 4);
+      ctx.beginPath();
+      endPoints.forEach((point) => {
+        ctx.moveTo(lightOrigin.x, lightOrigin.y);
+        ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+      ctx.font = '600 11px "JetBrains Mono", monospace';
+      ctx.fillText('LIGHT', lightOrigin.x + 10, lightOrigin.y + 4);
     } else if (clip.kind !== 'audio') {
-      // Layer plane wireframe
-      ctx.strokeStyle = isSelected ? '#3B82F6' : clip.is3D ? '#A78BFA' : '#64748B';
-      ctx.lineWidth = isSelected ? 2.5 : 1.5;
-      if (angle === 'front') {
-        const w = 180 * (world.scale / 100);
-        const h = 100 * (world.scale / 100);
-        ctx.strokeRect(-w / 2, -h / 2, w, h);
-      } else {
-        const span = 180 * (world.scale / 100);
-        ctx.beginPath();
-        ctx.moveTo(-span / 2, 0);
-        ctx.lineTo(span / 2, 0);
-        ctx.stroke();
-      }
-      ctx.fillStyle = isSelected ? '#93C5FD' : '#9BA1AD';
-      ctx.font = '500 12px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText(clip.name.slice(0, 16), 8, -8);
-    }
+      const shapeTransform = clip.kind === 'shape' ? evaluateClipTransform(clip, playheadTime) : null;
+      const baseW = clip.shapeProps
+        ? (shapeTransform?.shapeWidth ?? clip.shapeProps.width)
+        : clip.kind === 'text' ? Math.max(180, (clip.textProps?.text.length ?? 12) * (clip.textProps?.fontSize ?? 28) * 0.62) : 180;
+      const baseH = clip.shapeProps
+        ? (shapeTransform?.shapeHeight ?? clip.shapeProps.height)
+        : clip.kind === 'text' ? Math.max(48, (clip.textProps?.fontSize ?? 28) * 1.5) : 100;
+      const halfW = baseW * world.scale / 200;
+      const halfH = baseH * world.scale / 200;
+      const planeCorners = [
+        { x: -halfW, y: -halfH, z: 0 },
+        { x: halfW, y: -halfH, z: 0 },
+        { x: halfW, y: halfH, z: 0 },
+        { x: -halfW, y: halfH, z: 0 },
+      ].map((local) => {
+        const rotated = rotateVector3(local, orientation);
+        return projectPoint({ x: origin.x + rotated.x, y: origin.y + rotated.y, z: origin.z + rotated.z });
+      });
 
+      ctx.strokeStyle = isSelected ? '#3B82F6' : clip.is3D ? '#A78BFA' : '#64748B';
+      ctx.fillStyle = clip.is3D ? 'rgba(139, 92, 246, 0.08)' : 'rgba(100, 116, 139, 0.04)';
+      ctx.lineWidth = isSelected ? 2.5 : 1.5;
+      ctx.beginPath();
+      planeCorners.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      const labelPoint = projectPoint({ x: origin.x + 10, y: origin.y - 10, z: origin.z });
+      ctx.fillStyle = isSelected ? '#93C5FD' : '#9BA1AD';
+      ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(clip.name.slice(0, 16), labelPoint.x, labelPoint.y);
+    }
     ctx.restore();
   }
 }
