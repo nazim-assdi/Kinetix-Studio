@@ -21,7 +21,7 @@ import {
   resolveWorldTransform,
   rotateVector3,
 } from '../engine/math3d';
-import { evaluateClipTransform, getClipLocalTime } from '../engine/keyframes';
+import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
 
 export interface MediaCache {
@@ -344,7 +344,9 @@ function getOrLoadVideo(
   src: string,
   localMediaTime: number,
   isPlaying: boolean,
-  onReady?: () => void
+  onReady?: () => void,
+  playbackRate = 1,
+  reversed = false
 ): HTMLVideoElement | null {
   let video = cache.videos.get(src);
   if (!video) {
@@ -365,9 +367,17 @@ function getOrLoadVideo(
       0,
       Math.min(video.duration || localMediaTime, localMediaTime)
     );
-    if (isPlaying) {
+    if (reversed) {
+      // HTMLVideoElement does not provide reliable negative playbackRate support.
+      // Pause and seek to the exact reverse source time on every preview frame.
+      if (!video.paused) video.pause();
+      if (Math.abs(video.currentTime - clampedTarget) > 0.012) {
+        video.currentTime = clampedTarget;
+      }
+    } else if (isPlaying) {
+      video.playbackRate = Math.max(0.1, Math.min(8, playbackRate));
       if (video.paused) video.play().catch(() => {});
-      if (Math.abs(video.currentTime - clampedTarget) > 0.25) {
+      if (Math.abs(video.currentTime - clampedTarget) > 0.22) {
         video.currentTime = clampedTarget;
       }
     } else {
@@ -1402,12 +1412,16 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       }
     } else if (clip.kind === 'video' && clip.src) {
       const mediaTime = clip.sourceIn + localPlayT;
+      const timelineLocalT = Math.max(0, Math.min(clip.duration, playheadTime - clip.start));
+      const mediaSpeed = getClipSpeedAtLocalTime(clip, timelineLocalT);
       const video = getOrLoadVideo(
         mediaCache,
         clip.src,
         mediaTime,
         isPlaying,
-        onMediaLoaded
+        onMediaLoaded,
+        mediaSpeed,
+        Boolean(clip.reversed)
       );
       if (video) {
         const fitMode = composition.fitMode ?? 'contain';
