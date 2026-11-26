@@ -354,7 +354,7 @@ test('creative library exposes 8,474 unique catalog entries with expanded asset 
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Titles').length, 100);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Particles').length, 300);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Visualizers').length, 120);
-  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Backgrounds').length, 100);
+  assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Backgrounds').length, 340);
   assert.equal(MEGA_CATALOG.filter((item) => item.assetTemplate || item.assetTemplates?.length).length, 6220);
   assert.equal(MEGA_CATALOG.filter((item) => item.assetTemplates?.length).length, 3920);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Icons').length, 640);
