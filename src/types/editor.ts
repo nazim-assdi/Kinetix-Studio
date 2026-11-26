@@ -422,6 +422,9 @@ export interface CompositionSettings {
   backgroundColor: string;
   /** How source media is fitted when the sequence aspect ratio differs. */
   fitMode?: 'contain' | 'cover' | 'stretch';
+  /** 0..100 object-position for crop-to-fill media fitting. */
+  fitPositionX?: number;
+  fitPositionY?: number;
 }
 
 export interface EffectDefinition {
