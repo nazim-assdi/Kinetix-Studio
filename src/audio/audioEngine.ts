@@ -295,7 +295,7 @@ class StudioAudioEngine {
     gainVal: number,
     track?: TimelineTrack
   ) {
-    const match = /^sfx-pack-(\\d+)$/.exec(preset);
+    const match = /^sfx-pack-(\d+)$/.exec(preset);
     const variant = match ? Number(match[1]) : 0;
     const families = ['sfx-whoosh', 'sfx-glitch', 'sfx-boom', 'sfx-shimmer'] as const;
     const family = match
