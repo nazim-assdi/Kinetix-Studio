@@ -260,7 +260,7 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
             lift: paletteColorToWheel(palette.colors[0]),
             gamma: paletteColorToWheel(palette.colors[2]),
             gain: paletteColorToWheel(palette.colors[4]),
-            lut: 'None',
+            lut: 'Rec.709 Neutral',
           })
         }
       />
