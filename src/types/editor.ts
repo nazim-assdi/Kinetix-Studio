@@ -245,13 +245,18 @@ export interface SolidLayerProps {
 }
 
 export interface CameraLayerProps {
-  fov: number; // degrees 20..110
-  focalLength: number; // mm 18..135
+  fov: number; // horizontal field of view in degrees
+  focalLength: number; // physical lens focal length in mm
+  sensorWidth?: number; // sensor gate width in mm (36 = full frame)
   lookAtX: number;
   lookAtY: number;
   lookAtZ: number;
+  useTarget?: boolean;
+  nearClip?: number;
+  farClip?: number;
   depthOfField: boolean;
-  aperture: number;
+  focusDistance?: number; // focus plane distance in scene units
+  aperture: number; // f-stop
 }
 
 export interface LightLayerProps {
