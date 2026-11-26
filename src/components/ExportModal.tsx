@@ -32,6 +32,16 @@ const RESOLUTION_PRESETS = [
   { id: '8k', label: '8K UHD (7680×4320)', width: 7680, height: 4320, bitrate: 80_000_000 },
 ] as const;
 
+const ASPECT_PRESETS = [
+  { id: 'sequence', label: 'Use Sequence', ratio: null },
+  { id: '16:9', label: 'YouTube · 16:9', ratio: 16 / 9 },
+  { id: '9:16', label: 'Reels / TikTok · 9:16', ratio: 9 / 16 },
+  { id: '1:1', label: 'Square · 1:1', ratio: 1 },
+  { id: '4:5', label: 'Facebook Feed · 4:5', ratio: 4 / 5 },
+  { id: '4:3', label: 'Classic · 4:3', ratio: 4 / 3 },
+  { id: '2.39:1', label: 'Cinema · 2.39:1', ratio: 2.39 },
+] as const;
+
 type CaptureVideoTrack = MediaStreamTrack & { requestFrame?: () => void };
 
 function createSafeMediaRecorder(
@@ -252,6 +262,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   workArea,
 }) => {
   const [resId, setResId] = useState<string>('1080p');
+  const [aspectId, setAspectId] = useState<string>('sequence');
   const [exportFps, setExportFps] = useState(composition.fps);
   const [codecPref, setCodecPref] = useState<'webm' | 'mp4'>('webm');
   const [rangeMode, setRangeMode] = useState<'full' | 'workArea'>(
@@ -292,8 +303,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const preset =
     RESOLUTION_PRESETS.find((r) => r.id === resId) ?? RESOLUTION_PRESETS[1];
-  const outW = preset.width;
-  const outH = preset.height;
+  const aspectPreset = ASPECT_PRESETS.find((item) => item.id === aspectId) ?? ASPECT_PRESETS[0];
+  const exportRatio = aspectPreset.ratio ?? composition.width / Math.max(1, composition.height);
+  const portrait = exportRatio < 1;
+  const outW = portrait ? preset.height : preset.width;
+  const outH = Math.max(1, Math.round(outW / exportRatio));
 
   const startSec =
     rangeMode === 'workArea' && workArea ? Math.max(0, workArea.inTime) : 0;
@@ -311,7 +325,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       offscreen.height = outH;
       renderCompositionFrame({
         canvas: offscreen,
-        composition: { ...composition, width: outW, height: outH },
+        composition: { ...composition, width: outW, height: outH, fitMode: 'cover' },
         tracks,
         clips,
         playheadTime,
@@ -496,6 +510,25 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
         <div className="p-4 space-y-3.5">
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="export-aspect-select"
+                className="block text-[11px] text-[#9BA1AD] mb-1"
+              >
+                Aspect Ratio / Crop
+              </label>
+              <select
+                id="export-aspect-select"
+                disabled={status === 'rendering'}
+                value={aspectId}
+                onChange={(e) => setAspectId(e.target.value)}
+                className="w-full bg-[#111215] border border-[#2B303A] rounded px-2.5 py-1.5 text-xs text-white"
+              >
+                {ASPECT_PRESETS.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label
                 htmlFor="export-res-select"
