@@ -888,9 +888,10 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     let effScaleX = world.scale / 100;
     let effScaleY = world.scale / 100;
     let skewX = 0;
+    let projection: ReturnType<typeof projectLayerThroughCamera> | null = null;
 
     if (clip.is3D) {
-      const proj = projectLayerThroughCamera(
+      projection = projectLayerThroughCamera(
         world,
         activeCamera,
         clips,
@@ -898,19 +899,19 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         width,
         height
       );
-      if (!proj.visible) return null;
-      cx = proj.screenX;
-      cy = proj.screenY;
-      effScaleX = proj.perspectiveScale * proj.scaleX;
-      effScaleY = proj.perspectiveScale * proj.scaleY;
-      skewX = proj.skewX;
+      if (!projection.visible) return null;
+      cx = projection.screenX;
+      cy = projection.screenY;
+      effScaleX = projection.perspectiveScale * projection.scaleX;
+      effScaleY = projection.perspectiveScale * projection.scaleY;
+      skewX = projection.skewX;
     }
 
     const shading = clip.is3D
       ? computeLightShading(world, activeLights, clips, playheadTime)
       : { brightnessFactor: 1, tintColor: '#ffffff', tintAlpha: 0 };
 
-    const rotRad = (world.rotation * Math.PI) / 180;
+    const rotRad = projection?.rotationRad ?? (world.rotation * Math.PI) / 180;
 
     if (clip.kind === 'null') {
       if (drawGizmo && (clip.id === selectedClipId || showWireframes)) {
@@ -939,11 +940,26 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     if (!ignoreBlendMode) {
       targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
     }
-    const baseFilter = buildFilterString(
+    let baseFilter = buildFilterString(
       clip.effects,
       shading.brightnessFactor,
       clip.colorGrade
     );
+    // Depth-of-field is evaluated from camera-space depth, not screen-space distance.
+    if (projection && activeCamera?.cameraProps?.depthOfField) {
+      const camera = activeCamera.cameraProps;
+      const focusDistance = Math.max(1, camera.focusDistance ?? 900);
+      const aperture = Math.max(0.7, Math.min(32, camera.aperture || 2.8));
+      const defocus = Math.min(
+        14,
+        Math.abs(projection.depthZ - focusDistance) / focusDistance * aperture * 1.5
+      );
+      if (defocus > 0.25) {
+        baseFilter = baseFilter === 'none'
+          ? `blur(${defocus.toFixed(2)}px)`
+          : `${baseFilter} blur(${defocus.toFixed(2)}px)`;
+      }
+    }
     if (clip.mask?.enabled && clip.mask.feather > 0) {
       const maskBlur = `blur(${(clip.mask.feather * 0.15).toFixed(1)}px)`;
       targetCtx.filter = baseFilter === 'none' ? maskBlur : `${baseFilter} ${maskBlur}`;
