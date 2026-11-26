@@ -122,7 +122,8 @@ function drawPerspectiveLayerPlane(
   layerHeight: number,
   anchorX: number,
   anchorY: number,
-  cameraState: CameraViewState
+  cameraState: CameraViewState,
+  planeDepth = 0
 ) {
   const segments = 6;
   const left = width / 2 - layerWidth / 2 - anchorX;
@@ -146,6 +147,7 @@ function drawPerspectiveLayerPlane(
           height,
           sx - width / 2,
           sy - height / 2,
+          planeDepth,
           cameraState
         );
       const p00 = project(sx0, sy0);
@@ -168,6 +170,106 @@ function drawPerspectiveLayerPlane(
       );
     }
   }
+}
+
+function shadeHexColor(color: string, factor: number): string {
+  const match = /^#?([0-9a-f]{6})$/i.exec(color);
+  if (!match) return color;
+  const value = Number.parseInt(match[1], 16);
+  const r = Math.max(0, Math.min(255, Math.round(((value >> 16) & 255) * factor)));
+  const g = Math.max(0, Math.min(255, Math.round(((value >> 8) & 255) * factor)));
+  const b = Math.max(0, Math.min(255, Math.round((value & 255) * factor)));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** Draws the actual side walls of an extruded 3D vector shape before its front plane. */
+function drawExtrudedShapeSides(
+  ctx: CanvasRenderingContext2D,
+  world: ReturnType<typeof resolveWorldTransform>,
+  clip: TimelineClip,
+  clips: TimelineClip[],
+  playheadTime: number,
+  activeCamera: TimelineClip | null,
+  cameraState: CameraViewState,
+  width: number,
+  height: number,
+  anchorX: number,
+  anchorY: number,
+  depth: number
+) {
+  const props = clip.shapeProps;
+  if (!props || depth <= 0.01) return;
+  const shapeTransform = evaluateClipTransform(clip, playheadTime);
+  const shapeWidth = Math.max(1, shapeTransform.shapeWidth ?? props.width);
+  const shapeHeight = Math.max(1, shapeTransform.shapeHeight ?? props.height);
+  const halfW = shapeWidth / 2;
+  const halfH = shapeHeight / 2;
+  const outline: ScreenPoint2D[] = [];
+
+  if (props.shapeType === 'circle' || props.shapeType === 'ring') {
+    const count = 48;
+    const radiusX = halfW;
+    const radiusY = halfH;
+    for (let index = 0; index < count; index++) {
+      const angle = (index / count) * Math.PI * 2;
+      outline.push({ x: Math.cos(angle) * radiusX, y: Math.sin(angle) * radiusY });
+    }
+  } else if (props.shapeType === 'polygon') {
+    const sides = Math.max(3, Math.min(32, Math.round(props.sides ?? 6)));
+    for (let index = 0; index < sides; index++) {
+      const angle = (index / sides) * Math.PI * 2 - Math.PI / 2;
+      outline.push({ x: Math.cos(angle) * halfW, y: Math.sin(angle) * halfH });
+    }
+  } else {
+    outline.push(
+      { x: -halfW, y: -halfH },
+      { x: halfW, y: -halfH },
+      { x: halfW, y: halfH },
+      { x: -halfW, y: halfH }
+    );
+  }
+
+  const project = (point: ScreenPoint2D, z: number) =>
+    projectLayerPointThroughCamera(
+      world,
+      activeCamera,
+      clips,
+      playheadTime,
+      width,
+      height,
+      point.x - anchorX,
+      point.y - anchorY,
+      z,
+      cameraState
+    );
+
+  ctx.save();
+  ctx.lineWidth = Math.max(0.8, Math.min(4, props.strokeWidth || 1));
+  ctx.lineJoin = 'round';
+
+  for (let index = 0; index < outline.length; index++) {
+    const next = (index + 1) % outline.length;
+    const a = outline[index];
+    const b = outline[next];
+    const backA = project(a, 0);
+    const backB = project(b, 0);
+    const frontA = project(a, depth);
+    const frontB = project(b, depth);
+    if (!backA.visible || !backB.visible || !frontA.visible || !frontB.visible) continue;
+
+    const shade = 0.48 + (index % 5) * 0.065;
+    ctx.fillStyle = shadeHexColor(props.fillColor, shade);
+    ctx.strokeStyle = shadeHexColor(props.strokeColor, 0.72);
+    ctx.beginPath();
+    ctx.moveTo(backA.x, backA.y);
+    ctx.lineTo(backB.x, backB.y);
+    ctx.lineTo(frontB.x, frontB.y);
+    ctx.lineTo(frontA.x, frontA.y);
+    ctx.closePath();
+    ctx.fill();
+    if (props.strokeWidth > 0) ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function getOrLoadImage(
@@ -1582,6 +1684,25 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       if (!ignoreBlendMode) {
         targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
       }
+      const shapeDepth = clip.kind === 'shape'
+        ? Math.max(0, clip.shapeProps?.depth ?? 0)
+        : 0;
+      if (clip.kind === 'shape' && shapeDepth > 0) {
+        drawExtrudedShapeSides(
+          targetCtx,
+          world,
+          clip,
+          clips,
+          playheadTime,
+          activeCamera,
+          activeCameraView,
+          width,
+          height,
+          ax,
+          ay,
+          shapeDepth
+        );
+      }
       drawPerspectiveLayerPlane(
         targetCtx,
         layerTexture,
@@ -1595,7 +1716,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         baseH,
         ax,
         ay,
-        activeCameraView
+        activeCameraView,
+        shapeDepth
       );
       targetCtx.restore();
     }
