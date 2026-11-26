@@ -241,7 +241,6 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     prop: AnimatableProperty,
     keyframe: NonNullable<TimelineClip['keyframes'][AnimatableProperty]>[number]
   ) => {
-    event.preventDefault();
     event.stopPropagation();
     const track = tracks.find((item) => item.id === clip.trackId);
     if (track?.locked) return;
