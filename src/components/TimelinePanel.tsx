@@ -287,9 +287,13 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.setTimeout(() => {
+        keyframeDragDidMoveRef.current = false;
+      }, 0);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp, { once: true });
+    window.addEventListener('pointercancel', onUp, { once: true });
   };
 
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
