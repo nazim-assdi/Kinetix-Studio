@@ -51,7 +51,7 @@ export const VoiceoverRecorder: React.FC<VoiceoverRecorderProps> = ({ onRecorded
         const extension = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm';
         const blob = new Blob(chunksRef.current, { type });
         if (!discardOnStopRef.current && blob.size > 0) {
-          const fileName = `Voiceover-${new Date().toISOString().replace(/[:.]/g, '-') }.${extension}`.replace(' .', '.');
+          const fileName = `Voiceover-${new Date().toISOString().replace(/[:.]/g, '-') }.${extension}`.replace(/-\./g, '.');
           onRecorded(new File([blob], fileName, { type }));
         } else if (!discardOnStopRef.current) {
           setError('No audio was captured. Try recording again.');
