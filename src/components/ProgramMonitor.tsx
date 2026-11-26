@@ -589,7 +589,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       className="flex-1 min-w-0 bg-[#111215] flex flex-col min-h-0"
     >
       {/* Monitor Header Strip with View Modes (1 / 2H / 2V / 4 Quad) */}
-      <div className="h-9 shrink-0 px-3 bg-[#16181D] border-b border-[#2B303A] flex items-center justify-between gap-2">
+      <div className="h-9 shrink-0 px-3 bg-[#16181D] border-b border-[#2B303A] flex items-center justify-between gap-2 relative z-30">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-xs font-semibold text-[#E6E8EC] truncate">
             {composition.name}
@@ -605,7 +605,14 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
               onChange={(e) => {
                 const p = SEQUENCE_PRESETS.find((x) => x.id === e.target.value);
                 if (p) {
-                  onUpdateComposition({ width: p.width, height: p.height, fps: p.fps, fitMode: 'cover' });
+                  onUpdateComposition({
+                    width: p.width,
+                    height: p.height,
+                    fps: p.fps,
+                    fitMode: 'cover',
+                    fitPositionX: 50,
+                    fitPositionY: 50,
+                  });
                 }
               }}
               className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[11px] font-mono-tabular text-[#C8CDD6] focus:outline-none hover:border-[#3B82F6]"
@@ -640,6 +647,42 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
               <option value="contain">Fit / Letterbox</option>
               <option value="stretch">Stretch</option>
             </select>
+          )}
+          {onUpdateComposition && composition.fitMode === 'cover' && (
+            <details className="relative">
+              <summary className="list-none cursor-pointer rounded border border-[#2B303A] bg-[#111215] px-2 py-0.5 text-[10px] text-[#C8CDD6] hover:border-[#3B82F6]">Crop Position</summary>
+              <div className="absolute left-0 top-full mt-1 w-56 rounded border border-[#303744] bg-[#181A1F] p-2.5 shadow-2xl z-[90] space-y-2">
+                <label className="block text-[10px] text-[#9BA1AD]">
+                  Horizontal · {Math.round(composition.fitPositionX ?? 50)}%
+                  <input
+                    type="range"
+                    aria-label="Crop Horizontal Position"
+                    min={0}
+                    max={100}
+                    value={composition.fitPositionX ?? 50}
+                    onChange={(e) => onUpdateComposition({ fitPositionX: Number(e.target.value) })}
+                    className="mt-1 w-full studio-slider"
+                  />
+                </label>
+                <label className="block text-[10px] text-[#9BA1AD]">
+                  Vertical · {Math.round(composition.fitPositionY ?? 50)}%
+                  <input
+                    type="range"
+                    aria-label="Crop Vertical Position"
+                    min={0}
+                    max={100}
+                    value={composition.fitPositionY ?? 50}
+                    onChange={(e) => onUpdateComposition({ fitPositionY: Number(e.target.value) })}
+                    className="mt-1 w-full studio-slider"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => onUpdateComposition({ fitPositionX: 50, fitPositionY: 50 })}
+                  className="text-[9px] text-[#93C5FD] hover:text-white"
+                >Center Crop</button>
+              </div>
+            </details>
           )}
         </div>
 
