@@ -97,13 +97,14 @@ export type TextAnimatorPreset =
 
 export type TrackMatteMode = 'none' | 'alpha' | 'alpha-inverted' | 'luma';
 
-export type SynthPreset =
-  | 'ambient-pulse'
-  | 'percussion-drive'
+export type SfxPresetName =
   | 'sfx-whoosh'
   | 'sfx-glitch'
   | 'sfx-boom'
-  | 'sfx-shimmer';
+  | 'sfx-shimmer'
+  | `sfx-pack-${number}`;
+
+export type SynthPreset = 'ambient-pulse' | 'percussion-drive' | SfxPresetName;
 
 export interface Keyframe {
   id: string;
@@ -352,6 +353,8 @@ export interface TimelineClip {
   captionProps?: CaptionLayerProps;
   waveform?: number[];
   synthPreset?: SynthPreset;
+  /** Catalog preset IDs already applied to this clip; prevents accidental duplicate transitions. */
+  appliedPresetIds?: string[];
   colorLabel: string;
 }
 
@@ -426,10 +429,7 @@ export interface MotionPresetItem {
   category: PresetCategory;
   description: string;
   accentColor: string;
-  sfxPreset?: Extract<
-    SynthPreset,
-    'sfx-whoosh' | 'sfx-glitch' | 'sfx-boom' | 'sfx-shimmer'
-  >;
+  sfxPreset?: SfxPresetName;
   basePresetId?: string;
   effectType?: EffectType;
   effectParams?: Record<string, number>;
