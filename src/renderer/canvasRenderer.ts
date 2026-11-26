@@ -11,10 +11,15 @@ import {
 } from '../types/editor';
 import {
   applyLumaMatteToPixels,
+  CameraViewState,
   computeAnchorScreenCenter,
   computeLightShading,
+  projectLayerPointThroughCamera,
   projectLayerThroughCamera,
+  quaternionFromEuler,
+  resolveCameraViewState,
   resolveWorldTransform,
+  rotateVector3,
 } from '../engine/math3d';
 import { evaluateClipTransform, getClipLocalTime } from '../engine/keyframes';
 
@@ -55,6 +60,216 @@ function getScratchCanvas(
     sctx.clearRect(0, 0, tw, th);
   }
   return c;
+}
+
+interface ScreenPoint2D {
+  x: number;
+  y: number;
+}
+
+function drawTexturedTriangle(
+  ctx: CanvasRenderingContext2D,
+  texture: HTMLCanvasElement,
+  source: [ScreenPoint2D, ScreenPoint2D, ScreenPoint2D],
+  destination: [ScreenPoint2D, ScreenPoint2D, ScreenPoint2D]
+) {
+  const [s1, s2, s3] = source;
+  const [d1, d2, d3] = destination;
+  const denominator =
+    s1.x * (s2.y - s3.y) +
+    s2.x * (s3.y - s1.y) +
+    s3.x * (s1.y - s2.y);
+  if (Math.abs(denominator) < 0.0001) return;
+
+  const a = (d1.x * (s2.y - s3.y) + d2.x * (s3.y - s1.y) + d3.x * (s1.y - s2.y)) / denominator;
+  const b = (d1.y * (s2.y - s3.y) + d2.y * (s3.y - s1.y) + d3.y * (s1.y - s2.y)) / denominator;
+  const c = (d1.x * (s3.x - s2.x) + d2.x * (s1.x - s3.x) + d3.x * (s2.x - s1.x)) / denominator;
+  const d = (d1.y * (s3.x - s2.x) + d2.y * (s1.x - s3.x) + d3.y * (s2.x - s1.x)) / denominator;
+  const e = (
+    d1.x * (s2.x * s3.y - s3.x * s2.y) +
+    d2.x * (s3.x * s1.y - s1.x * s3.y) +
+    d3.x * (s1.x * s2.y - s2.x * s1.y)
+  ) / denominator;
+  const f = (
+    d1.y * (s2.x * s3.y - s3.x * s2.y) +
+    d2.y * (s3.x * s1.y - s1.x * s3.y) +
+    d3.y * (s1.x * s2.y - s2.x * s1.y)
+  ) / denominator;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(d1.x, d1.y);
+  ctx.lineTo(d2.x, d2.y);
+  ctx.lineTo(d3.x, d3.y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.transform(a, b, c, d, e, f);
+  ctx.drawImage(texture, 0, 0);
+  ctx.restore();
+}
+
+/** Perspective-correctly maps a layer texture onto a subdivided 3D plane. */
+function drawPerspectiveLayerPlane(
+  ctx: CanvasRenderingContext2D,
+  texture: HTMLCanvasElement,
+  world: ReturnType<typeof resolveWorldTransform>,
+  cameraClip: TimelineClip | null,
+  clips: TimelineClip[],
+  playheadTime: number,
+  width: number,
+  height: number,
+  layerWidth: number,
+  layerHeight: number,
+  anchorX: number,
+  anchorY: number,
+  cameraState: CameraViewState,
+  planeDepth = 0
+) {
+  const segments = 6;
+  const left = width / 2 - layerWidth / 2 - anchorX;
+  const top = height / 2 - layerHeight / 2 - anchorY;
+  const cellW = layerWidth / segments;
+  const cellH = layerHeight / segments;
+
+  for (let row = 0; row < segments; row++) {
+    for (let column = 0; column < segments; column++) {
+      const sx0 = left + column * cellW;
+      const sx1 = sx0 + cellW;
+      const sy0 = top + row * cellH;
+      const sy1 = sy0 + cellH;
+      const project = (sx: number, sy: number) =>
+        projectLayerPointThroughCamera(
+          world,
+          cameraClip,
+          clips,
+          playheadTime,
+          width,
+          height,
+          sx - width / 2,
+          sy - height / 2,
+          planeDepth,
+          cameraState
+        );
+      const p00 = project(sx0, sy0);
+      const p10 = project(sx1, sy0);
+      const p11 = project(sx1, sy1);
+      const p01 = project(sx0, sy1);
+      if (!p00.visible || !p10.visible || !p11.visible || !p01.visible) continue;
+
+      drawTexturedTriangle(
+        ctx,
+        texture,
+        [{ x: sx0, y: sy0 }, { x: sx1, y: sy0 }, { x: sx1, y: sy1 }],
+        [p00, p10, p11]
+      );
+      drawTexturedTriangle(
+        ctx,
+        texture,
+        [{ x: sx0, y: sy0 }, { x: sx1, y: sy1 }, { x: sx0, y: sy1 }],
+        [p00, p11, p01]
+      );
+    }
+  }
+}
+
+function shadeHexColor(color: string, factor: number): string {
+  const match = /^#?([0-9a-f]{6})$/i.exec(color);
+  if (!match) return color;
+  const value = Number.parseInt(match[1], 16);
+  const r = Math.max(0, Math.min(255, Math.round(((value >> 16) & 255) * factor)));
+  const g = Math.max(0, Math.min(255, Math.round(((value >> 8) & 255) * factor)));
+  const b = Math.max(0, Math.min(255, Math.round((value & 255) * factor)));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** Draws the actual side walls of an extruded 3D vector shape before its front plane. */
+function drawExtrudedShapeSides(
+  ctx: CanvasRenderingContext2D,
+  world: ReturnType<typeof resolveWorldTransform>,
+  clip: TimelineClip,
+  clips: TimelineClip[],
+  playheadTime: number,
+  activeCamera: TimelineClip | null,
+  cameraState: CameraViewState,
+  width: number,
+  height: number,
+  anchorX: number,
+  anchorY: number,
+  depth: number
+) {
+  const props = clip.shapeProps;
+  if (!props || depth <= 0.01) return;
+  const shapeTransform = evaluateClipTransform(clip, playheadTime);
+  const shapeWidth = Math.max(1, shapeTransform.shapeWidth ?? props.width);
+  const shapeHeight = Math.max(1, shapeTransform.shapeHeight ?? props.height);
+  const halfW = shapeWidth / 2;
+  const halfH = shapeHeight / 2;
+  const outline: ScreenPoint2D[] = [];
+
+  if (props.shapeType === 'circle' || props.shapeType === 'ring') {
+    const count = 48;
+    const radiusX = halfW;
+    const radiusY = halfH;
+    for (let index = 0; index < count; index++) {
+      const angle = (index / count) * Math.PI * 2;
+      outline.push({ x: Math.cos(angle) * radiusX, y: Math.sin(angle) * radiusY });
+    }
+  } else if (props.shapeType === 'polygon') {
+    const sides = Math.max(3, Math.min(32, Math.round(props.sides ?? 6)));
+    for (let index = 0; index < sides; index++) {
+      const angle = (index / sides) * Math.PI * 2 - Math.PI / 2;
+      outline.push({ x: Math.cos(angle) * halfW, y: Math.sin(angle) * halfH });
+    }
+  } else {
+    outline.push(
+      { x: -halfW, y: -halfH },
+      { x: halfW, y: -halfH },
+      { x: halfW, y: halfH },
+      { x: -halfW, y: halfH }
+    );
+  }
+
+  const project = (point: ScreenPoint2D, z: number) =>
+    projectLayerPointThroughCamera(
+      world,
+      activeCamera,
+      clips,
+      playheadTime,
+      width,
+      height,
+      point.x - anchorX,
+      point.y - anchorY,
+      z,
+      cameraState
+    );
+
+  ctx.save();
+  ctx.lineWidth = Math.max(0.8, Math.min(4, props.strokeWidth || 1));
+  ctx.lineJoin = 'round';
+
+  for (let index = 0; index < outline.length; index++) {
+    const next = (index + 1) % outline.length;
+    const a = outline[index];
+    const b = outline[next];
+    const backA = project(a, 0);
+    const backB = project(b, 0);
+    const frontA = project(a, depth);
+    const frontB = project(b, depth);
+    if (!backA.visible || !backB.visible || !frontA.visible || !frontB.visible) continue;
+
+    const shade = 0.48 + (index % 5) * 0.065;
+    ctx.fillStyle = shadeHexColor(props.fillColor, shade);
+    ctx.strokeStyle = shadeHexColor(props.strokeColor, 0.72);
+    ctx.beginPath();
+    ctx.moveTo(backA.x, backA.y);
+    ctx.lineTo(backB.x, backB.y);
+    ctx.lineTo(frontB.x, frontB.y);
+    ctx.lineTo(frontA.x, frontA.y);
+    ctx.closePath();
+    ctx.fill();
+    if (props.strokeWidth > 0) ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function getOrLoadImage(
@@ -649,7 +864,6 @@ function renderOrthographic3DView(
   ctx.fillStyle = '#0D0F14';
   ctx.fillRect(0, 0, width, height);
 
-  // Draw orthographic grid
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
   ctx.lineWidth = 1;
   const step = 64;
@@ -666,7 +880,6 @@ function renderOrthographic3DView(
     ctx.stroke();
   }
 
-  // Center axes
   ctx.strokeStyle = 'rgba(59, 130, 246, 0.35)';
   ctx.beginPath();
   ctx.moveTo(width / 2, 0);
@@ -676,97 +889,160 @@ function renderOrthographic3DView(
   ctx.stroke();
 
   const activeTracks = new Set(
-    tracks.filter((t) => t.kind === 'video' && t.visible).map((t) => t.id)
+    tracks.filter((track) => track.kind === 'video' && track.visible).map((track) => track.id)
   );
   const activeClips = clips.filter(
-    (c) =>
-      activeTracks.has(c.trackId) &&
-      playheadTime >= c.start &&
-      playheadTime <= c.start + c.duration
+    (clip) =>
+      activeTracks.has(clip.trackId) &&
+      playheadTime >= clip.start &&
+      playheadTime <= clip.start + clip.duration
   );
-
   const scale = 0.42;
+
+  const projectPoint = (point: { x: number; y: number; z: number }) => {
+    if (angle === 'top') {
+      return { x: width / 2 + point.x * scale, y: height / 2 + point.z * scale };
+    }
+    if (angle === 'front') {
+      return { x: width / 2 + point.x * scale, y: height / 2 + point.y * scale };
+    }
+    return { x: width / 2 + point.z * scale, y: height / 2 + point.y * scale };
+  };
 
   for (const clip of activeClips) {
     const world = resolveWorldTransform(clip, clips, playheadTime);
     const isSelected = clip.id === selectedClipId;
-
-    let sx = width / 2;
-    let sy = height / 2;
-    if (angle === 'top') {
-      sx = width / 2 + world.x * scale;
-      sy = height / 2 + world.z * scale;
-    } else if (angle === 'front') {
-      sx = width / 2 + world.x * scale;
-      sy = height / 2 + world.y * scale;
-    } else {
-      // right
-      sx = width / 2 + world.z * scale;
-      sy = height / 2 + world.y * scale;
-    }
+    const orientation = world.orientation ?? quaternionFromEuler(world.rotationX, world.rotationY, world.rotation);
+    const origin = { x: world.x, y: world.y, z: world.z };
 
     ctx.save();
-    ctx.translate(sx, sy);
-
     if (clip.kind === 'camera') {
-      // Camera frustum pyramid
-      ctx.strokeStyle = isSelected ? '#FBBF24' : '#F59E0B';
-      ctx.lineWidth = isSelected ? 2.5 : 1.8;
-      ctx.fillStyle = 'rgba(245, 158, 11, 0.14)';
-      ctx.beginPath();
-      if (angle === 'top' || angle === 'right') {
-        const camOffset = angle === 'top' ? -900 * scale : -900 * scale;
-        ctx.translate(angle === 'right' ? camOffset : 0, angle === 'top' ? camOffset : 0);
-        ctx.moveTo(0, 0);
-        ctx.lineTo(-90, 180);
-        ctx.lineTo(90, 180);
-        ctx.closePath();
-      } else {
-        ctx.rect(-34, -22, 68, 44);
+      const props = clip.cameraProps;
+      let cameraOrientation = orientation;
+      if (props?.useTarget) {
+        const cameraPosition = { x: world.x, y: world.y, z: -900 + world.z };
+        const direction = {
+          x: props.lookAtX - cameraPosition.x,
+          y: props.lookAtY - cameraPosition.y,
+          z: props.lookAtZ - cameraPosition.z,
+        };
+        const yaw = Math.atan2(direction.x, direction.z) * 180 / Math.PI;
+        const pitch = -Math.atan2(direction.y, Math.max(0.0001, Math.hypot(direction.x, direction.z))) * 180 / Math.PI;
+        cameraOrientation = quaternionFromEuler(pitch, yaw, world.rotation);
       }
+      const cameraOrigin = { x: world.x, y: world.y, z: -900 + world.z };
+      const distance = 420;
+      const focal = Math.max(8, props?.focalLength ?? 35);
+      const sensorWidth = Math.max(18, props?.sensorWidth ?? 36);
+      const halfW = Math.tan((sensorWidth / (2 * focal))) * distance;
+      const halfH = halfW / Math.max(0.1, width / height);
+      const corners = [
+        { x: -halfW, y: -halfH, z: distance },
+        { x: halfW, y: -halfH, z: distance },
+        { x: halfW, y: halfH, z: distance },
+        { x: -halfW, y: halfH, z: distance },
+      ].map((point) => {
+        const rotated = rotateVector3(point, cameraOrientation);
+        return { x: cameraOrigin.x + rotated.x, y: cameraOrigin.y + rotated.y, z: cameraOrigin.z + rotated.z };
+      });
+      const screenOrigin = projectPoint(cameraOrigin);
+      const screenCorners = corners.map(projectPoint);
+
+      ctx.strokeStyle = isSelected ? '#FBBF24' : '#F59E0B';
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.12)';
+      ctx.lineWidth = isSelected ? 2.5 : 1.5;
+      ctx.beginPath();
+      screenCorners.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      screenCorners.forEach((point) => {
+        ctx.beginPath();
+        ctx.moveTo(screenOrigin.x, screenOrigin.y);
+        ctx.lineTo(point.x, point.y);
+        ctx.stroke();
+      });
       ctx.fillStyle = '#FCD34D';
-      ctx.font = '600 13px "JetBrains Mono", monospace';
-      ctx.fillText('CAM', 12, -10);
+      ctx.beginPath();
+      ctx.arc(screenOrigin.x, screenOrigin.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '600 12px "JetBrains Mono", monospace';
+      ctx.fillText('CAM', screenOrigin.x + 10, screenOrigin.y - 8);
     } else if (clip.kind === 'light') {
       const color = clip.lightProps?.color ?? '#93C5FD';
+      const lightOrigin = projectPoint(origin);
+      const forward = rotateVector3({ x: 0, y: 0, z: 1 }, orientation);
+      const side = rotateVector3({ x: 1, y: 0, z: 0 }, orientation);
+      const up = rotateVector3({ x: 0, y: 1, z: 0 }, orientation);
+      const reach = 180;
+      const spread = clip.lightProps?.lightType === 'spot' ? 65 : 24;
+      const endPoints = [
+        { x: origin.x + forward.x * reach + side.x * spread + up.x * spread, y: origin.y + forward.y * reach + side.y * spread + up.y * spread, z: origin.z + forward.z * reach + side.z * spread + up.z * spread },
+        { x: origin.x + forward.x * reach - side.x * spread + up.x * spread, y: origin.y + forward.y * reach - side.y * spread + up.y * spread, z: origin.z + forward.z * reach - side.z * spread + up.z * spread },
+        { x: origin.x + forward.x * reach - side.x * spread - up.x * spread, y: origin.y + forward.y * reach - side.y * spread - up.y * spread, z: origin.z + forward.z * reach - side.z * spread - up.z * spread },
+        { x: origin.x + forward.x * reach + side.x * spread - up.x * spread, y: origin.y + forward.y * reach + side.y * spread - up.y * spread, z: origin.z + forward.z * reach + side.z * spread - up.z * spread },
+      ].map(projectPoint);
       ctx.strokeStyle = isSelected ? '#FFFFFF' : color;
       ctx.fillStyle = color;
+      ctx.lineWidth = isSelected ? 2.5 : 1.5;
       ctx.beginPath();
-      ctx.arc(0, 0, 10, 0, Math.PI * 2);
+      ctx.arc(lightOrigin.x, lightOrigin.y, 6, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(-44, 95);
-      ctx.lineTo(44, 95);
+      ctx.moveTo(endPoints[0].x, endPoints[0].y);
+      endPoints.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
       ctx.closePath();
-      ctx.globalAlpha = 0.22;
+      ctx.globalAlpha = 0.18;
       ctx.fill();
       ctx.globalAlpha = 1;
       ctx.stroke();
-      ctx.font = '600 12px "JetBrains Mono", monospace';
-      ctx.fillText('LIGHT', 14, 4);
+      ctx.beginPath();
+      endPoints.forEach((point) => {
+        ctx.moveTo(lightOrigin.x, lightOrigin.y);
+        ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+      ctx.font = '600 11px "JetBrains Mono", monospace';
+      ctx.fillText('LIGHT', lightOrigin.x + 10, lightOrigin.y + 4);
     } else if (clip.kind !== 'audio') {
-      // Layer plane wireframe
-      ctx.strokeStyle = isSelected ? '#3B82F6' : clip.is3D ? '#A78BFA' : '#64748B';
-      ctx.lineWidth = isSelected ? 2.5 : 1.5;
-      if (angle === 'front') {
-        const w = 180 * (world.scale / 100);
-        const h = 100 * (world.scale / 100);
-        ctx.strokeRect(-w / 2, -h / 2, w, h);
-      } else {
-        const span = 180 * (world.scale / 100);
-        ctx.beginPath();
-        ctx.moveTo(-span / 2, 0);
-        ctx.lineTo(span / 2, 0);
-        ctx.stroke();
-      }
-      ctx.fillStyle = isSelected ? '#93C5FD' : '#9BA1AD';
-      ctx.font = '500 12px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText(clip.name.slice(0, 16), 8, -8);
-    }
+      const shapeTransform = clip.kind === 'shape' ? evaluateClipTransform(clip, playheadTime) : null;
+      const baseW = clip.shapeProps
+        ? (shapeTransform?.shapeWidth ?? clip.shapeProps.width)
+        : clip.kind === 'text' ? Math.max(180, (clip.textProps?.text.length ?? 12) * (clip.textProps?.fontSize ?? 28) * 0.62) : 180;
+      const baseH = clip.shapeProps
+        ? (shapeTransform?.shapeHeight ?? clip.shapeProps.height)
+        : clip.kind === 'text' ? Math.max(48, (clip.textProps?.fontSize ?? 28) * 1.5) : 100;
+      const halfW = baseW * world.scale / 200;
+      const halfH = baseH * world.scale / 200;
+      const planeCorners = [
+        { x: -halfW, y: -halfH, z: 0 },
+        { x: halfW, y: -halfH, z: 0 },
+        { x: halfW, y: halfH, z: 0 },
+        { x: -halfW, y: halfH, z: 0 },
+      ].map((local) => {
+        const rotated = rotateVector3(local, orientation);
+        return projectPoint({ x: origin.x + rotated.x, y: origin.y + rotated.y, z: origin.z + rotated.z });
+      });
 
+      ctx.strokeStyle = isSelected ? '#3B82F6' : clip.is3D ? '#A78BFA' : '#64748B';
+      ctx.fillStyle = clip.is3D ? 'rgba(139, 92, 246, 0.08)' : 'rgba(100, 116, 139, 0.04)';
+      ctx.lineWidth = isSelected ? 2.5 : 1.5;
+      ctx.beginPath();
+      planeCorners.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      const labelPoint = projectPoint({ x: origin.x + 10, y: origin.y - 10, z: origin.z });
+      ctx.fillStyle = isSelected ? '#93C5FD' : '#9BA1AD';
+      ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(clip.name.slice(0, 16), labelPoint.x, labelPoint.y);
+    }
     ctx.restore();
   }
 }
@@ -845,6 +1121,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       playheadTime >= c.start &&
       playheadTime <= c.start + c.duration
   );
+  const activeCameraView = resolveCameraViewState(activeCamera, clips, playheadTime, width);
 
   let selectedBox: BoundingBox | null = null;
 
@@ -888,9 +1165,10 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     let effScaleX = world.scale / 100;
     let effScaleY = world.scale / 100;
     let skewX = 0;
+    let projection: ReturnType<typeof projectLayerThroughCamera> | null = null;
 
     if (clip.is3D) {
-      const proj = projectLayerThroughCamera(
+      projection = projectLayerThroughCamera(
         world,
         activeCamera,
         clips,
@@ -898,19 +1176,19 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         width,
         height
       );
-      if (!proj.visible) return null;
-      cx = proj.screenX;
-      cy = proj.screenY;
-      effScaleX = proj.perspectiveScale * proj.scaleX;
-      effScaleY = proj.perspectiveScale * proj.scaleY;
-      skewX = proj.skewX;
+      if (!projection.visible) return null;
+      cx = projection.screenX;
+      cy = projection.screenY;
+      effScaleX = projection.perspectiveScale * projection.scaleX;
+      effScaleY = projection.perspectiveScale * projection.scaleY;
+      skewX = projection.skewX;
     }
 
     const shading = clip.is3D
       ? computeLightShading(world, activeLights, clips, playheadTime)
       : { brightnessFactor: 1, tintColor: '#ffffff', tintAlpha: 0 };
 
-    const rotRad = (world.rotation * Math.PI) / 180;
+    const rotRad = projection?.rotationRad ?? (world.rotation * Math.PI) / 180;
 
     if (clip.kind === 'null') {
       if (drawGizmo && (clip.id === selectedClipId || showWireframes)) {
@@ -933,51 +1211,84 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
     const ax = world.anchorX ?? 0;
     const ay = world.anchorY ?? 0;
+    const layerTexture = clip.is3D
+      ? getScratchCanvas(mediaCache, `3d-layer-${clip.id}`, width, height)
+      : null;
+    const renderCtx = layerTexture?.getContext('2d') ?? targetCtx;
 
-    targetCtx.save();
-    targetCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100));
-    if (!ignoreBlendMode) {
-      targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
+    renderCtx.save();
+    renderCtx.setTransform(1, 0, 0, 1, 0, 0);
+    if (clip.is3D) {
+      renderCtx.globalCompositeOperation = 'source-over';
+    } else if (!ignoreBlendMode) {
+      renderCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
     }
-    const baseFilter = buildFilterString(
+    renderCtx.globalAlpha = clip.is3D
+      ? 1
+      : Math.max(0, Math.min(1, world.opacity / 100));
+    renderCtx.filter = 'none';
+    renderCtx.shadowBlur = 0;
+    let baseFilter = buildFilterString(
       clip.effects,
       shading.brightnessFactor,
       clip.colorGrade
     );
+    // Depth-of-field is evaluated from camera-space depth, not screen-space distance.
+    if (projection && activeCamera?.cameraProps?.depthOfField) {
+      const camera = activeCamera.cameraProps;
+      const focusDistance = Math.max(1, camera.focusDistance ?? 900);
+      const aperture = Math.max(0.7, Math.min(32, camera.aperture || 2.8));
+      // A wider aperture (lower f-number) produces stronger defocus.
+      const defocus = Math.min(
+        14,
+        Math.abs(projection.depthZ - focusDistance) / focusDistance * (2.8 / aperture) * 6
+      );
+      if (defocus > 0.25) {
+        baseFilter = baseFilter === 'none'
+          ? `blur(${defocus.toFixed(2)}px)`
+          : `${baseFilter} blur(${defocus.toFixed(2)}px)`;
+      }
+    }
     if (clip.mask?.enabled && clip.mask.feather > 0) {
       const maskBlur = `blur(${(clip.mask.feather * 0.15).toFixed(1)}px)`;
-      targetCtx.filter = baseFilter === 'none' ? maskBlur : `${baseFilter} ${maskBlur}`;
+      renderCtx.filter = baseFilter === 'none' ? maskBlur : `${baseFilter} ${maskBlur}`;
     } else {
-      targetCtx.filter = baseFilter;
+      renderCtx.filter = baseFilter;
     }
 
     const glowFx = clip.effects.find((f) => f.enabled && f.type === 'glow');
     const shadowFx = clip.effects.find((f) => f.enabled && f.type === 'dropshadow');
     if (glowFx) {
-      targetCtx.shadowColor = 'rgba(96, 165, 250, 0.8)';
-      targetCtx.shadowBlur =
+      renderCtx.shadowColor = 'rgba(96, 165, 250, 0.8)';
+      renderCtx.shadowBlur =
         (glowFx.params.radius ?? 16) * ((glowFx.params.intensity ?? 50) / 50);
     } else if (shadowFx) {
       const op = (shadowFx.params.opacity ?? 70) / 100;
-      targetCtx.shadowColor = `rgba(0, 0, 0, ${op})`;
-      targetCtx.shadowBlur = shadowFx.params.blur ?? 16;
-      targetCtx.shadowOffsetX = (shadowFx.params.distance ?? 10) * 0.5;
-      targetCtx.shadowOffsetY = shadowFx.params.distance ?? 10;
+      renderCtx.shadowColor = `rgba(0, 0, 0, ${op})`;
+      renderCtx.shadowBlur = shadowFx.params.blur ?? 16;
+      renderCtx.shadowOffsetX = (shadowFx.params.distance ?? 10) * 0.5;
+      renderCtx.shadowOffsetY = shadowFx.params.distance ?? 10;
     }
 
-    targetCtx.translate(cx, cy);
-    targetCtx.rotate(rotRad);
-    if (skewX !== 0) {
-      targetCtx.transform(1, 0, skewX, 1, 0, 0);
+    if (clip.is3D) {
+      // Render the source layer in its own local plane. Camera projection and
+      // world rotation/scale are applied later by the perspective mesh.
+      renderCtx.translate(width / 2, height / 2);
+    } else {
+      renderCtx.translate(cx, cy);
+      renderCtx.rotate(rotRad);
+      if (skewX !== 0) {
+        renderCtx.transform(1, 0, skewX, 1, 0, 0);
+      }
+      renderCtx.scale(effScaleX, effScaleY);
     }
-    targetCtx.scale(effScaleX, effScaleY);
     if (ax !== 0 || ay !== 0) {
-      targetCtx.translate(-ax, -ay);
+      renderCtx.translate(-ax, -ay);
     }
 
     if (clip.mask?.enabled) {
-      targetCtx.globalAlpha *= Math.max(0, Math.min(1, clip.mask.opacity / 100));
-      applyMaskClipPath(targetCtx, clip.mask, width, height);
+      renderCtx.globalAlpha *= Math.max(0, Math.min(1, clip.mask.opacity / 100));
+      applyMaskClipPath(renderCtx, clip.mask, width, height);
     }
 
     let baseW = width;
@@ -988,8 +1299,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     if (clip.kind === 'solid' && clip.solidProps) {
       baseW = clip.solidProps.width;
       baseH = clip.solidProps.height;
-      targetCtx.fillStyle = clip.solidProps.color;
-      targetCtx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
+      renderCtx.fillStyle = clip.solidProps.color;
+      renderCtx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
     } else if (clip.kind === 'image' && clip.src) {
       const img = getOrLoadImage(mediaCache, clip.src, onMediaLoaded);
       if (img) {
@@ -1012,9 +1323,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          targetCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
+          renderCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
         } else {
-          targetCtx.drawImage(img, -baseW / 2, -baseH / 2, baseW, baseH);
+          renderCtx.drawImage(img, -baseW / 2, -baseH / 2, baseW, baseH);
         }
       }
     } else if (clip.kind === 'video' && clip.src) {
@@ -1046,9 +1357,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             chromaFx.params.tolerance ?? 42,
             chromaFx.params.softness ?? 16
           );
-          targetCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
+          renderCtx.drawImage(keyed, -baseW / 2, -baseH / 2, baseW, baseH);
         } else {
-          targetCtx.drawImage(video, -baseW / 2, -baseH / 2, baseW, baseH);
+          renderCtx.drawImage(video, -baseW / 2, -baseH / 2, baseW, baseH);
         }
       }
     } else if (clip.kind === 'text' && clip.textProps) {
@@ -1070,7 +1381,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         const prog = Math.min(1, localT / 0.55);
         const ease = 1 - Math.pow(1 - prog, 3);
         animOffsetY = (1 - ease) * 34;
-        targetCtx.globalAlpha *= ease;
+        renderCtx.globalAlpha *= ease;
       } else if (anim === 'word-pop') {
         const prog = Math.min(1, localT / 0.45);
         animScale = 0.78 + 0.22 * (1 - Math.pow(1 - prog, 3));
@@ -1087,30 +1398,30 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           .join('');
       }
 
-      targetCtx.font = `${tp.fontWeight} ${tp.fontSize}px "Plus Jakarta Sans", sans-serif`;
-      targetCtx.textAlign = tp.align;
-      targetCtx.textBaseline = 'middle';
-      if ('letterSpacing' in targetCtx) {
-        (targetCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${tp.letterSpacing}px`;
+      renderCtx.font = `${tp.fontWeight} ${tp.fontSize}px "Plus Jakarta Sans", sans-serif`;
+      renderCtx.textAlign = tp.align;
+      renderCtx.textBaseline = 'middle';
+      if ('letterSpacing' in renderCtx) {
+        (renderCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${tp.letterSpacing}px`;
       }
-      const metrics = targetCtx.measureText(tp.text);
+      const metrics = renderCtx.measureText(tp.text);
       baseW = Math.max(120, metrics.width + 40);
       baseH = Math.max(48, tp.fontSize * 1.45);
 
-      targetCtx.save();
-      targetCtx.translate(0, animOffsetY);
-      if (animScale !== 1) targetCtx.scale(animScale, animScale);
+      renderCtx.save();
+      renderCtx.translate(0, animOffsetY);
+      if (animScale !== 1) renderCtx.scale(animScale, animScale);
       if (tp.backgroundColor) {
-        targetCtx.fillStyle = tp.backgroundColor;
+        renderCtx.fillStyle = tp.backgroundColor;
         const rx =
           tp.align === 'left' ? -16 : tp.align === 'right' ? -baseW + 16 : -baseW / 2;
-        targetCtx.beginPath();
-        targetCtx.roundRect(rx, -baseH / 2, baseW, baseH, 6);
-        targetCtx.fill();
+        renderCtx.beginPath();
+        renderCtx.roundRect(rx, -baseH / 2, baseW, baseH, 6);
+        renderCtx.fill();
       }
-      targetCtx.fillStyle = tp.color;
-      targetCtx.fillText(renderText, 0, 0);
-      targetCtx.restore();
+      renderCtx.fillStyle = tp.color;
+      renderCtx.fillText(renderText, 0, 0);
+      renderCtx.restore();
     } else if (clip.kind === 'particles' && clip.particleProps) {
       const pp = clip.particleProps;
       baseW = width;
@@ -1141,21 +1452,21 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         }
 
         const radius = pp.size * (0.45 + (i % 5) * 0.18);
-        targetCtx.save();
-        targetCtx.fillStyle = pp.color;
-        targetCtx.globalAlpha *= pp.style === 'bokeh' ? 0.35 : 0.78;
-        targetCtx.beginPath();
+        renderCtx.save();
+        renderCtx.fillStyle = pp.color;
+        renderCtx.globalAlpha *= pp.style === 'bokeh' ? 0.35 : 0.78;
+        renderCtx.beginPath();
         if (pp.style === 'confetti') {
-          targetCtx.translate(px, py);
-          targetCtx.rotate(localT * 3 + i);
-          targetCtx.fillRect(-radius, -radius * 0.5, radius * 2, radius);
+          renderCtx.translate(px, py);
+          renderCtx.rotate(localT * 3 + i);
+          renderCtx.fillRect(-radius, -radius * 0.5, radius * 2, radius);
         } else if (pp.style === 'matrix') {
-          targetCtx.fillRect(px, py, Math.max(2, radius * 0.6), radius * 3.2);
+          renderCtx.fillRect(px, py, Math.max(2, radius * 0.6), radius * 3.2);
         } else {
-          targetCtx.arc(px, py, radius, 0, Math.PI * 2);
-          targetCtx.fill();
+          renderCtx.arc(px, py, radius, 0, Math.PI * 2);
+          renderCtx.fill();
         }
-        targetCtx.restore();
+        renderCtx.restore();
       }
     } else if (clip.kind === 'visualizer' && clip.visualizerProps) {
       const vp = clip.visualizerProps;
@@ -1171,12 +1482,12 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             (0.25 + 0.75 * Math.abs(Math.sin(localT * 7 + i * 0.55) * Math.cos(localT * 3 + i * 0.25))) *
             75 *
             vp.sensitivity;
-          targetCtx.strokeStyle = i % 2 === 0 ? vp.color : vp.accentColor;
-          targetCtx.lineWidth = 4;
-          targetCtx.beginPath();
-          targetCtx.moveTo(Math.cos(ang) * baseR, Math.sin(ang) * baseR);
-          targetCtx.lineTo(Math.cos(ang) * (baseR + mag), Math.sin(ang) * (baseR + mag));
-          targetCtx.stroke();
+          renderCtx.strokeStyle = i % 2 === 0 ? vp.color : vp.accentColor;
+          renderCtx.lineWidth = 4;
+          renderCtx.beginPath();
+          renderCtx.moveTo(Math.cos(ang) * baseR, Math.sin(ang) * baseR);
+          renderCtx.lineTo(Math.cos(ang) * (baseR + mag), Math.sin(ang) * (baseR + mag));
+          renderCtx.stroke();
         }
       } else {
         const barW = baseW / bars - 4;
@@ -1187,10 +1498,10 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
             0.72 *
             vp.sensitivity;
           const bx = -baseW / 2 + i * (baseW / bars);
-          targetCtx.fillStyle = i % 3 === 0 ? vp.accentColor : vp.color;
-          targetCtx.beginPath();
-          targetCtx.roundRect(bx, baseH / 2 - mag, barW, Math.max(6, mag), 2);
-          targetCtx.fill();
+          renderCtx.fillStyle = i % 3 === 0 ? vp.accentColor : vp.color;
+          renderCtx.beginPath();
+          renderCtx.roundRect(bx, baseH / 2 - mag, barW, Math.max(6, mag), 2);
+          renderCtx.fill();
         }
       }
     } else if (clip.kind === 'caption' && clip.captionProps) {
@@ -1203,9 +1514,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       if (activeCue) {
         const yPos = cp.position === 'bottom' ? height * 0.34 : 0;
         const maxTextWidth = Math.max(80, width - 120);
-        targetCtx.font = `700 ${cp.fontSize}px "Plus Jakarta Sans", sans-serif`;
-        targetCtx.textAlign = 'center';
-        targetCtx.textBaseline = 'middle';
+        renderCtx.font = `700 ${cp.fontSize}px "Plus Jakarta Sans", sans-serif`;
+        renderCtx.textAlign = 'center';
+        renderCtx.textBaseline = 'middle';
 
         const lines: string[] = [];
         for (const paragraph of activeCue.text.split(/\r?\n/)) {
@@ -1217,7 +1528,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           let line = '';
           for (const word of words) {
             const candidate = line ? `${line} ${word}` : word;
-            if (line && targetCtx.measureText(candidate).width > maxTextWidth) {
+            if (line && renderCtx.measureText(candidate).width > maxTextWidth) {
               lines.push(line);
               line = word;
             } else {
@@ -1229,19 +1540,19 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
         const visibleLines = lines.length > 0 ? lines : [''];
         const lineHeight = cp.fontSize * 1.28;
-        const textWidth = Math.max(...visibleLines.map((line) => targetCtx.measureText(line).width));
+        const textWidth = Math.max(...visibleLines.map((line) => renderCtx.measureText(line).width));
         const boxW = Math.min(width - 48, Math.max(80, Math.min(maxTextWidth, textWidth) + 36));
         const boxH = visibleLines.length * lineHeight + 18;
         baseW = boxW;
         baseH = boxH;
 
-        targetCtx.fillStyle = cp.bgColor;
-        targetCtx.beginPath();
-        targetCtx.roundRect(-boxW / 2, yPos - boxH / 2, boxW, boxH, 8);
-        targetCtx.fill();
-        targetCtx.fillStyle = cp.color;
+        renderCtx.fillStyle = cp.bgColor;
+        renderCtx.beginPath();
+        renderCtx.roundRect(-boxW / 2, yPos - boxH / 2, boxW, boxH, 8);
+        renderCtx.fill();
+        renderCtx.fillStyle = cp.color;
         visibleLines.forEach((line, index) => {
-          targetCtx.fillText(
+          renderCtx.fillText(
             line,
             0,
             yPos + (index - (visibleLines.length - 1) / 2) * lineHeight,
@@ -1259,43 +1570,43 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
       if (sp.shapeType === 'circle' || sp.shapeType === 'ring') {
         const r = Math.min(shapeWidth, shapeHeight) / 2;
-        targetCtx.beginPath();
-        targetCtx.arc(0, 0, r, 0, Math.PI * 2);
+        renderCtx.beginPath();
+        renderCtx.arc(0, 0, r, 0, Math.PI * 2);
         if (sp.shapeType === 'circle' && sp.fillColor !== 'transparent') {
-          targetCtx.fillStyle = sp.fillColor;
-          targetCtx.fill();
+          renderCtx.fillStyle = sp.fillColor;
+          renderCtx.fill();
         }
         if (sp.strokeWidth > 0) {
-          targetCtx.strokeStyle = sp.strokeColor;
-          targetCtx.lineWidth = sp.strokeWidth;
-          if (sp.shapeType === 'ring') targetCtx.setLineDash([28, 12, 8, 12]);
-          targetCtx.stroke();
-          targetCtx.setLineDash([]);
+          renderCtx.strokeStyle = sp.strokeColor;
+          renderCtx.lineWidth = sp.strokeWidth;
+          if (sp.shapeType === 'ring') renderCtx.setLineDash([28, 12, 8, 12]);
+          renderCtx.stroke();
+          renderCtx.setLineDash([]);
         }
       } else if (sp.shapeType === 'polygon') {
         const sides = Math.max(3, sp.sides ?? 6);
         const r = Math.min(shapeWidth, shapeHeight) / 2;
-        targetCtx.beginPath();
+        renderCtx.beginPath();
         for (let i = 0; i < sides; i++) {
           const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
           const px = Math.cos(a) * r;
           const py = Math.sin(a) * r;
-          if (i === 0) targetCtx.moveTo(px, py);
-          else targetCtx.lineTo(px, py);
+          if (i === 0) renderCtx.moveTo(px, py);
+          else renderCtx.lineTo(px, py);
         }
-        targetCtx.closePath();
+        renderCtx.closePath();
         if (sp.fillColor !== 'transparent') {
-          targetCtx.fillStyle = sp.fillColor;
-          targetCtx.fill();
+          renderCtx.fillStyle = sp.fillColor;
+          renderCtx.fill();
         }
         if (sp.strokeWidth > 0) {
-          targetCtx.strokeStyle = sp.strokeColor;
-          targetCtx.lineWidth = sp.strokeWidth;
-          targetCtx.stroke();
+          renderCtx.strokeStyle = sp.strokeColor;
+          renderCtx.lineWidth = sp.strokeWidth;
+          renderCtx.stroke();
         }
       } else {
-        targetCtx.beginPath();
-        targetCtx.roundRect(
+        renderCtx.beginPath();
+        renderCtx.roundRect(
           -shapeWidth / 2,
           -shapeHeight / 2,
           shapeWidth,
@@ -1303,54 +1614,54 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           sp.cornerRadius
         );
         if (sp.fillColor !== 'transparent') {
-          targetCtx.fillStyle = sp.fillColor;
-          targetCtx.fill();
+          renderCtx.fillStyle = sp.fillColor;
+          renderCtx.fill();
         }
         if (sp.strokeWidth > 0) {
-          targetCtx.strokeStyle = sp.strokeColor;
-          targetCtx.lineWidth = sp.strokeWidth;
-          targetCtx.stroke();
+          renderCtx.strokeStyle = sp.strokeColor;
+          renderCtx.lineWidth = sp.strokeWidth;
+          renderCtx.stroke();
         }
       }
     } else if (clip.kind === 'path' && clip.pathProps) {
       const pp = clip.pathProps;
       baseW = 360;
       baseH = 260;
-      if (pp.dashed) targetCtx.setLineDash([14, 10]);
-      drawVectorPathPoints(targetCtx, pp.points, pp.closed, pp.trimStart, pp.trimEnd);
+      if (pp.dashed) renderCtx.setLineDash([14, 10]);
+      drawVectorPathPoints(renderCtx, pp.points, pp.closed, pp.trimStart, pp.trimEnd);
       if (pp.closed && pp.fillColor !== 'transparent') {
-        targetCtx.fillStyle = pp.fillColor;
-        targetCtx.fill();
+        renderCtx.fillStyle = pp.fillColor;
+        renderCtx.fill();
       }
       if (pp.strokeWidth > 0) {
-        targetCtx.strokeStyle = pp.strokeColor;
-        targetCtx.lineWidth = pp.strokeWidth;
-        targetCtx.lineCap = 'round';
-        targetCtx.lineJoin = 'round';
-        targetCtx.stroke();
+        renderCtx.strokeStyle = pp.strokeColor;
+        renderCtx.lineWidth = pp.strokeWidth;
+        renderCtx.lineCap = 'round';
+        renderCtx.lineJoin = 'round';
+        renderCtx.stroke();
       }
-      targetCtx.setLineDash([]);
+      renderCtx.setLineDash([]);
     }
 
     // Clear shadow & filter before DaVinci color wash and 3D light tint so halos never bleed
-    targetCtx.shadowBlur = 0;
-    targetCtx.shadowOffsetX = 0;
-    targetCtx.shadowOffsetY = 0;
-    targetCtx.shadowColor = 'transparent';
-    targetCtx.filter = 'none';
+    renderCtx.shadowBlur = 0;
+    renderCtx.shadowOffsetX = 0;
+    renderCtx.shadowOffsetY = 0;
+    renderCtx.shadowColor = 'transparent';
+    renderCtx.filter = 'none';
 
     if (clip.colorGrade?.enabled) {
-      applyDaVinciToneOverlay(targetCtx, clip.colorGrade, baseW, baseH);
+      applyDaVinciToneOverlay(renderCtx, clip.colorGrade, baseW, baseH);
     }
 
     if (shading.tintAlpha > 0.01) {
-      targetCtx.globalCompositeOperation = 'overlay';
-      targetCtx.globalAlpha = shading.tintAlpha;
-      targetCtx.fillStyle = shading.tintColor;
-      targetCtx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
+      renderCtx.globalCompositeOperation = 'overlay';
+      renderCtx.globalAlpha = shading.tintAlpha;
+      renderCtx.fillStyle = shading.tintColor;
+      renderCtx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
     }
 
-    targetCtx.restore();
+    renderCtx.restore();
 
     if (
       clip.effects.some(
@@ -1369,7 +1680,53 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           ].includes(f.type)
       )
     ) {
-      applyPostOverlays(targetCtx, width, height, clip.effects, playheadTime, mediaCache);
+      applyPostOverlays(renderCtx, width, height, clip.effects, playheadTime, mediaCache);
+    }
+
+    if (layerTexture && clip.is3D) {
+      targetCtx.save();
+      targetCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100));
+      if (!ignoreBlendMode) {
+        targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
+      }
+      // Camera sits on negative Z and looks toward +Z; negative local depth
+      // extends a shape towards the camera, leaving the texture on its front face.
+      const shapeDepth = clip.kind === 'shape'
+        ? -Math.max(0, clip.shapeProps?.depth ?? 0)
+        : 0;
+      if (clip.kind === 'shape' && shapeDepth > 0) {
+        drawExtrudedShapeSides(
+          targetCtx,
+          world,
+          clip,
+          clips,
+          playheadTime,
+          activeCamera,
+          activeCameraView,
+          width,
+          height,
+          ax,
+          ay,
+          shapeDepth
+        );
+      }
+      drawPerspectiveLayerPlane(
+        targetCtx,
+        layerTexture,
+        world,
+        activeCamera,
+        clips,
+        playheadTime,
+        width,
+        height,
+        baseW,
+        baseH,
+        ax,
+        ay,
+        activeCameraView,
+        shapeDepth
+      );
+      targetCtx.restore();
     }
 
     const { screenCx, screenCy } = computeAnchorScreenCenter(
@@ -1428,6 +1785,47 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       targetCtx.arc(screenCx, screenCy, 5, 0, Math.PI * 2);
       targetCtx.fill();
       targetCtx.stroke();
+      targetCtx.restore();
+    }
+
+    if (drawGizmo && clip.id === selectedClipId && clip.is3D) {
+      const anchorOffsetX = screenCx - cx;
+      const anchorOffsetY = screenCy - cy;
+      const axes = [
+        { label: 'X', x: 120, y: 0, z: 0, color: '#F87171' },
+        { label: 'Y', x: 0, y: 120, z: 0, color: '#4ADE80' },
+        { label: 'Z', x: 0, y: 0, z: 120, color: '#60A5FA' },
+      ];
+      targetCtx.save();
+      targetCtx.lineWidth = 3;
+      targetCtx.font = '700 12px "JetBrains Mono", monospace';
+      for (const axis of axes) {
+        const tip = projectLayerPointThroughCamera(
+          world,
+          activeCamera,
+          clips,
+          playheadTime,
+          width,
+          height,
+          axis.x,
+          axis.y,
+          axis.z,
+          activeCameraView
+        );
+        if (!tip.visible) continue;
+        const tx = tip.x + anchorOffsetX;
+        const ty = tip.y + anchorOffsetY;
+        targetCtx.strokeStyle = axis.color;
+        targetCtx.fillStyle = axis.color;
+        targetCtx.beginPath();
+        targetCtx.moveTo(screenCx, screenCy);
+        targetCtx.lineTo(tx, ty);
+        targetCtx.stroke();
+        targetCtx.beginPath();
+        targetCtx.arc(tx, ty, 4, 0, Math.PI * 2);
+        targetCtx.fill();
+        targetCtx.fillText(axis.label, tx + 6, ty - 6);
+      }
       targetCtx.restore();
     }
 

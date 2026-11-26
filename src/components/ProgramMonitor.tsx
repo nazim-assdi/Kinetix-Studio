@@ -35,13 +35,31 @@ import { DAVINCI_LUTS } from '../data/megaCatalog';
 import { createEffectInstance } from '../engine/timelineOps';
 import {
   computeAnchorScreenCenter,
+  projectLayerPointThroughCamera,
   projectLayerThroughCamera,
+  resolveCameraViewState,
   resolveWorldTransform,
 } from '../engine/math3d';
 import {
   MediaCache,
   renderCompositionFrame,
 } from '../renderer/canvasRenderer';
+
+function pointInProjectedQuad(
+  x: number,
+  y: number,
+  vertices: { x: number; y: number }[]
+): boolean {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const a = vertices[i];
+    const b = vertices[j];
+    const crosses = (a.y > y) !== (b.y > y) &&
+      x < ((b.x - a.x) * (y - a.y)) / ((b.y - a.y) || 0.000001) + a.x;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
 
 const SEQUENCE_PRESETS = [
   { id: 'hd720', label: '16:9 HD · 1280×720', width: 1280, height: 720, fps: 30 },
@@ -273,6 +291,12 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       c.kind === 'camera' && visibleTrackIds.has(c.trackId) &&
       playheadTime >= c.start && playheadTime <= c.start + c.duration
     ) ?? null;
+    const activeCameraView = resolveCameraViewState(
+      activeCamera,
+      clips,
+      playheadTime,
+      composition.width
+    );
 
     let hitInfo: {
       clip: TimelineClip;
@@ -297,17 +321,17 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         let effScaleX = world.scale / 100;
         let effScaleY = world.scale / 100;
         let skewX = 0;
+        let rotationRad = (world.rotation * Math.PI) / 180;
         if (c.is3D) {
-          const proj = projectLayerThroughCamera(world, activeCamera, clips, playheadTime, composition.width, composition.height);
-          if (!proj.visible) continue;
-          cx = proj.screenX;
-          cy = proj.screenY;
-          effScaleX = proj.perspectiveScale * proj.scaleX;
-          effScaleY = proj.perspectiveScale * proj.scaleY;
-          skewX = proj.skewX;
+          const projection = projectLayerThroughCamera(world, activeCamera, clips, playheadTime, composition.width, composition.height);
+          if (!projection.visible) continue;
+          cx = projection.screenX;
+          cy = projection.screenY;
+          effScaleX = projection.perspectiveScale * projection.scaleX;
+          effScaleY = projection.perspectiveScale * projection.scaleY;
+          skewX = projection.skewX;
+          rotationRad = projection.rotationRad;
         }
-
-        const rotationRad = (world.rotation * Math.PI) / 180;
         const { screenCx, screenCy } = computeAnchorScreenCenter(
           cx, cy, world.anchorX ?? 0, world.anchorY ?? 0,
           effScaleX, effScaleY, rotationRad, skewX
@@ -345,7 +369,37 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         const localX = dx * Math.cos(-rotationRad) - dy * Math.sin(-rotationRad);
         const localY = dx * Math.sin(-rotationRad) + dy * Math.cos(-rotationRad);
         const hitPadding = 16 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
-        if (Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding) {
+        let isInside = Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding;
+
+        if (c.is3D) {
+          const anchorX = world.anchorX ?? 0;
+          const anchorY = world.anchorY ?? 0;
+          const frontDepth = c.kind === 'shape' ? -(c.shapeProps?.depth ?? 0) : 0;
+          const localCorners = [
+            { x: -baseW / 2 - anchorX, y: -baseH / 2 - anchorY },
+            { x: baseW / 2 - anchorX, y: -baseH / 2 - anchorY },
+            { x: baseW / 2 - anchorX, y: baseH / 2 - anchorY },
+            { x: -baseW / 2 - anchorX, y: baseH / 2 - anchorY },
+          ];
+          const projectedCorners = localCorners.map((point) =>
+            projectLayerPointThroughCamera(
+              world,
+              activeCamera,
+              clips,
+              playheadTime,
+              composition.width,
+              composition.height,
+              point.x,
+              point.y,
+              frontDepth,
+              activeCameraView
+            )
+          );
+          isInside = projectedCorners.every((point) => point.visible) &&
+            pointInProjectedQuad(compX, compY, projectedCorners);
+        }
+
+        if (isInside) {
           hitInfo = { clip: c, localX, localY, halfW, halfH, scaleX: effScaleX, scaleY: effScaleY, rotationRad };
           break;
         }

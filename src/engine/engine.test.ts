@@ -21,9 +21,13 @@ import {
 import {
   resolveWorldTransform,
   projectLayerThroughCamera,
+  projectLayerPointThroughCamera,
+  resolveCameraViewState,
   computeLightShading,
   computeAnchorScreenCenter,
   applyLumaMatteToPixels,
+  quaternionFromEuler,
+  rotateVector3,
 } from './math3d';
 import { applyMotionPresetToClip } from '../data/motionPresets';
 import { MEGA_CATALOG, DAVINCI_LUTS } from '../data/megaCatalog';
@@ -173,6 +177,125 @@ test('resolveWorldTransform inherits Null parent position and scale', () => {
   assert.equal(world.y, -50);
   assert.equal(world.scale, 150);
   assert.equal(world.opacity, 80);
+});
+
+test('3D parent hierarchy composes pitch, yaw and roll in world space', () => {
+  const parent = makeClip({
+    id: 'parent_3d',
+    kind: 'null',
+    transform: { x: 10, y: 20, z: 30, scale: 150, rotation: 0, rotationX: 0, rotationY: 90, opacity: 100 },
+  });
+  const child = makeClip({
+    id: 'child_3d',
+    parentId: 'parent_3d',
+    is3D: true,
+    transform: { x: 100, y: 0, z: 0, scale: 100, rotation: 0, rotationX: 0, rotationY: 0, opacity: 100 },
+  });
+  const world = resolveWorldTransform(child, [parent, child], 2);
+  assert.ok(Math.abs(world.x - 10) < 0.001);
+  assert.ok(Math.abs(world.y - 20) < 0.001);
+  assert.ok(Math.abs(world.z + 120) < 0.001, 'parent yaw must rotate child X offset into world depth');
+  assert.ok(Math.abs(world.rotationY - 90) < 0.001);
+
+  const rotated = rotateVector3({ x: 0, y: 1, z: 0 }, quaternionFromEuler(90, 0, 0));
+  assert.ok(Math.abs(rotated.y) < 0.001);
+  assert.ok(Math.abs(rotated.z - 1) < 0.001);
+});
+
+test('physical camera lens, near/far clipping, roll and target aim affect projection', () => {
+  const makeCamera = (overrides: Partial<NonNullable<TimelineClip['cameraProps']>> = {}) =>
+    makeClip({
+      id: 'physical_camera',
+      kind: 'camera',
+      is3D: true,
+      cameraProps: {
+        fov: 60,
+        focalLength: 36,
+        sensorWidth: 36,
+        lookAtX: 0,
+        lookAtY: 0,
+        lookAtZ: 0,
+        depthOfField: false,
+        aperture: 2.8,
+        ...overrides,
+      },
+    });
+  const world = resolveWorldTransform(makeClip({ is3D: true }), [], 2);
+  const normalCamera = makeCamera();
+  const base = projectLayerThroughCamera(world, normalCamera, [normalCamera], 2, 1280, 720);
+  assert.equal(base.visible, true);
+  assert.ok(Math.abs(base.screenX - 640) < 0.001);
+  assert.ok(Math.abs(base.screenY - 360) < 0.001);
+
+  const telephoto = makeCamera({ focalLength: 100 });
+  const tele = projectLayerThroughCamera(world, telephoto, [telephoto], 2, 1280, 720);
+  assert.ok(tele.perspectiveScale > base.perspectiveScale, 'longer focal length must magnify');
+
+  const clipped = makeCamera({ nearClip: 950, farClip: 1200 });
+  assert.equal(projectLayerThroughCamera(world, clipped, [clipped], 2, 1280, 720).visible, false);
+  const beyondFar = makeCamera({ nearClip: 10, farClip: 800 });
+  assert.equal(projectLayerThroughCamera(world, beyondFar, [beyondFar], 2, 1280, 720).visible, false);
+
+  const rollCamera = makeCamera();
+  rollCamera.transform.rotation = 90;
+  const rolled = projectLayerThroughCamera(
+    world,
+    rollCamera,
+    [rollCamera],
+    2,
+    1280,
+    720
+  );
+  const rightOfCenter = resolveWorldTransform(makeClip({
+    transform: { x: 100, y: 0, z: 0, scale: 100, rotation: 0, rotationX: 0, rotationY: 0, opacity: 100 },
+    is3D: true,
+  }), [], 2);
+  const rollProbe = projectLayerThroughCamera(rightOfCenter, rollCamera, [rollCamera], 2, 1280, 720);
+  assert.ok(rollProbe.screenY < 360, 'camera roll rotates horizontal world motion into screen vertical motion');
+
+  const targetCamera = makeCamera({
+    useTarget: true,
+    lookAtX: 500,
+    lookAtY: 0,
+    lookAtZ: 0,
+  });
+  const targetWorld = resolveWorldTransform(makeClip({
+    transform: { x: 500, y: 0, z: 0, scale: 100, rotation: 0, rotationX: 0, rotationY: 0, opacity: 100 },
+    is3D: true,
+  }), [], 2);
+  const targetProjection = projectLayerThroughCamera(targetWorld, targetCamera, [targetCamera], 2, 1280, 720);
+  assert.ok(Math.abs(targetProjection.screenX - 640) < 0.01, 'look-at target should sit on the optical axis');
+});
+
+test('3D plane vertices project with local depth and shared physical camera state', () => {
+  const camera = makeClip({
+    id: 'mesh_camera',
+    kind: 'camera',
+    is3D: true,
+    cameraProps: {
+      fov: 60,
+      focalLength: 36,
+      sensorWidth: 36,
+      lookAtX: 0,
+      lookAtY: 0,
+      lookAtZ: 0,
+      depthOfField: false,
+      aperture: 2.8,
+    },
+  });
+  const layer = resolveWorldTransform(makeClip({ is3D: true }), [], 0);
+  const cameraState = resolveCameraViewState(camera, [camera], 0, 1280);
+  const flat = projectLayerPointThroughCamera(
+    layer, camera, [camera], 0, 1280, 720, 120, 0, 0, cameraState
+  );
+  const extrudedFront = projectLayerPointThroughCamera(
+    layer, camera, [camera], 0, 1280, 720, 120, 0, 100, cameraState
+  );
+  assert.equal(flat.visible, true);
+  assert.equal(extrudedFront.visible, true);
+  assert.ok(extrudedFront.depth > flat.depth, 'positive local Z moves vertices away from the camera');
+  assert.ok(extrudedFront.x < flat.x, 'greater depth reduces the apparent offset of off-center vertices');
+  assert.ok(extrudedFront.y === 360);
 });
 
 test('projectLayerThroughCamera and computeLightShading compute 3D depth and light', () => {

@@ -596,53 +596,179 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
           </div>
         )}
 
-        {/* Camera Layer Options */}
+        {/* Physical Camera Layer Options */}
         {selectedClip.kind === 'camera' && selectedClip.cameraProps && (
-          <div className="p-3 space-y-2.5">
-            <span className="text-xs font-semibold text-[#FBBF24] block">
-              3D Camera Optics
-            </span>
+          <div className="p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-[#FBBF24]">Camera · Full Frame Lens</span>
+              <span className="text-[9px] text-[#7E8594] rounded bg-[#252932] px-1.5 py-0.5">3D</span>
+            </div>
             <div>
               <div className="flex justify-between text-[11px] mb-1">
                 <span className="text-[#C8CDD6]">Field of View</span>
-                <span className="font-mono-tabular text-[#FBBF24]">
-                  {selectedClip.cameraProps.fov}°
-                </span>
+                <span className="font-mono-tabular text-[#FBBF24]">{selectedClip.cameraProps.fov.toFixed(1)}°</span>
               </div>
               <input
                 type="range"
                 aria-label="Camera FOV"
-                min={20}
+                min={12}
                 max={110}
+                step={0.5}
                 value={selectedClip.cameraProps.fov}
-                onChange={(e) =>
-                  onUpdateCameraProps(selectedClip.id, {
-                    fov: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  const fov = Number(e.target.value);
+                  const sensorWidth = selectedClip.cameraProps?.sensorWidth ?? 36;
+                  const focalLength = sensorWidth / (2 * Math.tan(fov * Math.PI / 360));
+                  onUpdateCameraProps(selectedClip.id, { fov, focalLength });
+                }}
                 className="w-full studio-slider"
               />
             </div>
             <div>
               <div className="flex justify-between text-[11px] mb-1">
                 <span className="text-[#C8CDD6]">Focal Length</span>
-                <span className="font-mono-tabular text-[#FBBF24]">
-                  {selectedClip.cameraProps.focalLength}mm
-                </span>
+                <span className="font-mono-tabular text-[#FBBF24]">{selectedClip.cameraProps.focalLength.toFixed(1)}mm</span>
               </div>
               <input
                 type="range"
                 aria-label="Focal Length"
-                min={16}
-                max={135}
+                min={8}
+                max={200}
+                step={1}
                 value={selectedClip.cameraProps.focalLength}
-                onChange={(e) =>
-                  onUpdateCameraProps(selectedClip.id, {
-                    focalLength: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  const focalLength = Number(e.target.value);
+                  const sensorWidth = selectedClip.cameraProps?.sensorWidth ?? 36;
+                  const fov = (2 * Math.atan(sensorWidth / (2 * focalLength))) * 180 / Math.PI;
+                  onUpdateCameraProps(selectedClip.id, { focalLength, fov });
+                }}
                 className="w-full studio-slider"
               />
+            </div>
+            <div>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-[#C8CDD6]">Sensor Width</span>
+                <span className="font-mono-tabular text-[#FBBF24]">{selectedClip.cameraProps.sensorWidth ?? 36}mm</span>
+              </div>
+              <input
+                type="range"
+                aria-label="Camera Sensor Width"
+                min={18}
+                max={70}
+                step={1}
+                value={selectedClip.cameraProps.sensorWidth ?? 36}
+                onChange={(e) => {
+                  const sensorWidth = Number(e.target.value);
+                  const focalLength = selectedClip.cameraProps?.focalLength ?? 35;
+                  const fov = (2 * Math.atan(sensorWidth / (2 * focalLength))) * 180 / Math.PI;
+                  onUpdateCameraProps(selectedClip.id, { sensorWidth, fov });
+                }}
+                className="w-full studio-slider"
+              />
+            </div>
+
+            <div className="border-t border-[#2B303A] pt-2 space-y-2">
+              <label className="flex items-center justify-between text-[11px] text-[#C8CDD6]">
+                <span>Aim at Target</span>
+                <input
+                  type="checkbox"
+                  aria-label="Enable Camera Look At Target"
+                  checked={Boolean(selectedClip.cameraProps.useTarget)}
+                  onChange={(e) => onUpdateCameraProps(selectedClip.id, { useTarget: e.target.checked })}
+                  className="accent-[#F59E0B]"
+                />
+              </label>
+              {selectedClip.cameraProps.useTarget && (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(['lookAtX', 'lookAtY', 'lookAtZ'] as const).map((axis) => (
+                    <label key={axis} className="text-[9px] text-[#9BA1AD]">
+                      {axis.replace('lookAt', '')}
+                      <input
+                        type="number"
+                        aria-label={`Camera Target ${axis}`}
+                        value={selectedClip.cameraProps?.[axis] ?? 0}
+                        onChange={(e) => onUpdateCameraProps(selectedClip.id, { [axis]: Number(e.target.value) })}
+                        className="mt-1 w-full bg-[#0E1013] border border-[#2B303A] rounded px-1.5 py-1 text-[11px] text-white"
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-[10px] text-[#9BA1AD]">Near Clip
+                  <input
+                    type="number"
+                    aria-label="Camera Near Clip"
+                    min={0.1}
+                    max={5000}
+                    step={1}
+                    value={selectedClip.cameraProps.nearClip ?? 10}
+                    onChange={(e) => onUpdateCameraProps(selectedClip.id, { nearClip: Math.max(0.1, Number(e.target.value)) })}
+                    className="mt-1 w-full bg-[#0E1013] border border-[#2B303A] rounded px-2 py-1 text-xs text-white"
+                  />
+                </label>
+                <label className="text-[10px] text-[#9BA1AD]">Far Clip
+                  <input
+                    type="number"
+                    aria-label="Camera Far Clip"
+                    min={100}
+                    max={1000000}
+                    step={100}
+                    value={selectedClip.cameraProps.farClip ?? 100000}
+                    onChange={(e) => onUpdateCameraProps(selectedClip.id, { farClip: Math.max((selectedClip.cameraProps?.nearClip ?? 10) + 1, Number(e.target.value)) })}
+                    className="mt-1 w-full bg-[#0E1013] border border-[#2B303A] rounded px-2 py-1 text-xs text-white"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="border-t border-[#2B303A] pt-2 space-y-2">
+              <label className="flex items-center justify-between text-[11px] text-[#C8CDD6]">
+                <span>Depth of Field</span>
+                <input
+                  type="checkbox"
+                  aria-label="Enable Camera Depth of Field"
+                  checked={selectedClip.cameraProps.depthOfField}
+                  onChange={(e) => onUpdateCameraProps(selectedClip.id, { depthOfField: e.target.checked })}
+                  className="accent-[#F59E0B]"
+                />
+              </label>
+              {selectedClip.cameraProps.depthOfField && (
+                <>
+                  <div>
+                    <div className="flex justify-between text-[10px] mb-1">
+                      <span className="text-[#9BA1AD]">Focus Distance</span>
+                      <span className="font-mono-tabular text-[#FBBF24]">{selectedClip.cameraProps.focusDistance ?? 900}</span>
+                    </div>
+                    <input
+                      type="range"
+                      aria-label="Camera Focus Distance"
+                      min={20}
+                      max={10000}
+                      step={10}
+                      value={selectedClip.cameraProps.focusDistance ?? 900}
+                      onChange={(e) => onUpdateCameraProps(selectedClip.id, { focusDistance: Number(e.target.value) })}
+                      className="w-full studio-slider"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-[10px] mb-1">
+                      <span className="text-[#9BA1AD]">Aperture · f-stop</span>
+                      <span className="font-mono-tabular text-[#FBBF24]">f/{selectedClip.cameraProps.aperture.toFixed(1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      aria-label="Camera Aperture"
+                      min={0.7}
+                      max={16}
+                      step={0.1}
+                      value={selectedClip.cameraProps.aperture}
+                      onChange={(e) => onUpdateCameraProps(selectedClip.id, { aperture: Number(e.target.value) })}
+                      className="w-full studio-slider"
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1009,6 +1135,27 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
             <span className="text-xs font-semibold text-[#E6E8EC] block">
               Vector Shape
             </span>
+            {selectedClip.is3D ? (
+              <div className="rounded bg-[#111215] border border-[#8B5CF6]/30 p-2 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#C4B5FD] font-medium">3D Extrusion Depth</span>
+                  <span className="font-mono-tabular text-[#C4B5FD]">{selectedClip.shapeProps.depth ?? 0}</span>
+                </div>
+                <input
+                  type="range"
+                  aria-label="3D Shape Extrusion Depth"
+                  min={0}
+                  max={600}
+                  step={1}
+                  value={selectedClip.shapeProps.depth ?? 0}
+                  onChange={(e) => onUpdateShapeProps(selectedClip.id, { depth: Number(e.target.value) })}
+                  className="w-full studio-slider"
+                />
+                <span className="text-[9px] text-[#7E8594] block">0 = flat plane · Increase to create visible 3D side faces</span>
+              </div>
+            ) : (
+              <div className="text-[10px] text-[#7E8594]">Enable the 3D switch above to extrude this shape</div>
+            )}
             <div className="flex items-center justify-between gap-2">
               <label className="text-[11px] text-[#C8CDD6]">Shape Style</label>
               <select
