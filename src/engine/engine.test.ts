@@ -548,9 +548,9 @@ test('volume keyframes evaluate independently from transform properties', () => 
   const clip = makeClip({ volume: 80 });
   const keyed = upsertKeyframe(clip, 'volume', 0, 20, 'linear');
   const keyed2 = upsertKeyframe(keyed, 'volume', 4, 100, 'linear');
-  assert.equal(evaluateClipTransform(keyed2, 4).volume, 20);
-  assert.equal(evaluateClipTransform(keyed2, 6).volume, 60);
-  const frozen = togglePropertyKeyframing(keyed2, 'volume', 6);
+  assert.equal(evaluateClipTransform(keyed2, 2).volume, 20);
+  assert.equal(evaluateClipTransform(keyed2, 4).volume, 60);
+  const frozen = togglePropertyKeyframing(keyed2, 'volume', 2);
   assert.equal(frozen.volume, 60);
   assert.equal(frozen.keyframes.volume, undefined);
 });
