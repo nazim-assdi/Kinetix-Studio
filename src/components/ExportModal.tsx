@@ -380,7 +380,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       offscreen.height = outH;
       renderCompositionFrame({
         canvas: offscreen,
-        composition: { ...composition, width: outW, height: outH, fitMode: 'cover' },
+        composition: {
+        ...composition,
+        width: outW,
+        height: outH,
+        fitMode: aspectId === 'sequence' ? composition.fitMode ?? 'contain' : 'cover',
+      },
         tracks,
         clips,
         playheadTime,
