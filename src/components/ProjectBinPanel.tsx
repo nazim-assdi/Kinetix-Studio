@@ -29,6 +29,7 @@ import {
   Sparkle,
   BarChart2,
   ArrowLeftRight,
+  Star,
 } from 'lucide-react';
 import {
   ColorWheelGrade,
@@ -138,6 +139,16 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   const [vendorFilter, setVendorFilter] = useState<'All' | PresetPackVendor>('All');
   const [categoryFilter, setCategoryFilter] = useState<'All' | PresetCategory>('All');
   const [packLimit, setPackLimit] = useState(60);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem('kinetix_library_favorites_v1') || '[]');
+      return Array.isArray(saved) ? saved.filter((item): item is string => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const [sortMode, setSortMode] = useState<'catalog' | 'name' | 'favorites'>('catalog');
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
@@ -154,22 +165,40 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
       e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q)
   );
 
+  const toggleFavorite = (id: string) => {
+    setFavoriteIds((previous) => {
+      const next = previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id];
+      try {
+        window.localStorage.setItem('kinetix_library_favorites_v1', JSON.stringify(next));
+      } catch {
+        // Favorites remain available for this session when storage is unavailable.
+      }
+      return next;
+    });
+  };
+
   const filteredPacks = useMemo(() => {
     const source = activeTab === 'sfx' ? SFX_LIBRARY : MEGA_CATALOG;
-    return source.filter(
+    const filtered = source.filter(
       (p) =>
         (activeTab !== 'sfx' || Boolean(p.sfxPreset)) &&
         (activeTab !== 'transitions' || p.category === 'Transition') &&
         (activeTab !== 'packs' || p.category !== 'Transition') &&
         (vendorFilter === 'All' || p.vendor === vendorFilter) &&
         (activeTab !== 'packs' || categoryFilter === 'All' || p.category === categoryFilter) &&
+        (!favoritesOnly || activeTab === 'sfx' || favoriteIds.includes(p.id)) &&
         (!q ||
           p.name.toLowerCase().includes(q) ||
           p.vendor.toLowerCase().includes(q) ||
           p.category.toLowerCase().includes(q) ||
           p.description.toLowerCase().includes(q))
     );
-  }, [vendorFilter, categoryFilter, q, activeTab]);
+    if (sortMode === 'name') return filtered.sort((a, b) => a.name.localeCompare(b.name));
+    if (sortMode === 'favorites') return filtered.sort((a, b) =>
+      Number(favoriteIds.includes(b.id)) - Number(favoriteIds.includes(a.id)) || a.name.localeCompare(b.name)
+    );
+    return filtered;
+  }, [vendorFilter, categoryFilter, q, activeTab, favoritesOnly, favoriteIds, sortMode]);
 
   const handleAiSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,7 +253,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   const tabs: { id: LeftDockTab; label: string; icon: React.ReactNode }[] = [
     { id: 'bin', label: 'Project', icon: <FolderOpen className="w-3 h-3" /> },
     { id: 'effects', label: 'Effects', icon: <Sparkles className="w-3 h-3" /> },
-    { id: 'packs', label: 'FX', icon: <Package className="w-3 h-3" /> },
+    { id: 'packs', label: 'Library', icon: <Package className="w-3 h-3" /> },
     { id: 'sfx', label: 'SFX', icon: <Volume2 className="w-3 h-3" /> },
     { id: 'transitions', label: 'Trans.', icon: <ArrowLeftRight className="w-3 h-3" /> },
     { id: 'color', label: 'Color', icon: <Palette className="w-3 h-3" /> },
@@ -290,7 +319,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                   ? 'Search media, PSD, AI, SVG layers...'
                   : activeTab === 'effects'
                   ? `Search ${EFFECT_LIBRARY.length} core AE effects...`
-                  : activeTab === 'sfx' ? 'Search SFX presets...' : activeTab === 'transitions' ? 'Search transitions...' : `Search ${MEGA_CATALOG.length}+ FX & LUTs...`
+                  : activeTab === 'sfx' ? 'Search procedural SFX...' : activeTab === 'transitions' ? 'Search transitions...' : `Search ${MEGA_CATALOG.length.toLocaleString()} library assets & presets...`
               }
               aria-label="Search dock items"
               className="w-full bg-[#111215] border border-[#2B303A] rounded pl-8 pr-2.5 py-1.5 text-xs text-[#E6E8EC] placeholder:text-[#6E7685] focus:outline-none focus:border-[#3B82F6]"
@@ -327,10 +356,29 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[10px] text-[#8D95A5]">
                 <span>
-                  Showing {Math.min(packLimit, filteredPacks.length)} of{' '}
-                  {filteredPacks.length} presets
+                  Showing {Math.min(packLimit, filteredPacks.length).toLocaleString()} of{' '}
+                  {filteredPacks.length.toLocaleString()} · {MEGA_CATALOG.length.toLocaleString()} total
                 </span>
                 <GripVertical className="w-3 h-3 text-[#4B5261]" />
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => { setFavoritesOnly((value) => !value); setPackLimit(60); }}
+                  aria-pressed={favoritesOnly}
+                  className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded border text-[10px] ${favoritesOnly ? 'bg-[#3A2C18] border-[#F59E0B]/50 text-[#FBBF24]' : 'bg-[#111215] border-[#262B34] text-[#9BA1AD] hover:text-white'}`}
+                ><Star className="w-3 h-3" /> Favorites ({favoriteIds.length})</button>
+                <select
+                  aria-label="Sort Library Items"
+                  value={sortMode}
+                  onChange={(e) => setSortMode(e.target.value as 'catalog' | 'name' | 'favorites')}
+                  className="flex-1 min-w-0 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-[10px] text-[#C8CDD6]"
+                >
+                  <option value="catalog">Catalog Order</option>
+                  <option value="name">Name A–Z</option>
+                  <option value="favorites">Favorites First</option>
+                </select>
               </div>
 
               <div className="flex items-center gap-1 bg-[#111215] p-0.5 rounded border border-[#262B34] overflow-x-auto">
@@ -360,12 +408,17 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                 }
                 className="w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-[11px] text-[#C8CDD6] focus:outline-none"
               >
-                <option value="All">All Categories ({MEGA_CATALOG.length})</option>
-                <option value="Transition">Transitions w/ SFX</option>
+                <option value="All">All Categories ({MEGA_CATALOG.length.toLocaleString()})</option>
+                <option value="Titles">Titles &amp; Typography</option>
+                <option value="Shapes">Vector Shapes</option>
+                <option value="Backgrounds">Backgrounds &amp; Solids</option>
+                <option value="Particles">Particles &amp; Atmosphere</option>
+                <option value="Visualizers">Audio Visualizers</option>
+                <option value="Transition">Transitions</option>
                 <option value="Animation">Motion Animations</option>
                 <option value="Effects">Live Shader Effects</option>
-                <option value="Color LUT">DaVinci Color LUTs</option>
-                <option value="Graphics">HUD &amp; Lower-Third Graphics</option>
+                <option value="Color LUT">Color Looks &amp; LUTs</option>
+                <option value="Graphics">Graphics &amp; Motion Packs</option>
                 <option value="3D Rig">3D Camera &amp; Light Rigs</option>
               </select>}
             </div>
@@ -471,38 +524,73 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
 
         {(['packs', 'sfx', 'transitions'] as LeftDockTab[]).includes(activeTab) && (
           <div className="space-y-1.5">
-            {filteredPacks.slice(0, packLimit).map((preset) => (
-              <div key={preset.id} draggable={activeTab !== 'sfx'} onDragStart={(event) => {
-                if (activeTab === 'sfx') return;
-                event.dataTransfer.setData('application/x-kinetix-preset', JSON.stringify(preset));
-                event.dataTransfer.effectAllowed = 'copy';
-              }} onMouseEnter={() => { if (activeTab !== 'sfx') onPreviewCatalogPreset(preset); }} onMouseLeave={() => onPreviewCatalogPreset(null)} title={activeTab === 'sfx' ? undefined : 'Drag onto a timeline clip to apply'} className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-medium text-[#E6E8EC] truncate">{preset.name}</span>
-                      {preset.sfxPreset && <Volume2 className="w-3 h-3 text-[#14B8A6] shrink-0" aria-label="Includes SFX" />}
+            {filteredPacks.slice(0, packLimit).map((preset) => {
+              const isFavorite = favoriteIds.includes(preset.id);
+              const isAsset = Boolean(preset.assetTemplate);
+              const needsSelectedClip =
+                activeTab !== 'sfx' && !isAsset &&
+                preset.category !== '3D Rig' &&
+                !['Graphics'].includes(preset.category) &&
+                !selectedClip;
+              return (
+                <div
+                  key={preset.id}
+                  draggable={activeTab !== 'sfx'}
+                  onDragStart={(event) => {
+                    if (activeTab === 'sfx') return;
+                    event.dataTransfer.setData('application/x-kinetix-preset', JSON.stringify(preset));
+                    event.dataTransfer.effectAllowed = 'copy';
+                  }}
+                  onMouseEnter={() => {
+                    if (activeTab !== 'sfx' && !isAsset) onPreviewCatalogPreset(preset);
+                  }}
+                  onMouseLeave={() => onPreviewCatalogPreset(null)}
+                  title={activeTab === 'sfx' ? undefined : isAsset ? 'Drag to the timeline or add as a new editable layer' : 'Drag onto a timeline clip to apply'}
+                  className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2"
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="w-1 self-stretch min-h-8 rounded-full shrink-0" style={{ backgroundColor: preset.accentColor }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-[#E6E8EC] truncate">{preset.name}</span>
+                        {preset.sfxPreset && <Volume2 className="w-3 h-3 text-[#14B8A6] shrink-0" aria-label="Includes SFX" />}
+                      </div>
+                      <div className="text-[10px] text-[#8D95A5]">{preset.vendor} · {preset.category}</div>
+                      <div className="text-[10px] text-[#6E7685] mt-0.5 leading-snug">{preset.description}</div>
                     </div>
-                    <div className="text-[10px] text-[#8D95A5]">{preset.vendor} · {preset.category}</div>
-                    <div className="text-[10px] text-[#6E7685] mt-0.5 leading-snug">{preset.description}</div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleFavorite(preset.id)}
+                        aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                        aria-pressed={isFavorite}
+                        title={isFavorite ? 'Remove favorite' : 'Save favorite'}
+                        className={`p-1 rounded hover:bg-[#292D36] ${isFavorite ? 'text-[#FBBF24]' : 'text-[#687182] hover:text-white'}`}
+                      ><Star className={`w-3.5 h-3.5 ${isFavorite ? 'fill-current' : ''}`} /></button>
+                      <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${isAsset ? 'bg-[#17332F] text-[#5EEAD4]' : 'bg-[#232730] text-[#93C5FD]'}`}>{isAsset ? 'ASSET' : 'LIVE'}</span>
+                    </div>
                   </div>
-                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-[#232730] text-[#93C5FD] shrink-0">LIVE</span>
+                  <div className="flex items-center gap-1.5 mt-2 pl-3">
+                    {activeTab === 'sfx' ? (
+                      <>
+                        <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play</button>
+                        <button type="button" onClick={() => onAddSfxToTimeline(preset.sfxPreset!)} className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE]">Add to Timeline</button>
+                      </>
+                    ) : (
+                      <>
+                        {preset.sfxPreset && <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play SFX</button>}
+                        <button
+                          type="button"
+                          disabled={needsSelectedClip}
+                          onClick={() => { onPreviewCatalogPreset(null); onApplyCatalogPreset(preset); }}
+                          className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE] disabled:opacity-35 disabled:cursor-not-allowed"
+                        >{isAsset ? 'Add to Timeline' : 'Apply'}</button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5 mt-2">
-                  {activeTab === 'sfx' ? (
-                    <>
-                      <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play</button>
-                      <button type="button" onClick={() => onAddSfxToTimeline(preset.sfxPreset!)} className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE]">Add to Timeline</button>
-                    </>
-                  ) : (
-                    <>
-                      {preset.sfxPreset && <button type="button" onClick={() => onPreviewSfx(preset.sfxPreset!)} className="px-2 py-1 rounded bg-[#1E3332] hover:bg-[#24504D] text-[10px] text-[#5EEAD4]">Play SFX</button>}
-                      <button type="button" onClick={() => { onPreviewCatalogPreset(null); onApplyCatalogPreset(preset); }} className="ml-auto px-2.5 py-1 rounded bg-[#26364D] hover:bg-[#31517A] text-[10px] font-semibold text-[#BFDBFE]">Apply</button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
 
             {filteredPacks.length > packLimit && (
               <button
