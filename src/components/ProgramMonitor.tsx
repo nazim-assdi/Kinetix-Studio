@@ -599,7 +599,10 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
               aria-label="Sequence Aspect & Resolution Preset"
               value={
                 SEQUENCE_PRESETS.find(
-                  (p) => p.width === composition.width && p.height === composition.height
+                  (p) =>
+                    p.width === composition.width &&
+                    p.height === composition.height &&
+                    p.fps === composition.fps
                 )?.id ?? 'custom'
               }
               onChange={(e) => {
