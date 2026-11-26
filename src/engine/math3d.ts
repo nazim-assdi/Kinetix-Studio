@@ -296,7 +296,6 @@ export function projectLayerThroughCamera(
     z: world.z - cameraPosition.z,
   };
   const viewCenter = rotateVector3(relative, cameraInverse);
-  const focalPx = (compWidth * focalLength) / sensorWidth;
   const depth = viewCenter.z;
   const safeDepth = Math.max(nearClip, depth);
   const perspectiveScale = focalPx / safeDepth;
