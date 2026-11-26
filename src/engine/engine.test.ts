@@ -234,9 +234,7 @@ test('physical camera lens, near/far clipping, roll and target aim affect projec
   const beyondFar = makeCamera({ nearClip: 10, farClip: 800 });
   assert.equal(projectLayerThroughCamera(world, beyondFar, [beyondFar], 2, 1280, 720).visible, false);
 
-  const rollCamera = makeCamera({
-    transform: undefined as never,
-  });
+  const rollCamera = makeCamera();
   rollCamera.transform.rotation = 90;
   const rolled = projectLayerThroughCamera(
     world,
