@@ -2116,8 +2116,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       drawGizmo &&
       clip.id === selectedClipId &&
       (clip.kind === 'text' || clip.kind === 'shape') &&
-      activeTool !== 'pin' &&
-      activeTool !== 'mask'
+      activeTool === 'select'
     ) {
       targetCtx.save();
       targetCtx.translate(cx, cy);
