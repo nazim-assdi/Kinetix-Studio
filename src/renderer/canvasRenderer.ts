@@ -1234,9 +1234,10 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       const camera = activeCamera.cameraProps;
       const focusDistance = Math.max(1, camera.focusDistance ?? 900);
       const aperture = Math.max(0.7, Math.min(32, camera.aperture || 2.8));
+      // A wider aperture (lower f-number) produces stronger defocus.
       const defocus = Math.min(
         14,
-        Math.abs(projection.depthZ - focusDistance) / focusDistance * aperture * 1.5
+        Math.abs(projection.depthZ - focusDistance) / focusDistance * (2.8 / aperture) * 6
       );
       if (defocus > 0.25) {
         baseFilter = baseFilter === 'none'
