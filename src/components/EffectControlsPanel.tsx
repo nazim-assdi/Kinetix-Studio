@@ -1364,9 +1364,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                 max={150}
                 value={Math.max(0, Math.min(150, currentTransform.volume ?? selectedClip.volume))}
                 onChange={(e) =>
-                  onUpdateAudioProps(selectedClip.id, {
-                    volume: Number(e.target.value),
-                  })
+                  onUpdateProperty(selectedClip.id, 'volume', Number(e.target.value))
                 }
                 className="w-full studio-slider"
               />
