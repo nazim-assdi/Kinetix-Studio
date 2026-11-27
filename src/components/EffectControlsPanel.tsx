@@ -1044,102 +1044,148 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
           </div>
         )}
 
-        {/* Text Layer Properties + Animator Preset */}
+        {/* Text Layer Properties — direct typography controls, no preset palette. */}
         {selectedClip.kind === 'text' && selectedClip.textProps && (
-          <div className="p-3 space-y-2.5">
-            <span className="text-xs font-semibold text-[#E6E8EC] block">
-              Kinetic Text &amp; Animator
-            </span>
+          <div className="p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-[#E6E8EC]">Text & Typography</span>
+              <button
+                type="button"
+                onClick={() => onToggle3D(selectedClip.id)}
+                aria-pressed={selectedClip.is3D}
+                className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${selectedClip.is3D ? 'bg-[#8B5CF6] text-white' : 'bg-[#232730] text-[#C8CDD6] hover:text-white'}`}
+              >
+                {selectedClip.is3D ? '3D Text On' : 'Enable 3D Text'}
+              </button>
+            </div>
             <input
               type="text"
               aria-label="Text Content"
               value={selectedClip.textProps.text}
-              onChange={(e) =>
-                onUpdateTextProps(selectedClip.id, { text: e.target.value })
-              }
+              onChange={(e) => onUpdateTextProps(selectedClip.id, { text: e.target.value })}
               className="w-full bg-[#111215] border border-[#2B303A] rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[#3B82F6]"
             />
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-[11px] text-[#C8CDD6]">Text Animator</label>
-              <select
-                aria-label="Text Animator Preset"
-                value={selectedClip.textProps.animator ?? 'none'}
-                onChange={(e) =>
-                  onUpdateTextProps(selectedClip.id, {
-                    animator: e.target.value as TextAnimatorPreset,
-                  })
-                }
-                className="w-48 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
-              >
-                <option value="none">Static / Keyframed</option>
-                <option value="typewriter">Classic Typewriter</option>
-                <option value="slide-up">Kinetic Slide-Up</option>
-                <option value="word-pop">Word-by-Word Pop</option>
-                <option value="glitch-decode">Classic Glitch Decode</option>
-                {Array.from(new Set(TEXT_ANIMATORS.map((animator) => animator.category))).map((category) => (
-                  <optgroup key={category} label={category}>
-                    {TEXT_ANIMATORS.filter((animator) => animator.category === category).map((animator) => (
-                      <option key={animator.id} value={animator.id}>{animator.name}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
             <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] text-[#9BA1AD] block mb-1">
-                  Font Size ({selectedClip.textProps.fontSize}px)
-                </label>
-                <input
-                  type="range"
-                  aria-label="Font Size"
-                  min={16}
-                  max={140}
-                  value={selectedClip.textProps.fontSize}
-                  onChange={(e) =>
-                    onUpdateTextProps(selectedClip.id, {
-                      fontSize: Number(e.target.value),
-                    })
-                  }
-                  className="w-full studio-slider"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-[#9BA1AD] block mb-1">
-                  Tracking ({selectedClip.textProps.letterSpacing}px)
-                </label>
-                <input
-                  type="range"
-                  aria-label="Letter Spacing"
-                  min={0}
-                  max={36}
-                  value={selectedClip.textProps.letterSpacing}
-                  onChange={(e) =>
-                    onUpdateTextProps(selectedClip.id, {
-                      letterSpacing: Number(e.target.value),
-                    })
-                  }
-                  className="w-full studio-slider"
-                />
-              </div>
+              <label className="text-[10px] text-[#9BA1AD]">Font Family
+                <select
+                  aria-label="Text Font Family"
+                  value={selectedClip.textProps.fontFamily ?? 'Plus Jakarta Sans'}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { fontFamily: e.target.value })}
+                  className="mt-1 w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-[11px] text-white"
+                >
+                  <option>Plus Jakarta Sans</option>
+                  <option>Arial</option>
+                  <option>Arial Black</option>
+                  <option>Impact</option>
+                  <option>Georgia</option>
+                  <option>Times New Roman</option>
+                  <option>Trebuchet MS</option>
+                  <option>Courier New</option>
+                  <option>Verdana</option>
+                  <option>Tahoma</option>
+                </select>
+              </label>
+              <label className="text-[10px] text-[#9BA1AD]">Alignment
+                <select
+                  aria-label="Text Alignment"
+                  value={selectedClip.textProps.align}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { align: e.target.value as 'left' | 'center' | 'right' })}
+                  className="mt-1 w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-[11px] text-white"
+                >
+                  <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+                </select>
+              </label>
             </div>
-            <ColorPalettePicker
-              onApply={(palette) => onUpdateTextProps(selectedClip.id, {
-                color: palette.colors[0],
-                backgroundColor: palette.colors[1],
-              })}
-            />
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-[11px] text-[#C8CDD6]">Text Fill</label>
-              <input
-                type="color"
-                aria-label="Text Color"
-                value={selectedClip.textProps.color}
-                onChange={(e) =>
-                  onUpdateTextProps(selectedClip.id, { color: e.target.value })
-                }
-                className="w-8 h-6 rounded bg-transparent border border-[#2B303A] cursor-pointer"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-[10px] text-[#9BA1AD]">
+                Font Size · {selectedClip.textProps.fontSize}px
+                <input type="range" aria-label="Font Size" min={8} max={300} value={selectedClip.textProps.fontSize}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { fontSize: Number(e.target.value) })} className="mt-1 w-full studio-slider" />
+              </label>
+              <label className="block text-[10px] text-[#9BA1AD]">
+                Font Weight · {selectedClip.textProps.fontWeight}
+                <input type="range" aria-label="Font Weight" min={100} max={900} step={100} value={selectedClip.textProps.fontWeight}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { fontWeight: Number(e.target.value) })} className="mt-1 w-full studio-slider" />
+              </label>
+              <label className="block text-[10px] text-[#9BA1AD]">
+                Tracking · {selectedClip.textProps.letterSpacing}px
+                <input type="range" aria-label="Letter Spacing" min={-8} max={60} value={selectedClip.textProps.letterSpacing}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { letterSpacing: Number(e.target.value) })} className="mt-1 w-full studio-slider" />
+              </label>
+              <label className="block text-[10px] text-[#9BA1AD]">
+                Outline · {selectedClip.textProps.strokeWidth ?? 0}px
+                <input type="range" aria-label="Text Outline Width" min={0} max={16} step={0.5} value={selectedClip.textProps.strokeWidth ?? 0}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { strokeWidth: Number(e.target.value) })} className="mt-1 w-full studio-slider" />
+              </label>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <label className="text-[10px] text-[#9BA1AD]">Fill
+                <input type="color" aria-label="Text Color" value={selectedClip.textProps.color}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { color: e.target.value })}
+                  className="mt-1 w-full h-8 rounded bg-transparent border border-[#2B303A] cursor-pointer" />
+              </label>
+              <label className="text-[10px] text-[#9BA1AD]">Outline
+                <input type="color" aria-label="Text Outline Color" value={selectedClip.textProps.strokeColor ?? '#0F172A'}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { strokeColor: e.target.value })}
+                  className="mt-1 w-full h-8 rounded bg-transparent border border-[#2B303A] cursor-pointer" />
+              </label>
+              <label className="text-[10px] text-[#9BA1AD]">Background
+                <input type="color" aria-label="Text Background Color" value={selectedClip.textProps.backgroundColor ?? '#111827'}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { backgroundColor: e.target.value })}
+                  className="mt-1 w-full h-8 rounded bg-transparent border border-[#2B303A] cursor-pointer" />
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => onUpdateTextProps(selectedClip.id, { backgroundColor: undefined })}
+                className="px-2 py-1 rounded bg-[#232730] text-[10px] text-[#9BA1AD] hover:text-white">No Background</button>
+              <button type="button" onClick={() => onUpdateTextProps(selectedClip.id, { strokeWidth: 0 })}
+                className="px-2 py-1 rounded bg-[#232730] text-[10px] text-[#9BA1AD] hover:text-white">No Outline</button>
+            </div>
+
+            {selectedClip.is3D && (
+              <div className="rounded border border-[#8B5CF6]/40 bg-[#171422] p-2.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[#C4B5FD]">3D Text Extrusion</span>
+                  <span className="text-[10px] font-mono-tabular text-[#DDD6FE]">{selectedClip.textProps.extrusionDepth ?? 24}px</span>
+                </div>
+                <input type="range" aria-label="3D Text Extrusion Depth" min={0} max={120} step={1}
+                  value={selectedClip.textProps.extrusionDepth ?? 24}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { extrusionDepth: Number(e.target.value) })}
+                  className="w-full studio-slider" />
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-[10px] text-[#9BA1AD]">Side Material</label>
+                  <input type="color" aria-label="3D Text Extrusion Color" value={selectedClip.textProps.extrusionColor ?? '#334155'}
+                    onChange={(e) => onUpdateTextProps(selectedClip.id, { extrusionColor: e.target.value })}
+                    className="w-10 h-7 rounded bg-transparent border border-[#2B303A] cursor-pointer" />
+                </div>
+                <span className="text-[9px] text-[#8B95A7]">Text is rasterized into the existing 3D camera plane; extrusion depth and material are editable per text layer.</span>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-[#2B303A] space-y-2">
+              <div className="text-[10px] font-semibold text-[#9BA1AD] uppercase tracking-wider">Text Animation</div>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] text-[#C8CDD6]">Animator</label>
+                <select
+                  aria-label="Text Animator Preset"
+                  value={selectedClip.textProps.animator ?? 'none'}
+                  onChange={(e) => onUpdateTextProps(selectedClip.id, { animator: e.target.value as TextAnimatorPreset })}
+                  className="w-48 bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
+                >
+                  <option value="none">Static / Keyframed</option>
+                  <option value="typewriter">Typewriter</option>
+                  <option value="slide-up">Slide-Up</option>
+                  <option value="word-pop">Word-by-Word Pop</option>
+                  <option value="glitch-decode">Glitch Decode</option>
+                  {Array.from(new Set(TEXT_ANIMATORS.map((animator) => animator.category))).map((category) => (
+                    <optgroup key={category} label={category}>
+                      {TEXT_ANIMATORS.filter((animator) => animator.category === category).map((animator) => (
+                        <option key={animator.id} value={animator.id}>{animator.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         )}
