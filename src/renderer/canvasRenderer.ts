@@ -26,6 +26,7 @@ import {
 import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
 import { findAdjacentOutgoingClip, getTransitionProgress } from '../engine/transitions';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
+import { applyCubeLutToCanvas } from '../engine/lut';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -2215,6 +2216,11 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
     if (clip.colorGrade?.enabled) {
       applyDaVinciToneOverlay(renderCtx, clip.colorGrade, baseW, baseH);
+    }
+    if (clip.colorGrade?.lutData) {
+      // Apply the imported LUT to the layer's own pixels before alpha masking
+      // and compositing, so it remains isolated to the selected clip.
+      applyCubeLutToCanvas(renderCtx.canvas, clip.colorGrade.lutData);
     }
 
     if (shading.tintAlpha > 0.01) {
