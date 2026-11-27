@@ -22,7 +22,7 @@ export function parseCubeLut(source: string, fileName = 'Imported LUT'): CubeLut
     }
     if (keyword === 'LUT_3D_SIZE') {
       size = Number(parts[1]);
-      if (!Number.isInteger(size) || size < 2 || size > 64) {
+      if (!Number.isInteger(size) || size < 2 || size > 65) {
         throw new Error('3D LUT size must be an integer between 2 and 64.');
       }
       continue;
@@ -101,16 +101,48 @@ export function sampleCubeLut(
   return [interpolate(0), interpolate(1), interpolate(2)];
 }
 
+const cubeLookupCache = new WeakMap<CubeLut, Uint8Array>();
+const LOOKUP_SIZE = 64;
+
+function getCubeLookupTable(lut: CubeLut): Uint8Array {
+  const cached = cubeLookupCache.get(lut);
+  if (cached) return cached;
+  const table = new Uint8Array(LOOKUP_SIZE * LOOKUP_SIZE * LOOKUP_SIZE * 3);
+  let offset = 0;
+  for (let blue = 0; blue < LOOKUP_SIZE; blue++) {
+    for (let green = 0; green < LOOKUP_SIZE; green++) {
+      for (let red = 0; red < LOOKUP_SIZE; red++) {
+        const mapped = sampleCubeLut(
+          lut,
+          red / (LOOKUP_SIZE - 1),
+          green / (LOOKUP_SIZE - 1),
+          blue / (LOOKUP_SIZE - 1)
+        );
+        table[offset++] = Math.round(clamp(mapped[0], 0, 1) * 255);
+        table[offset++] = Math.round(clamp(mapped[1], 0, 1) * 255);
+        table[offset++] = Math.round(clamp(mapped[2], 0, 1) * 255);
+      }
+    }
+  }
+  cubeLookupCache.set(lut, table);
+  return table;
+}
+
 export function applyCubeLutToCanvas(canvas: HTMLCanvasElement, lut: CubeLut): void {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return;
+  const table = getCubeLookupTable(lut);
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const pixels = image.data;
+  const maxIndex = LOOKUP_SIZE - 1;
   for (let index = 0; index < pixels.length; index += 4) {
-    const mapped = sampleCubeLut(lut, pixels[index] / 255, pixels[index + 1] / 255, pixels[index + 2] / 255);
-    pixels[index] = Math.round(clamp(mapped[0], 0, 1) * 255);
-    pixels[index + 1] = Math.round(clamp(mapped[1], 0, 1) * 255);
-    pixels[index + 2] = Math.round(clamp(mapped[2], 0, 1) * 255);
+    const red = Math.round((pixels[index] / 255) * maxIndex);
+    const green = Math.round((pixels[index + 1] / 255) * maxIndex);
+    const blue = Math.round((pixels[index + 2] / 255) * maxIndex);
+    const tableOffset = ((blue * LOOKUP_SIZE + green) * LOOKUP_SIZE + red) * 3;
+    pixels[index] = table[tableOffset];
+    pixels[index + 1] = table[tableOffset + 1];
+    pixels[index + 2] = table[tableOffset + 2];
   }
   ctx.putImageData(image, 0, 0);
 }
