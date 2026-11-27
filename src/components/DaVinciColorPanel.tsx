@@ -163,7 +163,7 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
             Select a Visual Layer or Adjustment Layer
           </p>
           <p className="text-[11px] text-[#7E8594]">
-            DaVinci 3-Way Color Wheels (Lift / Gamma / Gain) &amp; Film LUTs grade
+            DaVinci primary wheels (Lift / Gamma / Gain / Offset), log controls and Film LUTs grade
             any selected footage or title layer live.
           </p>
         </div>
@@ -184,7 +184,7 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
     });
   };
 
-  const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.lut}`;
+  const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.offset?.luma ?? 0}_${grade.exposureStops ?? 0}_${grade.hue ?? 0}_${grade.vibrance ?? 0}_${grade.colorBoost ?? 0}_${grade.midtoneDetail ?? 0}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.lut}`;
   const paletteColorToWheel = (hex: string): ColorWheelChannel => {
     const value = Number.parseInt(hex.replace('#', ''), 16);
     return {
@@ -207,7 +207,7 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
         <div className="flex items-center gap-1.5">
           <Palette className="w-3.5 h-3.5 text-[#F59E0B]" />
           <span className="text-xs font-semibold text-[#E6E8EC]">
-            DaVinci Color Wheels
+            DaVinci Color · Primary &amp; Log
           </span>
         </div>
         <button
@@ -266,7 +266,7 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
       />
 
       {/* 3-Way Color Wheels */}
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-2 gap-2">
         <ColorWheelControl
           label="Lift"
           channel={grade.lift}
@@ -282,6 +282,34 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
           channel={grade.gain}
           onChange={(gain) => patchGrade({ gain })}
         />
+        <ColorWheelControl
+          label="Offset"
+          channel={grade.offset ?? { r: 0, g: 0, b: 0, luma: 0 }}
+          onChange={(offset) => patchGrade({ offset })}
+        />
+      </div>
+
+      {/* Primary / Log controls */}
+      <div className="bg-[#14161A] border border-[#262B34] rounded p-2.5 space-y-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[#8D95A5]">Primary &amp; Log Controls</div>
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            ['Exposure', 'exposureStops', -5, 5, 0.1],
+            ['Pivot', 'pivot', 0.1, 0.9, 0.01],
+            ['Hue', 'hue', -180, 180, 1],
+            ['Vibrance', 'vibrance', -100, 100, 1],
+            ['Color Boost', 'colorBoost', -100, 100, 1],
+            ['Midtone Detail', 'midtoneDetail', -100, 100, 1],
+          ] as const).map(([label, key, min, max, step]) => (
+            <label key={key} className="block text-[10px] text-[#9BA1AD]">
+              <span className="flex justify-between mb-1"><span>{label}</span><span className="font-mono-tabular text-[#E6E8EC]">{Number(grade[key] ?? (key === 'pivot' ? 0.5 : 0)).toFixed(key === 'exposureStops' || key === 'pivot' ? 2 : 0)}</span></span>
+              <input type="range" aria-label={label} min={min} max={max} step={step}
+                value={grade[key] ?? (key === 'pivot' ? 0.5 : 0)}
+                onChange={(event) => patchGrade({ [key]: Number(event.target.value) })}
+                className="w-full studio-slider" />
+            </label>
+          ))}
+        </div>
       </div>
 
       {/* Primary Bars + Luma Curve Shadows/Highlights */}

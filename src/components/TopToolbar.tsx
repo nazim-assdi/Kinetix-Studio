@@ -45,6 +45,7 @@ interface TopToolbarProps {
   onToggleSnap: () => void;
   onQuickAddLayer: (kind: MediaKind, shapeType?: ShapeLayerProps['shapeType']) => void;
   onSaveProject: () => void;
+  onOpenProjectManager: () => void;
   onExportProjectFile: () => void;
   onLoadProjectFile: (file: File) => void;
   saveBadgeText?: string | null;
@@ -72,6 +73,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleSnap,
   onQuickAddLayer,
   onSaveProject,
+  onOpenProjectManager,
   onExportProjectFile,
   onLoadProjectFile,
   saveBadgeText,
@@ -192,6 +194,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             {openMenu === 'file' && (
               <div role="menu" aria-label="File Menu" className="absolute left-0 top-full mt-1 w-64 max-h-[70vh] overflow-y-auto rounded-md border border-[#303744] bg-[#181A1F] p-1.5 shadow-2xl z-[200]">
                 <button type="button" role="menuitem" onClick={() => { onSaveProject(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Save className="h-3.5 w-3.5 text-[#14B8A6]" />Save Project</button>
+                <button type="button" role="menuitem" onClick={() => { onOpenProjectManager(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FolderUp className="h-3.5 w-3.5 text-[#60A5FA]" />Project Manager / Folders</button>
                 <button type="button" role="menuitem" onClick={() => { loadInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FolderUp className="h-3.5 w-3.5 text-[#60A5FA]" />Import Project File (.kinetix.json)</button>
                 <button type="button" role="menuitem" onClick={() => { mediaInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Upload className="h-3.5 w-3.5 text-[#60A5FA]" />Import Media / PSD / AI / SVG</button>
                 <button type="button" role="menuitem" onClick={() => { subtitleInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Captions className="h-3.5 w-3.5 text-[#93C5FD]" />Import SRT Subtitles</button>

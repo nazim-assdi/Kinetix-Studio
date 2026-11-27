@@ -185,6 +185,13 @@ export interface ColorWheelGrade {
   lift: ColorWheelChannel;
   gamma: ColorWheelChannel;
   gain: ColorWheelChannel;
+  offset?: ColorWheelChannel;
+  exposureStops?: number; // -5..5
+  pivot?: number; // 0.1..0.9
+  hue?: number; // -180..180 degrees
+  vibrance?: number; // -100..100
+  colorBoost?: number; // -100..100
+  midtoneDetail?: number; // -100..100
   temp: number; // -100..100
   tint: number; // -100..100
   contrast: number; // 50..180
@@ -340,6 +347,32 @@ export interface ProjectAsset {
   defaultCaption?: CaptionLayerProps;
 }
 
+export type FusionNodeType =
+  | 'media-in' | 'mask' | 'color-corrector' | 'effect'
+  | 'transform-3d' | 'camera' | 'light' | 'merge-3d' | 'media-out';
+
+export interface FusionNode {
+  id: string;
+  type: FusionNodeType;
+  label: string;
+  x: number;
+  y: number;
+  enabled: boolean;
+  effectId?: string;
+  linkedClipId?: string;
+}
+
+export interface FusionConnection {
+  id: string;
+  from: string;
+  to: string;
+}
+
+export interface FusionGraph {
+  nodes: FusionNode[];
+  connections: FusionConnection[];
+}
+
 export interface TimelineClip {
   id: string;
   assetId: string;
@@ -366,6 +399,7 @@ export interface TimelineClip {
   keyframes: KeyframeMap;
   expressions?: ExpressionMap;
   effects: EffectItem[];
+  fusionGraph?: FusionGraph;
   mask?: LayerMask;
   colorGrade?: ColorWheelGrade;
   trackData?: MotionTrackData;

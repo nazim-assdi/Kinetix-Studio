@@ -44,9 +44,11 @@ import { analyzeMotionTrack, applyTrackPointsToTargetClip } from './motionTracke
 import { evaluateExpression, validateExpressionSyntax } from './expressions';
 import { computeVideoScopes, generateSrtSubtitles } from './scopes';
 import { parseSrtSubtitles } from './srt';
+import { muxWebMVideo } from './webmMuxer';
 import { TimelineClip } from '../types/editor';
 import { TEXT_ANIMATORS, getTextAnimatorDefinition } from '../data/textAnimators';
 import { COLOR_PALETTES } from '../data/colorPalettes';
+import { addFusionConnection, createDefaultFusionGraph, mergeFusionGraphWithClip, orderFusionEffectIds, wouldCreateFusionCycle } from './fusionGraph';
 
 function makeClip(overrides: Partial<TimelineClip> = {}): TimelineClip {
   return {
@@ -657,4 +659,56 @@ test('color palette library provides named five-color palettes', () => {
     palette.colors.length === 5 &&
     palette.colors.every((color) => /^#[0-9A-F]{6}$/i.test(color))
   ));
+});
+
+
+test('WebM muxer writes an EBML document with VP9 video track, clusters and seek cues', () => {
+  const bytes = muxWebMVideo([
+    { timestamp: 0, keyFrame: true, data: new Uint8Array([1, 2, 3, 4]) },
+    { timestamp: 33_333, keyFrame: false, data: new Uint8Array([5, 6, 7]) },
+    { timestamp: 66_666, keyFrame: false, data: new Uint8Array([8, 9]) },
+  ], 1920, 1080, 30, 'vp9');
+  const text = Array.from(bytes.slice(0, 4)).map((value) => value.toString(16).padStart(2, '0')).join('');
+  assert.equal(text, '1a45dfa3');
+  const document = new TextDecoder('latin1').decode(bytes);
+  assert.ok(document.includes('webm'));
+  assert.ok(document.includes('V_VP9'));
+  assert.ok(document.includes('Kinetix Studio WebCodecs Renderer'));
+  assert.ok(document.includes('1f43'));
+  assert.ok(document.includes('1c53bb6b'));
+  assert.ok(bytes.length > 100);
+});
+
+test('WebM muxer rejects empty frame lists and invalid dimensions', () => {
+  assert.throws(() => muxWebMVideo([], 1920, 1080, 30, 'vp9'), /no encoded video frames/i);
+  assert.throws(() => muxWebMVideo([{ timestamp: 0, keyFrame: true, data: new Uint8Array([1]) }], 0, 1080, 30, 'vp9'), /invalid webm video/i);
+});
+
+test('Fusion graph persists draggable node positions and validates cable cycles', () => {
+  const clip = makeClip({ effects: [createEffectInstance('glow'), createEffectInstance('blur')] });
+  const graph = createDefaultFusionGraph(clip);
+  const mediaIn = graph.nodes.find((node) => node.type === 'media-in')!;
+  const mediaOut = graph.nodes.find((node) => node.type === 'media-out')!;
+  assert.equal(wouldCreateFusionCycle(graph, mediaOut.id, mediaIn.id), true);
+  assert.throws(() => addFusionConnection(graph, mediaOut.id, mediaIn.id), /feedback loop/i);
+  const withConnection = addFusionConnection(graph, mediaIn.id, mediaOut.id);
+  assert.ok(withConnection.connections.some((edge) => edge.from === mediaIn.id && edge.to === mediaOut.id));
+  const moved = { ...graph, nodes: graph.nodes.map((node) => node.id === mediaIn.id ? { ...node, x: 420, y: 90 } : node) };
+  const restored = mergeFusionGraphWithClip(moved, clip);
+  assert.equal(restored.nodes.find((node) => node.id === mediaIn.id)?.x, 420);
+});
+
+test('Fusion node cable order controls effect processing order', () => {
+  const clip = makeClip({ effects: [createEffectInstance('glow'), createEffectInstance('blur')] });
+  const graph = createDefaultFusionGraph(clip);
+  const effectNodes = graph.nodes.filter((node) => node.type === 'effect');
+  const [first, second] = effectNodes;
+  const custom = {
+    ...graph,
+    connections: graph.connections.filter((edge) => edge.from !== first.id && edge.to !== second.id)
+      .concat([{ id: 'custom-reorder', from: second.id, to: first.id }]),
+  };
+  const ordered = orderFusionEffectIds(custom);
+  assert.equal(ordered[0], second.effectId);
+  assert.equal(ordered[1], first.effectId);
 });

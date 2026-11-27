@@ -59,7 +59,9 @@ import { applyTrackPointsToTargetClip } from './engine/motionTracker';
 import { clamp, snapToFrame } from './engine/timecode';
 import { parseSrtSubtitles } from './engine/srt';
 import { createMediaCache } from './renderer/canvasRenderer';
-import { loadProjectFromIndexedDb, saveProjectToIndexedDb } from './engine/projectStorage';
+import { loadNamedProject, loadProjectFromIndexedDb, saveNamedProject, saveProjectToIndexedDb } from './engine/projectStorage';
+import { orderFusionEffectIds } from './engine/fusionGraph';
+import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { audioEngine } from './audio/audioEngine';
 import { TopToolbar } from './components/TopToolbar';
 import { LeftDockTab, ProjectBinPanel } from './components/ProjectBinPanel';
@@ -258,6 +260,12 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [graphEditorOpen, setGraphEditorOpen] = useState(false);
   const [saveBadgeText, setSaveBadgeText] = useState<string | null>(null);
+  const [projectManagerOpen, setProjectManagerOpen] = useState(false);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => {
+    try { return window.localStorage.getItem('kinetix_current_project_id_v1'); } catch { return null; }
+  });
+  const [currentProjectName, setCurrentProjectName] = useState(initialSave?.composition.name ?? INITIAL_COMPOSITION.name);
+  const [currentProjectFolder, setCurrentProjectFolder] = useState('My Projects');
 
   // Draggable & Resizable Panel Layout State
   const [leftWidth, setLeftWidth] = useState(320);
@@ -332,6 +340,9 @@ export default function App() {
             composition, tracks, clips, assets, markers, workArea,
           }, portableMediaCacheRef.current);
           await saveProjectToIndexedDb(payload);
+          if (currentProjectId) {
+            await saveNamedProject(payload, { id: currentProjectId, name: currentProjectName || composition.name, folder: currentProjectFolder });
+          }
           try {
             window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(payload)));
           } catch {
@@ -347,6 +358,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [
     projectStorageReady, autoSaveEnabled, composition, tracks, clips, assets, markers, workArea,
+    currentProjectId, currentProjectName, currentProjectFolder,
   ]);
 
   const commitHistory = useCallback(
@@ -1656,7 +1668,13 @@ export default function App() {
   const handleSaveProject = async () => {
     try {
       const payload = await createPortableProjectPayload({ composition, tracks, clips, assets, markers, workArea }, portableMediaCacheRef.current);
+      const projectId = currentProjectId ?? `project_${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now().toString(36)}`;
+      const projectName = currentProjectName || composition.name;
       await saveProjectToIndexedDb(payload);
+      await saveNamedProject(payload, { id: projectId, name: projectName, folder: currentProjectFolder });
+      setCurrentProjectId(projectId);
+      setCurrentProjectName(projectName);
+      try { window.localStorage.setItem('kinetix_current_project_id_v1', projectId); } catch { /* project index remains saved in IndexedDB */ }
       try {
         window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(payload)));
       } catch {
@@ -1668,6 +1686,58 @@ export default function App() {
       setSaveBadgeText('Save Failed');
     }
     window.setTimeout(() => setSaveBadgeText(null), 2500);
+  };
+
+  const handleSaveProjectAs = async (name: string, folder: string) => {
+    const payload = await createPortableProjectPayload({ composition, tracks, clips, assets, markers, workArea }, portableMediaCacheRef.current);
+    const projectId = `project_${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now().toString(36)}`;
+    await saveNamedProject(payload, { id: projectId, name, folder });
+    await saveProjectToIndexedDb(payload);
+    setCurrentProjectId(projectId);
+    setCurrentProjectName(name);
+    setCurrentProjectFolder(folder);
+    try { window.localStorage.setItem('kinetix_current_project_id_v1', projectId); } catch { /* optional */ }
+    setSaveBadgeText('Project Saved');
+  };
+
+  const handleOpenLibraryProject = async (id: string) => {
+    const saved = await loadNamedProject(id);
+    if (!saved) throw new Error('This saved project is missing from the local project library.');
+    const restored = restoreProjectMedia(saved);
+    setComposition(restored.composition);
+    setAssets(restored.assets ?? INITIAL_ASSETS);
+    setTracks(restored.tracks);
+    setClips(restored.clips);
+    setPast([]);
+    setFuture([]);
+    if (Array.isArray(restored.markers)) setMarkers(restored.markers);
+    setWorkArea(restored.workArea ?? { enabled: false, inTime: 0, outTime: restored.composition.duration });
+    setSelectedClipId(restored.clips[0]?.id ?? null);
+    setPlayheadTime(0);
+    setCurrentProjectId(id);
+    try { window.localStorage.setItem('kinetix_current_project_id_v1', id); } catch { /* optional */ }
+    setCurrentProjectName(restored.composition.name);
+    await saveProjectToIndexedDb(restored);
+    setSaveBadgeText('Project Opened');
+  };
+
+  const handleNewEmptyProject = () => {
+    const name = 'Untitled Project';
+    setIsPlaying(false);
+    setComposition({ ...INITIAL_COMPOSITION, name });
+    setAssets([]);
+    setTracks(INITIAL_TRACKS);
+    setClips([]);
+    setPast([]);
+    setFuture([]);
+    setMarkers([]);
+    setWorkArea({ enabled: false, inTime: 0, outTime: INITIAL_COMPOSITION.duration });
+    setSelectedClipId(null);
+    setPlayheadTime(0);
+    setCurrentProjectId(null);
+    setCurrentProjectName(name);
+    setCurrentProjectFolder('My Projects');
+    try { window.localStorage.removeItem('kinetix_current_project_id_v1'); } catch { /* optional */ }
   };
 
   const handleExportProjectFile = async () => {
@@ -2126,6 +2196,21 @@ export default function App() {
     handleSetWorkArea,
   ]);
 
+  const handleUpdateFusionGraph = useCallback(
+    (clipId: string, graph: import('./types/editor').FusionGraph) => {
+      const effectOrder = orderFusionEffectIds(graph);
+      const rank = new Map(effectOrder.map((id, index) => [id, index]));
+      updateClipById(clipId, (clip) => ({
+        ...clip,
+        fusionGraph: graph,
+        effects: [...clip.effects].sort((a, b) =>
+          (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+        ),
+      }), true);
+    },
+    [updateClipById]
+  );
+
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
 
   return (
@@ -2147,6 +2232,7 @@ export default function App() {
         onToggleSnap={() => setSnapEnabled((s) => !s)}
         onQuickAddLayer={handleQuickAddLayer}
         onSaveProject={handleSaveProject}
+        onOpenProjectManager={() => setProjectManagerOpen(true)}
         onLoadProjectFile={handleLoadProjectFile}
         saveBadgeText={saveBadgeText}
         onOpenExport={() => {
@@ -2182,6 +2268,8 @@ export default function App() {
               onApplyEffectToSelected={(fxType) => {
                 if (selectedClip) handleAddEffect(selectedClip.id, fxType);
               }}
+              onUpdateFusionGraph={handleUpdateFusionGraph}
+              onAdd3DLayer={(kind) => handleQuickAddLayer(kind)}
               onToggleEffect={(clipId, effectId) =>
                 updateClipById(
                   clipId,
@@ -2556,6 +2644,16 @@ export default function App() {
         mediaCache={mediaCache}
         playheadTime={playheadTime}
         workArea={workArea}
+      />
+
+      <ProjectManagerModal
+        isOpen={projectManagerOpen}
+        currentProjectId={currentProjectId}
+        currentProjectName={currentProjectName}
+        onClose={() => setProjectManagerOpen(false)}
+        onNewProject={handleNewEmptyProject}
+        onSaveAs={handleSaveProjectAs}
+        onOpenProject={handleOpenLibraryProject}
       />
 
       <ShortcutsModal

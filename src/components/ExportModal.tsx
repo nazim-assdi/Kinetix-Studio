@@ -12,6 +12,7 @@ import {
   renderCompositionFrame,
 } from '../renderer/canvasRenderer';
 import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
+import { muxWebMVideo, WebMVideoFrame } from '../engine/webmMuxer';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -83,6 +84,134 @@ function createSafeMediaRecorder(
       const recorder = new MediaRecorder(stream);
       return { recorder, mimeType: 'video/webm', ext: 'webm' };
     }
+  }
+}
+
+type WebCodecsChunk = { timestamp: number; type: 'key' | 'delta'; byteLength: number; copyTo: (destination: Uint8Array) => void };
+type WebCodecsVideoFrame = { close: () => void };
+type WebCodecsEncoder = {
+  configure: (config: Record<string, unknown>) => void;
+  encode: (frame: WebCodecsVideoFrame, options?: { keyFrame?: boolean }) => void;
+  flush: () => Promise<void>;
+  close: () => void;
+  encodeQueueSize: number;
+};
+type WebCodecsEncoderConstructor = {
+  new (init: { output: (chunk: WebCodecsChunk) => void; error: (error: Error) => void }): WebCodecsEncoder;
+  isConfigSupported: (config: Record<string, unknown>) => Promise<{ supported?: boolean }>;
+};
+type WebCodecsFrameConstructor = new (
+  source: CanvasImageSource,
+  options: { timestamp: number; duration: number }
+) => WebCodecsVideoFrame;
+
+async function renderFastWebM(options: {
+  canvas: HTMLCanvasElement;
+  composition: CompositionSettings;
+  tracks: TimelineTrack[];
+  clips: TimelineClip[];
+  mediaCache: MediaCache;
+  startSec: number;
+  endSec: number;
+  fps: number;
+  bitrate: number;
+  isAborted: () => boolean;
+  onProgress: (frame: number, total: number) => void;
+}): Promise<Blob | null> {
+  const encoderHost = globalThis as unknown as { VideoEncoder?: WebCodecsEncoderConstructor; VideoFrame?: WebCodecsFrameConstructor };
+  const Encoder = encoderHost.VideoEncoder;
+  const Frame = encoderHost.VideoFrame;
+  if (!Encoder || !Frame) {
+    throw new Error('Fast WebCodecs render is unavailable in this browser or Electron runtime. Use Standard render instead.');
+  }
+
+  const width = options.canvas.width;
+  const height = options.canvas.height;
+  const candidates = [
+    { codec: 'vp09.00.10.08', id: 'vp9' as const },
+    { codec: 'vp8', id: 'vp8' as const },
+  ];
+  let selected: { codec: string; id: 'vp8' | 'vp9' } | null = null;
+  for (const candidate of candidates) {
+    try {
+      const result = await Encoder.isConfigSupported({
+        codec: candidate.codec, width, height, bitrate: options.bitrate,
+        framerate: options.fps, latencyMode: 'quality', hardwareAcceleration: 'prefer-hardware',
+      });
+      if (result.supported) { selected = candidate; break; }
+    } catch { /* Try the next browser-supported codec. */ }
+  }
+  if (!selected) throw new Error('This device does not report a supported VP9/VP8 WebCodecs encoder. Use Standard render.');
+
+  const frames: WebMVideoFrame[] = [];
+  let encoderError: Error | null = null;
+  const encoder = new Encoder({
+    output(chunk) {
+      const bytes = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(bytes);
+      frames.push({ timestamp: chunk.timestamp, keyFrame: chunk.type === 'key', data: bytes });
+    },
+    error(error) { encoderError = error; },
+  });
+
+  const duration = Math.max(0.1, options.endSec - options.startSec);
+  const totalFrames = Math.max(1, Math.ceil(duration * options.fps));
+  const frameDurationUs = Math.round(1_000_000 / options.fps);
+  try {
+    encoder.configure({
+      codec: selected.codec, width, height, bitrate: options.bitrate,
+      framerate: options.fps, latencyMode: 'quality', hardwareAcceleration: 'prefer-hardware',
+    });
+    for (let index = 0; index < totalFrames; index++) {
+      if (options.isAborted()) break;
+      const time = Math.min(options.endSec, options.startSec + index / options.fps);
+      await awaitMediaReadyForFrame(options.mediaCache, options.clips, time);
+      if (options.isAborted()) break;
+      renderCompositionFrame({
+        canvas: options.canvas,
+        composition: { ...options.composition, width, height },
+        tracks: options.tracks,
+        clips: options.clips,
+        playheadTime: time,
+        selectedClipId: null,
+        showSafeMargins: false,
+        showTransparencyGrid: false,
+        cameraAngle: 'active',
+        isPlaying: false,
+        mediaCache: options.mediaCache,
+        drawGizmo: false,
+      });
+      const videoFrame = new Frame(options.canvas, {
+        timestamp: index * frameDurationUs,
+        duration: frameDurationUs,
+      });
+      try {
+        encoder.encode(videoFrame, { keyFrame: index === 0 || index % Math.max(1, options.fps * 2) === 0 });
+      } finally {
+        videoFrame.close();
+      }
+      if (encoderError) throw encoderError;
+      while (encoder.encodeQueueSize > 6) {
+        if (options.isAborted()) break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      if (index % 3 === 0 || index === totalFrames - 1) {
+        options.onProgress(index + 1, totalFrames);
+        await new Promise<void>((resolve) => {
+          if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+          else setTimeout(resolve, 0);
+        });
+      }
+    }
+    if (options.isAborted()) return null;
+    await encoder.flush();
+    if (encoderError) throw encoderError;
+    frames.sort((a, b) => a.timestamp - b.timestamp);
+    if (frames.length === 0) throw new Error('The video encoder did not return any frames.');
+    const bytes = muxWebMVideo(frames, width, height, options.fps, selected.id);
+    return new Blob([bytes], { type: 'video/webm' });
+  } finally {
+    try { encoder.close(); } catch { /* Ignore an already-closed encoder. */ }
   }
 }
 
@@ -320,6 +449,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [aspectId, setAspectId] = useState<string>('sequence');
   const [exportFps, setExportFps] = useState(composition.fps);
   const [codecPref, setCodecPref] = useState<'webm' | 'mp4'>('webm');
+  const [renderMode, setRenderMode] = useState<'standard' | 'fast-video'>('standard');
   const [rangeMode, setRangeMode] = useState<'full' | 'workArea'>(
     workArea?.enabled ? 'workArea' : 'full'
   );
@@ -422,6 +552,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     let stream: MediaStream | null = null;
     let audioSession: ExportAudioSession | null = null;
     try {
+      if (renderMode === 'fast-video') {
+        const canvas = document.createElement('canvas');
+        canvas.width = outW;
+        canvas.height = outH;
+        const fastBlob = await renderFastWebM({
+          canvas, composition, tracks, clips, mediaCache, startSec, endSec,
+          fps: exportFps, bitrate: preset.bitrate, isAborted: () => abortRef.current,
+          onProgress: (frame, total) => {
+            setProgress(Math.round((frame / total) * 100));
+            setFrameLabel(`${frame} / ${total} frames · offline encode`);
+          },
+        });
+        if (!fastBlob || abortRef.current) { setStatus('idle'); return; }
+        setDownloadExt('webm');
+        setDownloadUrl(URL.createObjectURL(fastBlob));
+        setStatus('done');
+        return;
+      }
       audioSession = await createExportAudioSession(clips, tracks);
       audioSessionRef.current = audioSession;
 
@@ -570,6 +718,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         <div className="p-4 space-y-3.5">
           <div className="grid grid-cols-2 gap-3">
             <div>
+              <label htmlFor="export-engine-select" className="block text-[11px] text-[#9BA1AD] mb-1">Render Engine</label>
+              <select id="export-engine-select" disabled={status === 'rendering'} value={renderMode}
+                onChange={(e) => setRenderMode(e.target.value as 'standard' | 'fast-video')}
+                className="w-full bg-[#111215] border border-[#2B303A] rounded px-2.5 py-1.5 text-xs text-white">
+                <option value="standard">Standard · Video + Audio</option>
+                <option value="fast-video">Fast WebCodecs · Video Only</option>
+              </select>
+            </div>
+            <div>
               <label
                 htmlFor="export-aspect-select"
                 className="block text-[11px] text-[#9BA1AD] mb-1"
@@ -673,6 +830,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </div>
           </div>
 
+          {renderMode === 'fast-video' && (
+            <div role="note" className="rounded border border-[#F59E0B]/40 bg-[#3A2A11]/40 p-2.5 text-[11px] leading-relaxed text-[#FCD34D]">
+              Fast WebCodecs encodes frames offline without waiting for realtime capture. It creates a silent WebM; timeline audio, including video sound, is not included. Choose Standard for a complete audio/video export.
+            </div>
+          )}
           <div className="rounded bg-[#111215] border border-[#262B34] p-3 text-xs text-[#9BA1AD] space-y-1">
             <div className="flex justify-between">
               <span>Output Dimensions</span>

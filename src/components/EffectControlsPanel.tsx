@@ -1674,10 +1674,12 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                 className="bg-[#232730] hover:bg-[#2B303A] border border-[#323845] rounded px-2 py-1 text-[11px] font-medium text-[#E6E8EC] focus:outline-none cursor-pointer"
               >
                 <option value="">+ Add Effect</option>
-                {EFFECT_LIBRARY.map((fx) => (
-                  <option key={fx.type} value={fx.type}>
-                    {fx.name}
-                  </option>
+                {[...new Set(EFFECT_LIBRARY.map((fx) => fx.category))].map((category) => (
+                  <optgroup key={category} label={category}>
+                    {EFFECT_LIBRARY.filter((fx) => fx.category === category).map((fx) => (
+                      <option key={fx.type} value={fx.type}>{fx.name}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
