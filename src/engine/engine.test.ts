@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
 import { resolveGeminiApiKey } from './aiConfig';
+import { applyCubeLutToCanvas, parseCubeLut, sampleCubeLut } from './lut';
 import { DEFAULT_TIMELINE_TRANSITION, createTimelineTransition, findAdjacentOutgoingClip, findNearestTransitionPair, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
@@ -135,6 +136,31 @@ test('Gemini AI key resolver prefers server configuration and supports per-user 
   assert.equal(resolveGeminiApiKey('   ', 'browser-secret'), 'browser-secret');
   assert.equal(resolveGeminiApiKey(undefined, '  browser-secret  '), 'browser-secret');
   assert.equal(resolveGeminiApiKey(null, '  '), null);
+});
+
+test('CUBE LUT parser validates sample count and trilinear sampler preserves identity', () => {
+  const identityCube = [
+    'TITLE "Identity"',
+    'LUT_3D_SIZE 2',
+    'DOMAIN_MIN 0 0 0',
+    'DOMAIN_MAX 1 1 1',
+    '0 0 0',
+    '1 0 0',
+    '0 1 0',
+    '1 1 0',
+    '0 0 1',
+    '1 0 1',
+    '0 1 1',
+    '1 1 1',
+  ].join('\\n');
+  const lut = parseCubeLut(identityCube, 'identity.cube');
+  assert.equal(lut.name, 'Identity');
+  assert.equal(lut.size, 2);
+  const midpoint = sampleCubeLut(lut, 0.25, 0.5, 0.75);
+  assert.ok(Math.abs(midpoint[0] - 0.25) < 1e-9);
+  assert.ok(Math.abs(midpoint[1] - 0.5) < 1e-9);
+  assert.ok(Math.abs(midpoint[2] - 0.75) < 1e-9);
+  assert.throws(() => parseCubeLut('LUT_3D_SIZE 3\\n0 0 0'), /Expected 27 LUT samples/);
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {
