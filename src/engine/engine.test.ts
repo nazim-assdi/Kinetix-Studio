@@ -674,8 +674,11 @@ test('WebM muxer writes an EBML document with VP9 video track, clusters and seek
   assert.ok(document.includes('webm'));
   assert.ok(document.includes('V_VP9'));
   assert.ok(document.includes('Kinetix Studio WebCodecs Renderer'));
-  assert.ok(document.includes('1f43'));
-  assert.ok(document.includes('1c53bb6b'));
+  const containsBytes = (needle: number[]) => bytes.some((_, offset) =>
+    needle.every((value, index) => bytes[offset + index] === value)
+  );
+  assert.ok(containsBytes([0x1f, 0x43, 0xb6, 0x75]));
+  assert.ok(containsBytes([0x1c, 0x53, 0xbb, 0x6b]));
   assert.ok(bytes.length > 100);
 });
 
