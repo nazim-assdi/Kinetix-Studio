@@ -388,7 +388,7 @@ test('MEGA_CATALOG contains 1000+ presets, transitions with SFX, and DaVinci LUT
   assert.ok(MEGA_CATALOG.every((item) => item.vendor === 'FX'));
 });
 
-test('creative library exposes 8,474 unique catalog entries with expanded asset categories', () => {
+test('creative library exposes thousands of unique catalog entries with expanded asset categories', () => {
   assert.ok(MEGA_CATALOG.length > 8000 && MEGA_CATALOG.length <= 8474, `Expected duplicate-free catalog, got ${MEGA_CATALOG.length}`);
   const effectSignatures = MEGA_CATALOG
     .filter((item) => item.effectType)
