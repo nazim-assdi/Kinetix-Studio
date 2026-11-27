@@ -2797,6 +2797,7 @@ export default function App() {
         onDropEffectToSelection={handleAddEffectToClips}
         onDropPreset={(clipId, item) => handleApplyCatalogPreset(item, clipId)}
         onDropPresetToSelection={handleApplyCatalogPresetToClips}
+        onDropTransitionAtEditPoint={(incomingClipId, item) => handleAttachTransitionsAtEditPoint([incomingClipId], item)}
         onMoveKeyframe={handleMoveKeyframe}
         onDeleteKeyframe={handleDeleteKeyframe}
         onAddVoiceover={handleAddVoiceoverFile}
