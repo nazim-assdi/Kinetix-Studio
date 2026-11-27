@@ -118,5 +118,7 @@ export function getTransitionProgress(
 ): number {
   const duration = Math.max(0.0001, transition.duration);
   const start = cutTime - duration / 2;
-  return Math.max(0, Math.min(1, (playheadTime - start) / duration));
+  const progress = (playheadTime - start) / duration;
+  // Frame evaluation can produce tiny floating-point overshoots at either edge.
+  return Math.max(0, Math.min(1, Number(progress.toFixed(6))));
 }
