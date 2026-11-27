@@ -2002,15 +2002,23 @@ export default function App() {
         duration: composition.duration,
       },
     });
-    const sendRequest = (accessKey = '') =>
+    const sendRequest = (accessKey = '', geminiApiKey = '') =>
       fetch('/api/ai-edit', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(accessKey ? { 'X-Kinetix-Access-Key': accessKey } : {}),
+          ...(geminiApiKey ? { 'X-Kinetix-Gemini-Key': geminiApiKey } : {}),
         },
         body: requestBody,
       });
+
+    let geminiApiKey = '';
+    try {
+      geminiApiKey = window.sessionStorage.getItem('kinetix_gemini_api_key') ?? '';
+    } catch {
+      // Session storage may be disabled in private browser contexts.
+    }
 
     let accessKey = '';
     try {
@@ -2018,7 +2026,7 @@ export default function App() {
     } catch {
       // Session storage may be disabled in private browser contexts.
     }
-    let response = await sendRequest(accessKey);
+    let response = await sendRequest(accessKey, geminiApiKey);
     if (response.status === 401) {
       const enteredKey = window.prompt('This Kinetix Studio server requires an AI access key. Enter the key provided by the server owner:');
       if (!enteredKey?.trim()) {
@@ -2030,11 +2038,14 @@ export default function App() {
       } catch {
         // The key is still used for this request if session storage is unavailable.
       }
-      response = await sendRequest(accessKey);
+      response = await sendRequest(accessKey, geminiApiKey);
     }
 
     const data = await response.json();
     if (!response.ok) {
+      if (data.code === 'AI_NOT_CONFIGURED') {
+        throw new Error('AI Edit needs a Gemini API key. Add it in the AI panel under “Gemini API Key”, then try again.');
+      }
       throw new Error(data.error || 'AI editing service returned an error.');
     }
 
