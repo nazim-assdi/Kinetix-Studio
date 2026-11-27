@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
+import { createTimelineTransition, findAdjacentOutgoingClip, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
   evaluateClipTransform,
@@ -82,6 +83,33 @@ function makeClip(overrides: Partial<TimelineClip> = {}): TimelineClip {
     ...overrides,
   };
 }
+
+
+test('edit-point transitions resolve only adjacent clips on the same track', () => {
+  const outgoing = makeClip({ id: 'outgoing', trackId: 'track_v1', start: 0, duration: 3 });
+  const incoming = makeClip({ id: 'incoming', trackId: 'track_v1', start: 3, duration: 4 });
+  const wrongTrack = makeClip({ id: 'wrong-track', trackId: 'track_v2', start: 3, duration: 2 });
+  assert.equal(findAdjacentOutgoingClip([outgoing, incoming, wrongTrack], incoming, 30)?.id, 'outgoing');
+  assert.equal(resolveTransitionPairForClip([outgoing, incoming], outgoing, 30)?.incoming.id, 'incoming');
+  assert.equal(findAdjacentOutgoingClip([outgoing, { ...incoming, start: 3.2 }], incoming, 30), null);
+});
+
+test('transition preset maps to a real edit-point style and computes centered progress', () => {
+  const transition = createTimelineTransition({
+    id: 'mega_tr_test',
+    name: 'Cyber Glitch Cut · From Left · Medium',
+    vendor: 'FX',
+    category: 'Transition',
+    description: 'test transition',
+    accentColor: '#F43F5E',
+    motionVariant: { direction: 'left', duration: 0.6, intensity: 1 },
+  }, 30);
+  assert.equal(transition.style, 'wipe');
+  assert.equal(transition.duration, 0.6);
+  assert.equal(getTransitionProgress(transition, 5, 4.7), 0);
+  assert.equal(getTransitionProgress(transition, 5, 5), 0.5);
+  assert.equal(getTransitionProgress(transition, 5, 5.3), 1);
+});
 
 test('SMPTE timecode formats 30fps accurately', () => {
   assert.equal(formatTimecode(0, 30), '00:00:00:00');
