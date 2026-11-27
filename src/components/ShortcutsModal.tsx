@@ -8,6 +8,10 @@ interface ShortcutsModalProps {
 
 const SHORTCUT_ITEMS: { key: string; desc: string }[] = [
   { key: 'Space', desc: 'Play / Pause playback' },
+  { key: 'Ctrl + S', desc: 'Save current project' },
+  { key: 'Ctrl + O', desc: 'Open Project Manager' },
+  { key: 'Ctrl + Shift + N', desc: 'Create or change sequence settings' },
+  { key: 'Ctrl + Shift + E', desc: 'Open Render / Export dialog' },
   { key: 'V', desc: 'Selection Tool (Move & Trim clips)' },
   { key: 'C', desc: 'Razor Tool (Split clip at click)' },
   { key: 'G', desc: 'Pen Bezier Path Tool (click-drag for curve handles)' },
