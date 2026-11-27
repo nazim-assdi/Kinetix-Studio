@@ -157,20 +157,9 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   });
   const [sortMode, setSortMode] = useState<'catalog' | 'name' | 'favorites'>('catalog');
   const [aiPrompt, setAiPrompt] = useState('');
-  const [aiApiKey, setAiApiKey] = useState(() => {
-    try {
-      return window.sessionStorage.getItem('kinetix_gemini_api_key') ?? '';
-    } catch {
-      return '';
-    }
-  });
-  const [aiKeySaved, setAiKeySaved] = useState(() => {
-    try {
-      return Boolean(window.sessionStorage.getItem('kinetix_gemini_api_key'));
-    } catch {
-      return false;
-    }
-  });
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiKeySaved, setAiKeySaved] = useState(false);
+  const [aiKeyEditing, setAiKeyEditing] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -178,6 +167,31 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
     0.16, 1, 0.3, 1,
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadKeyStatus = async () => {
+      try {
+        if (window.kinetixDesktop) {
+          const saved = await window.kinetixDesktop.hasGeminiApiKey();
+          if (!cancelled) {
+            setAiKeySaved(saved);
+            setAiKeyEditing(!saved);
+          }
+          return;
+        }
+        const saved = Boolean(window.sessionStorage.getItem('kinetix_gemini_api_key'));
+        if (!cancelled) {
+          setAiKeySaved(saved);
+          setAiKeyEditing(!saved);
+        }
+      } catch {
+        if (!cancelled) setAiKeyEditing(true);
+      }
+    };
+    void loadKeyStatus();
+    return () => { cancelled = true; };
+  }, []);
 
   const q = query.trim().toLowerCase();
   const filteredAssets = assets.filter((a) => a.name.toLowerCase().includes(q));
@@ -221,34 +235,37 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
     return filtered;
   }, [vendorFilter, categoryFilter, q, activeTab, favoritesOnly, favoriteIds, sortMode]);
 
-  const saveAiApiKey = () => {
+  const saveAiApiKey = async () => {
     const key = aiApiKey.trim();
+    if (!key) return;
     try {
-      if (!key) {
-        window.sessionStorage.removeItem('kinetix_gemini_api_key');
-        setAiKeySaved(false);
-        setAiError(null);
-        return;
+      if (window.kinetixDesktop) {
+        await window.kinetixDesktop.saveGeminiApiKey(key);
+      } else {
+        window.sessionStorage.setItem('kinetix_gemini_api_key', key);
       }
-      window.sessionStorage.setItem('kinetix_gemini_api_key', key);
-      setAiApiKey(key);
+      // Clear the input immediately; only a saved/unsaved indicator remains visible.
+      setAiApiKey('');
       setAiKeySaved(true);
+      setAiKeyEditing(false);
       setAiError(null);
-    } catch {
+    } catch (error) {
       setAiKeySaved(false);
-      setAiError('Could not save the key in this browser session. Check browser storage permissions.');
+      setAiError(error instanceof Error ? error.message : 'Could not securely save the Gemini API key.');
     }
   };
 
-  const removeAiApiKey = () => {
+  const removeAiApiKey = async () => {
     try {
-      window.sessionStorage.removeItem('kinetix_gemini_api_key');
-    } catch {
-      // The current input is still cleared even when storage is unavailable.
+      if (window.kinetixDesktop) await window.kinetixDesktop.removeGeminiApiKey();
+      else window.sessionStorage.removeItem('kinetix_gemini_api_key');
+      setAiApiKey('');
+      setAiKeySaved(false);
+      setAiKeyEditing(true);
+      setAiError(null);
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'Could not remove the saved Gemini API key.');
     }
-    setAiApiKey('');
-    setAiKeySaved(false);
-    setAiError(null);
   };
 
   const handleAiSubmit = async (e: React.FormEvent) => {
@@ -734,61 +751,62 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
 
         {activeTab === 'ai' && (
           <div className="space-y-3 p-1">
-            {/* Request-scoped BYO Gemini key; never saved to the project or localStorage. */}
-            <div className="rounded border border-[#2B303A] bg-[#14161A] p-2 space-y-1.5">
+            <div className="rounded border border-[#2B303A] bg-[#14161A] p-2 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <label htmlFor="kinetix-gemini-api-key" className="text-[11px] font-semibold text-[#D6D9E0]">
-                  Gemini API Key
-                </label>
-                <span className={`text-[9px] font-semibold ${aiKeySaved ? 'text-[#5EEAD4]' : 'text-[#8D95A5]'}`}>
-                  {aiKeySaved ? 'SAVED FOR SESSION' : 'NEEDED FOR AI'}
+                <span className="text-[11px] font-semibold text-[#D6D9E0]">Gemini API Key</span>
+                <span className={`text-[9px] font-semibold ${aiKeySaved ? 'text-[#5EEAD4]' : 'text-[#FBBF24]'}`}>
+                  {aiKeySaved ? 'KEY SAVED' : 'NOT CONFIGURED'}
                 </span>
               </div>
-              <input
-                id="kinetix-gemini-api-key"
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={aiApiKey}
-                onChange={(event) => {
-                  setAiApiKey(event.target.value);
-                  setAiKeySaved(false);
-                  try {
-                    window.sessionStorage.removeItem('kinetix_gemini_api_key');
-                  } catch {
-                    // The edited value is saved only after the user confirms it.
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    saveAiApiKey();
-                  }
-                }}
-                placeholder="Paste your Google AI Studio API key"
-                aria-label="Gemini API Key"
-                className="w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1.5 text-[11px] text-white placeholder:text-[#6E7685] focus:outline-none focus:border-[#3B82F6]"
-              />
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={saveAiApiKey}
-                  disabled={!aiApiKey.trim()}
-                  className="flex-1 rounded bg-[#263B58] hover:bg-[#31527A] disabled:opacity-40 px-2 py-1 text-[10px] font-semibold text-[#DBEAFE]"
-                >
-                  Save for This Session
+              {aiKeySaved && !aiKeyEditing ? (
+                <div className="flex items-center justify-between rounded bg-[#101B19] border border-[#24564A] px-2.5 py-2">
+                  <span className="text-[10px] text-[#9DE5D1]">API key stored · hidden</span>
+                  <button type="button" onClick={() => setAiKeyEditing(true)}
+                    className="text-[10px] font-semibold text-[#93C5FD] hover:text-white">Change</button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    id="kinetix-gemini-api-key"
+                    type="password"
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    value={aiApiKey}
+                    onChange={(event) => setAiApiKey(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void saveAiApiKey();
+                      }
+                    }}
+                    placeholder="Paste your Google AI Studio API key"
+                    aria-label="Gemini API Key"
+                    className="w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1.5 text-[11px] text-white placeholder:text-[#6E7685] focus:outline-none focus:border-[#3B82F6]"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => void saveAiApiKey()} disabled={!aiApiKey.trim()}
+                      className="flex-1 rounded bg-[#263B58] hover:bg-[#31527A] disabled:opacity-40 px-2 py-1.5 text-[10px] font-semibold text-[#DBEAFE]">
+                      Save Key
+                    </button>
+                    {aiKeySaved && (
+                      <button type="button" onClick={() => { setAiApiKey(''); setAiKeyEditing(false); }}
+                        className="rounded border border-[#343B49] hover:bg-[#303744] px-2 py-1.5 text-[10px] text-[#C8CDD6]">
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+              {aiKeySaved && (
+                <button type="button" onClick={() => void removeAiApiKey()}
+                  className="w-full rounded border border-[#4A3035] px-2 py-1 text-[10px] text-[#FCA5A5] hover:bg-[#3A2024]">
+                  Remove saved key
                 </button>
-                <button
-                  type="button"
-                  onClick={removeAiApiKey}
-                  disabled={!aiKeySaved && !aiApiKey}
-                  className="rounded border border-[#343B49] hover:bg-[#303744] disabled:opacity-40 px-2 py-1 text-[10px] text-[#C8CDD6]"
-                >
-                  Remove
-                </button>
-              </div>
+              )}
               <p className="text-[9px] leading-snug text-[#7F8795]">
-                Your key is kept in this browser session and sent only with your AI requests. It is not saved in the project.
+                {window.kinetixDesktop
+                  ? 'Saved encrypted on this device. The key is hidden after saving and never added to project files.'
+                  : 'Saved for this browser session only. The key is hidden after saving and never added to project files.'}
               </p>
             </div>
 
