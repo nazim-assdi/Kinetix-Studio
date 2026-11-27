@@ -113,24 +113,14 @@ app.post('/api/ai-edit', requireAiAccessKey, rateLimitAiRequests, async (req, re
 
     const ai = getAiClient(apiKey);
 
-    const systemInstruction = `You are an expert After Effects + Premiere Pro + DaVinci Resolve AI Editing & Motion Graphics Director inside Kinetix Studio.
-Convert the user's request into a precise JSON plan of editing actions that the studio executes immediately on the timeline.
+    const systemInstruction = `You are the Kinetix Studio AI Editing Director. Produce a precise JSON plan that the editor executes on its real timeline.
+Choose only actions supported by the schema: add_layer, add_camera, add_light, add_effect, apply_preset, set_transform_3d, set_mask, add_transition, set_color_grade.
+For a new title, graphic, camera or light, use add_layer/add_camera/add_light. For a selected layer's effect use add_effect. For pivot/position or rotation edits use set_transform_3d. For masks use set_mask. For cuts between adjacent visual clips on the same track use add_transition. For color work use set_color_grade.
+If a user asks for a transition but no adjacent cut is in the selected context, add a useful title or effect only if the user also requested it; otherwise return an empty actions array and clearly explain that two adjacent clips are required.
 Available layer kinds: text, shape, solid, null, adjustment, camera, light, particles, visualizer, caption.
 Available effect types: blur, motionblur, glow, color, hue_sat, tint, vignette, chromatic, glitch, dropshadow, filmgrain, lensflare, wavewarp, posterize, chromakey, sharpen, pixelate, halation.
-Available presetIds (Motion Bro / Mr Horse / AEJuice packs):
-- elastic_pop_in
-- smooth_slide_in
-- flip_3d_in
-- kinetic_scale_drop
-- glitch_flicker_in
-- parallax_float
-- whip_pan_transition
-- zoom_punch_transition
-- film_burn_flash
-- hud_callout_pack
-- lower_third_pack
-- cyber_neon_title
-Keep summary concise (1-2 sentences). Return realistic positions (-400..400), scales (50..200), rotations (-180..180), and intensities (0..100).`;
+Available presetIds: elastic_pop_in, smooth_slide_in, flip_3d_in, kinetic_scale_drop, glitch_flicker_in, parallax_float, whip_pan_transition, zoom_punch_transition, film_burn_flash, hud_callout_pack, lower_third_pack, cyber_neon_title.
+Return 1-4 relevant actions, not an essay. When targeting a selected clip, use the currently selected clip rather than adding a duplicate. Positions should usually be -400..400, scale 50..200, rotation -180..180, mask geometry 0..100, exposure -5..5, contrast 50..180, saturation 0..200. Keep the summary concise.`;
 
     const userMessage = `User request: "${prompt.trim()}"
 Timeline context: playhead=${context?.playheadTime ?? 0}s, selectedClip=${context?.selectedClipName ?? 'none'} (${context?.selectedClipKind ?? 'none'}), totalClips=${context?.clipCount ?? 0}, compDuration=${context?.duration ?? 14}s.`;
@@ -156,8 +146,7 @@ Timeline context: playhead=${context?.playheadTime ?? 0}s, selectedClip=${contex
                 properties: {
                   actionType: {
                     type: Type.STRING,
-                    description:
-                      'One of: add_layer, add_effect, apply_preset, set_transform_3d, add_camera, add_light',
+                    enum: ['add_layer', 'add_effect', 'apply_preset', 'set_transform_3d', 'add_camera', 'add_light', 'set_mask', 'add_transition', 'set_color_grade'],
                   },
                   layerKind: {
                     type: Type.STRING,
@@ -183,6 +172,16 @@ Timeline context: playhead=${context?.playheadTime ?? 0}s, selectedClip=${contex
                   exposure: { type: Type.NUMBER },
                   contrast: { type: Type.NUMBER },
                   saturation: { type: Type.NUMBER },
+                  temp: { type: Type.NUMBER },
+                  tint: { type: Type.NUMBER },
+                  transitionDirection: { type: Type.STRING, enum: ['left', 'right', 'up', 'down'] },
+                  maskShape: { type: Type.STRING, enum: ['rect', 'rounded-rect', 'ellipse'] },
+                  maskX: { type: Type.NUMBER },
+                  maskY: { type: Type.NUMBER },
+                  maskWidth: { type: Type.NUMBER },
+                  maskHeight: { type: Type.NUMBER },
+                  maskFeather: { type: Type.NUMBER },
+                  maskInverted: { type: Type.BOOLEAN },
                 },
                 required: ['actionType'],
               },
@@ -197,8 +196,22 @@ Timeline context: playhead=${context?.playheadTime ?? 0}s, selectedClip=${contex
     const parsed = JSON.parse(rawText);
     res.json(parsed);
   } catch (err) {
-    console.error('AI editing request failed:', err);
-    res.status(500).json({ error: 'AI editing failed. Check the server configuration and try again.' });
+    const error = err as { status?: number; message?: string; code?: string };
+    const status = Number(error.status ?? 0);
+    console.error('AI editing request failed:', { status, code: error.code, message: error.message });
+    if (status === 401 || status === 403) {
+      res.status(502).json({ error: 'Gemini rejected this API key. Check the key in AI settings and try again.' });
+      return;
+    }
+    if (status === 429) {
+      res.status(429).json({ error: 'Gemini rate limit reached. Wait briefly and try again.' });
+      return;
+    }
+    if (status === 400) {
+      res.status(502).json({ error: 'Gemini could not process the edit plan. Try a shorter, more specific instruction.' });
+      return;
+    }
+    res.status(502).json({ error: 'AI editing service failed. Check your internet connection, Gemini key access and model availability.' });
   }
 });
 
