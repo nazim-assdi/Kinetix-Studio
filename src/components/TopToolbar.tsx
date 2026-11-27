@@ -46,6 +46,7 @@ interface TopToolbarProps {
   onQuickAddLayer: (kind: MediaKind, shapeType?: ShapeLayerProps['shapeType']) => void;
   onSaveProject: () => void;
   onOpenProjectManager: () => void;
+  onNewSequence: () => void;
   onExportProjectFile: () => void;
   onLoadProjectFile: (file: File) => void;
   saveBadgeText?: string | null;
@@ -74,6 +75,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onQuickAddLayer,
   onSaveProject,
   onOpenProjectManager,
+  onNewSequence,
   onExportProjectFile,
   onLoadProjectFile,
   saveBadgeText,
@@ -197,6 +199,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             <button type="button" onClick={() => setOpenMenu((m) => m === 'file' ? null : 'file')} aria-expanded={openMenu === 'file'} className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${openMenu === 'file' ? 'bg-[#303642] text-white' : 'text-[#C8CDD6] hover:bg-[#252932] hover:text-white'}`}>File</button>
             {openMenu === 'file' && (
               <div role="menu" aria-label="File Menu" className="absolute left-0 top-full mt-1 w-64 max-h-[70vh] overflow-y-auto rounded-md border border-[#303744] bg-[#181A1F] p-1.5 shadow-2xl z-[200]">
+                <button type="button" role="menuitem" onClick={() => { onNewSequence(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Film className="h-3.5 w-3.5 text-[#60A5FA]" />New Sequence…</button>
                 <button type="button" role="menuitem" onClick={() => { onSaveProject(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><Save className="h-3.5 w-3.5 text-[#14B8A6]" />Save Project</button>
                 <button type="button" role="menuitem" onClick={() => { onOpenProjectManager(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FolderUp className="h-3.5 w-3.5 text-[#60A5FA]" />Project Manager / Folders</button>
                 <button type="button" role="menuitem" onClick={() => { loadInputRef.current?.click(); setOpenMenu(null); }} className="w-full flex items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-[#E6E8EC] hover:bg-[#252B35]"><FolderUp className="h-3.5 w-3.5 text-[#60A5FA]" />Import Project File (.kinetix.json)</button>
