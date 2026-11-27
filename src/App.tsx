@@ -73,6 +73,7 @@ import { TimelinePanel } from './components/TimelinePanel';
 import { ExportModal } from './components/ExportModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { BezierGraphEditorModal } from './components/BezierGraphEditorModal';
+import { SequenceSetupModal } from './components/SequenceSetupModal';
 
 const AUTOSAVE_KEY = 'kinetix_studio_autosave_v1';
 
@@ -251,6 +252,7 @@ export default function App() {
     catch { return true; }
   });
   const [projectStorageReady, setProjectStorageReady] = useState(false);
+  const [sequenceSetupOpen, setSequenceSetupOpen] = useState(false);
   const [tool, setTool] = useState<ToolMode>('select');
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [loopEnabled, setLoopEnabled] = useState(true);
@@ -289,6 +291,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let restoredExistingProject = false;
     void loadProjectFromIndexedDb()
       .then((stored) => {
         if (
@@ -304,6 +307,7 @@ export default function App() {
         const localTime = Date.parse(initialSave?.savedAt || '');
         if (initialSave && Number.isFinite(localTime) && storedTime < localTime) return;
 
+        restoredExistingProject = true;
         const restored = restoreProjectMedia(stored);
         setComposition(restored.composition);
         setAssets(restored.assets ?? INITIAL_ASSETS);
@@ -317,7 +321,10 @@ export default function App() {
         console.warn('Kinetix Studio autosave could not be restored:', error);
       })
       .finally(() => {
-        if (!cancelled) setProjectStorageReady(true);
+        if (!cancelled) {
+          setProjectStorageReady(true);
+          if (!initialSave && !restoredExistingProject) setSequenceSetupOpen(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -2316,7 +2323,20 @@ export default function App() {
         return;
       }
 
-      if (e.code === 'Space') {
+      const modifier = e.ctrlKey || e.metaKey;
+      if (modifier && e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setSequenceSetupOpen(true);
+      } else if (modifier && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setExportOpen(true);
+      } else if (modifier && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void handleSaveProject();
+      } else if (modifier && !e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        setProjectManagerOpen(true);
+      } else if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying((p) => !p);
       } else if (e.key === 'v' || e.key === 'V') {
@@ -2393,6 +2413,26 @@ export default function App() {
     [updateClipById]
   );
 
+  const handleCreateSequence = (settings: CompositionSettings) => {
+    setComposition(settings);
+    setAssets([]);
+    setTracks(INITIAL_TRACKS.map((track) => ({ ...track })));
+    setClips([]);
+    setMarkers([]);
+    setWorkArea({ enabled: false, inTime: 0, outTime: settings.duration });
+    setPlayheadTime(0);
+    setSelectedClipId(null);
+    setSelectedClipIds([]);
+    setCurrentProjectId(null);
+    setCurrentProjectName(settings.name);
+    setCurrentProjectFolder('My Projects');
+    try { window.localStorage.removeItem('kinetix_current_project_id_v1'); } catch { /* optional */ }
+    setProjectManagerOpen(false);
+    setSequenceSetupOpen(false);
+    setSaveBadgeText('Sequence Created');
+    window.setTimeout(() => setSaveBadgeText(null), 1800);
+  };
+
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
 
   return (
@@ -2415,6 +2455,7 @@ export default function App() {
         onQuickAddLayer={handleQuickAddLayer}
         onSaveProject={handleSaveProject}
         onOpenProjectManager={() => setProjectManagerOpen(true)}
+        onNewSequence={() => setSequenceSetupOpen(true)}
         onLoadProjectFile={handleLoadProjectFile}
         saveBadgeText={saveBadgeText}
         onOpenExport={() => {
@@ -2820,6 +2861,12 @@ export default function App() {
           )
         }
         panelHeight={timelineHeight}
+      />
+
+      <SequenceSetupModal
+        isOpen={sequenceSetupOpen}
+        initialValue={composition}
+        onCreate={handleCreateSequence}
       />
 
       <BezierGraphEditorModal
