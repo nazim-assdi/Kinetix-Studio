@@ -34,6 +34,7 @@ import {
 import {
   ColorWheelGrade,
   EffectType,
+  FusionGraph,
   LeftDockTab,
   MotionPresetItem,
   MotionTrackData,
@@ -98,6 +99,8 @@ interface ProjectBinPanelProps {
   ) => void;
   onRunAiPrompt: (prompt: string) => Promise<{ summary: string }>;
   onApplyMotionCreatorCurve: (bezier: [number, number, number, number]) => void;
+  onUpdateFusionGraph: (clipId: string, graph: FusionGraph) => void;
+  onAdd3DLayer: (kind: 'camera' | 'light') => void;
   panelWidth?: number;
   onSwapDockPanels?: () => void;
 }
@@ -132,6 +135,8 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   onUpdateCaptions,
   onRunAiPrompt,
   onApplyMotionCreatorCurve,
+  onUpdateFusionGraph,
+  onAdd3DLayer,
   panelWidth = 320,
   onSwapDockPanels,
 }) => {
@@ -643,6 +648,8 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
         {activeTab === 'fusion' && (
           <FusionNodesPanel
             selectedClip={selectedClip}
+            onUpdateGraph={onUpdateFusionGraph}
+            onAdd3DLayer={onAdd3DLayer}
             onAddEffect={(clipId, fxType) => {
               onApplyEffectToSelected(fxType);
             }}

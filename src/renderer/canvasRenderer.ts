@@ -505,11 +505,14 @@ function buildFilterString(
       (colorGrade.shadows ?? 0) * 0.2;
     const curveContrast =
       colorGrade.contrast + ((colorGrade.highlights ?? 0) - (colorGrade.shadows ?? 0)) * 0.35;
+    const exposureMultiplier = Math.pow(2, Math.max(-5, Math.min(5, colorGrade.exposureStops ?? 0)));
+    const saturation = Math.max(0, Math.min(300, colorGrade.saturation + (colorGrade.vibrance ?? 0) * 0.55 + (colorGrade.colorBoost ?? 0) * 0.35));
+    const tempShift = (colorGrade.temp ?? 0) * 0.035;
+    const tintShift = (colorGrade.tint ?? 0) * -0.025;
+    const pivot = Math.max(0.1, Math.min(0.9, colorGrade.pivot ?? 0.5));
+    const pivotContrast = 100 + (0.5 - pivot) * 22;
     filters.push(
-      `brightness(${Math.max(20, Math.round(lumaShift))}%) contrast(${Math.max(
-        40,
-        Math.round(curveContrast)
-      )}%) saturate(${Math.round(colorGrade.saturation)}%)`
+      `brightness(${Math.max(8, Math.min(800, Math.round(lumaShift * exposureMultiplier)))}%) contrast(${Math.max(40, Math.round(curveContrast + pivotContrast - 100))}%) saturate(${Math.round(saturation)}%) hue-rotate(${Math.round((colorGrade.hue ?? 0) + tempShift + tintShift)}deg)`
     );
   }
 
@@ -633,6 +636,30 @@ function applyDaVinciToneOverlay(
     ctx.globalCompositeOperation = 'soft-light';
     ctx.globalAlpha = gainStrength;
     ctx.fillStyle = `rgb(${gainR}, ${gainG}, ${gainB})`;
+    ctx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
+    ctx.restore();
+  }
+
+  const offset = grade.offset ?? { r: 0, g: 0, b: 0, luma: 0 };
+  const offsetStrength = Math.min(0.32, (Math.hypot(offset.r, offset.g, offset.b) + Math.abs(offset.luma) / 100) * 0.25);
+  if (offsetStrength > 0.005) {
+    const r = Math.max(0, Math.min(255, Math.round(128 + offset.r * 115 + offset.luma * 0.7)));
+    const g = Math.max(0, Math.min(255, Math.round(128 + offset.g * 115 + offset.luma * 0.7)));
+    const b = Math.max(0, Math.min(255, Math.round(128 + offset.b * 115 + offset.luma * 0.7)));
+    ctx.save();
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha = offsetStrength;
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
+    ctx.restore();
+  }
+
+  const detail = Math.max(-100, Math.min(100, grade.midtoneDetail ?? 0));
+  if (Math.abs(detail) > 1) {
+    ctx.save();
+    ctx.globalCompositeOperation = detail > 0 ? 'overlay' : 'soft-light';
+    ctx.globalAlpha = Math.abs(detail) / 700;
+    ctx.fillStyle = detail > 0 ? '#FFFFFF' : '#808080';
     ctx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
     ctx.restore();
   }
