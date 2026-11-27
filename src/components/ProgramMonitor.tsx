@@ -466,6 +466,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         let maskControlHit = false;
         if (c.id === selectedClipId && c.mask?.enabled && (tool === 'select' || tool === 'pin' || tool === 'mask')) {
           const mask = c.mask;
+          const maskLocalX = localX / (effScaleX || 1);
+          const maskLocalY = localY / (effScaleY || 1);
           const mx = (mask.x / 100) * composition.width;
           const my = (mask.y / 100) * composition.height;
           const mw = (mask.width / 100) * composition.width;
@@ -477,8 +479,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             { x: -1, y: 1 }, { x: -1, y: 0 },
           ];
           maskControlHit = maskHandles.some((handle) =>
-            Math.hypot(localX - (mx + handle.x * mw / 2), localY - (my + handle.y * mh / 2)) <= handleRadius
-          ) || (Math.abs(localX - mx) <= mw / 2 && Math.abs(localY - my) <= mh / 2);
+            Math.hypot(maskLocalX - (mx + handle.x * mw / 2), maskLocalY - (my + handle.y * mh / 2)) <= handleRadius
+          ) || (Math.abs(maskLocalX - mx) <= mw / 2 && Math.abs(maskLocalY - my) <= mh / 2);
         }
         let isInside =
           (Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding) ||
@@ -544,8 +546,10 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         feather: 0, inverted: false, opacity: 100,
       };
       const mask = { ...originalMask, enabled: true };
-      const mx = (mask.x / 100) * composition.width - composition.width / 2;
-      const my = (mask.y / 100) * composition.height - composition.height / 2;
+      const layerLocalX = localX / (layerScaleX || 1);
+      const layerLocalY = localY / (layerScaleY || 1);
+      const mx = (mask.x / 100) * composition.width;
+      const my = (mask.y / 100) * composition.height;
       const mw = (mask.width / 100) * composition.width;
       const mh = (mask.height / 100) * composition.height;
       const signs = [
@@ -555,10 +559,10 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       ];
       const radius = 18 / Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
       const handle = signs.find((sign) =>
-        Math.hypot(localX - (mx + sign.x * mw / 2), localY - (my + sign.y * mh / 2)) <= radius
+        Math.hypot(layerLocalX - (mx + sign.x * mw / 2), localY - (my + sign.y * mh / 2)) <= radius
       );
-      const dxMask = Math.abs(localX - mx);
-      const dyMask = Math.abs(localY - my);
+      const dxMask = Math.abs(layerLocalX - mx);
+      const dyMask = Math.abs(layerLocalY - my);
       const inside = mask.shape === 'ellipse'
         ? ((dxMask / Math.max(1, mw / 2)) ** 2 + (dyMask / Math.max(1, mh / 2)) ** 2) <= 1
         : dxMask <= mw / 2 && dyMask <= mh / 2;
@@ -571,8 +575,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         const selectedMask: LayerMask = mode === 'draw-mask'
           ? {
               ...mask,
-              x: (localX / composition.width) * 100,
-              y: (localY / composition.height) * 100,
+              x: (layerLocalX / composition.width) * 100,
+              y: (layerLocalY / composition.height) * 100,
               width: 1,
               height: 1,
             }
@@ -585,8 +589,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           clipId: hitClip.id,
           startClientX: e.clientX,
           startClientY: e.clientY,
-          startLocalX: localX,
-          startLocalY: localY,
+          startLocalX: layerLocalX,
+          startLocalY: layerLocalY,
           origMask: selectedMask,
           ...(handle ? { signX: handle.x, signY: handle.y } : {}),
           rotationRad,
