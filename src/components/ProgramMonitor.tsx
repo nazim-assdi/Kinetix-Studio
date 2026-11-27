@@ -559,7 +559,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       ];
       const radius = 18 / Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
       const handle = signs.find((sign) =>
-        Math.hypot(layerLocalX - (mx + sign.x * mw / 2), localY - (my + sign.y * mh / 2)) <= radius
+        Math.hypot(layerLocalX - (mx + sign.x * mw / 2), layerLocalY - (my + sign.y * mh / 2)) <= radius
       );
       const dxMask = Math.abs(layerLocalX - mx);
       const dyMask = Math.abs(layerLocalY - my);
