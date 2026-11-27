@@ -1076,16 +1076,19 @@ export default function App() {
         };
       }));
     },
-    []
+    [tracks]
   );
 
   const handleDeleteClips = useCallback(
     (clipIds: string[]) => {
       const ids = new Set(clipIds);
-      const next = clips.filter((clip) => !ids.has(clip.id));
+      const deletableIds = new Set(clips
+        .filter((clip) => ids.has(clip.id) && !tracks.find((track) => track.id === clip.trackId)?.locked)
+        .map((clip) => clip.id));
+      const next = clips.filter((clip) => !deletableIds.has(clip.id));
       if (next.length === clips.length) return;
       commitHistory(tracks, next);
-      if (selectedClipId && ids.has(selectedClipId)) setSelectedClipId(next[0]?.id ?? null);
+      if (selectedClipId && deletableIds.has(selectedClipId)) setSelectedClipId(next[0]?.id ?? null);
     },
     [clips, tracks, selectedClipId, commitHistory]
   );
@@ -1094,7 +1097,9 @@ export default function App() {
     (clipIds: string[], speed: number) => {
       const ids = new Set(clipIds);
       const boundedSpeed = Math.max(0.1, Math.min(8, speed));
-      const next = clips.map((clip) => ids.has(clip.id) ? { ...clip, speed: boundedSpeed } : clip);
+      const next = clips.map((clip) => ids.has(clip.id) && !tracks.find((track) => track.id === clip.trackId)?.locked
+        ? { ...clip, speed: boundedSpeed }
+        : clip);
       commitHistory(tracks, next);
       setSaveBadgeText(`Speed set to ${boundedSpeed}×`);
       window.setTimeout(() => setSaveBadgeText(null), 1600);
