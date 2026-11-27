@@ -2270,6 +2270,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       targetCtx.beginPath();
       if (clip.mask.shape === 'ellipse') {
         targetCtx.ellipse(mx, my, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+      } else if (clip.mask.shape === 'rounded-rect') {
+        const radius = Math.max(4, Math.min(mw, mh) * 0.14);
+        targetCtx.roundRect(mx - mw / 2, my - mh / 2, mw, mh, radius);
       } else {
         targetCtx.rect(mx - mw / 2, my - mh / 2, mw, mh);
       }
