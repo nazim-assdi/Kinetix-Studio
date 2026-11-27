@@ -152,7 +152,7 @@ test('CUBE LUT parser validates sample count and trilinear sampler preserves ide
     '1 0 1',
     '0 1 1',
     '1 1 1',
-  ].join('\\n');
+  ].join('\n');
   const lut = parseCubeLut(identityCube, 'identity.cube');
   assert.equal(lut.name, 'Identity');
   assert.equal(lut.size, 2);
@@ -160,7 +160,7 @@ test('CUBE LUT parser validates sample count and trilinear sampler preserves ide
   assert.ok(Math.abs(midpoint[0] - 0.25) < 1e-9);
   assert.ok(Math.abs(midpoint[1] - 0.5) < 1e-9);
   assert.ok(Math.abs(midpoint[2] - 0.75) < 1e-9);
-  assert.throws(() => parseCubeLut('LUT_3D_SIZE 3\\n0 0 0'), /Expected 27 LUT samples/);
+  assert.throws(() => parseCubeLut('LUT_3D_SIZE 3\n0 0 0'), /Expected 27 LUT samples/);
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {
