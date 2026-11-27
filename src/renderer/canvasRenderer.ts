@@ -2193,12 +2193,17 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       if (!ignoreBlendMode) {
         targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
       }
-      // Camera sits on negative Z and looks toward +Z; negative local depth
-      // extends a shape towards the camera, leaving the texture on its front face.
-      const shapeDepth = clip.kind === 'shape'
-        ? -Math.max(0, clip.shapeProps?.depth ?? 0)
+      // Camera sits on negative Z and looks toward +Z; negative local depth extends
+      // the front surface toward the camera. Side faces use a positive depth magnitude.
+      const shapeExtrusion = clip.kind === 'shape'
+        ? Math.max(0, Math.min(2000, clip.shapeProps?.depth ?? 0))
         : 0;
-      if (clip.kind === 'shape' && shapeDepth > 0) {
+      const textExtrusion = clip.kind === 'text'
+        ? Math.max(0, Math.min(120, clip.textProps?.extrusionDepth ?? 0))
+        : 0;
+      const planeDepth = -(shapeExtrusion || textExtrusion);
+
+      if (clip.kind === 'shape' && shapeExtrusion > 0) {
         drawExtrudedShapeSides(
           targetCtx,
           world,
@@ -2211,9 +2216,23 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           height,
           ax,
           ay,
-          shapeDepth
+          shapeExtrusion
         );
       }
+
+      // Text glyphs are kept as editable raster text on a perspective 3D plane.
+      // A small stack of depth slices gives the title a visible solid body instead of a flat card.
+      if (clip.kind === 'text' && textExtrusion > 0) {
+        const depthSlices = Math.min(5, Math.max(2, Math.ceil(textExtrusion / 20)));
+        for (let slice = 0; slice < depthSlices; slice++) {
+          const sliceDepth = -(textExtrusion * (slice / depthSlices));
+          drawPerspectiveLayerPlane(
+            targetCtx, layerTexture, world, activeCamera, clips, playheadTime,
+            width, height, baseW, baseH, ax, ay, activeCameraView, sliceDepth
+          );
+        }
+      }
+
       drawPerspectiveLayerPlane(
         targetCtx,
         layerTexture,
@@ -2228,7 +2247,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         ax,
         ay,
         activeCameraView,
-        shapeDepth
+        planeDepth
       );
       targetCtx.restore();
     } else {
