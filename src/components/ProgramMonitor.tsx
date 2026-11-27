@@ -510,8 +510,10 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
               activeCameraView
             )
           );
-          isInside = projectedCorners.every((point) => point.visible) &&
-            pointInProjectedQuad(compX, compY, projectedCorners);
+          isInside = maskControlHit || (
+            projectedCorners.every((point) => point.visible) &&
+            pointInProjectedQuad(compX, compY, projectedCorners)
+          );
         }
 
         if (isInside) {
