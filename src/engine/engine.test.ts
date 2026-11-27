@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
+import { createTimelineTransition, findAdjacentOutgoingClip, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
   evaluateClipTransform,
@@ -82,6 +83,34 @@ function makeClip(overrides: Partial<TimelineClip> = {}): TimelineClip {
     ...overrides,
   };
 }
+
+
+test('edit-point transitions resolve only adjacent clips on the same track', () => {
+  const outgoing = makeClip({ id: 'outgoing', trackId: 'track_v1', start: 0, duration: 3 });
+  const incoming = makeClip({ id: 'incoming', trackId: 'track_v1', start: 3, duration: 4 });
+  const wrongTrack = makeClip({ id: 'wrong-track', trackId: 'track_v2', start: 3, duration: 2 });
+  assert.equal(findAdjacentOutgoingClip([outgoing, incoming, wrongTrack], incoming, 30)?.id, 'outgoing');
+  assert.equal(resolveTransitionPairForClip([outgoing, incoming], outgoing, 30)?.incoming.id, 'incoming');
+  const separatedIncoming = { ...incoming, start: 3.2 };
+  assert.equal(findAdjacentOutgoingClip([outgoing, separatedIncoming], separatedIncoming, 30), null);
+});
+
+test('transition preset maps to a real edit-point style and computes centered progress', () => {
+  const transition = createTimelineTransition({
+    id: 'mega_tr_test',
+    name: 'Cyber Glitch Cut · From Left · Medium',
+    vendor: 'FX',
+    category: 'Transition',
+    description: 'test transition',
+    accentColor: '#F43F5E',
+    motionVariant: { direction: 'left', duration: 0.6, intensity: 1 },
+  }, 30);
+  assert.equal(transition.style, 'wipe');
+  assert.equal(transition.duration, 0.6);
+  assert.equal(getTransitionProgress(transition, 5, 4.7), 0);
+  assert.ok(Math.abs(getTransitionProgress(transition, 5, 5) - 0.5) < 1e-9);
+  assert.equal(getTransitionProgress(transition, 5, 5.3), 1);
+});
 
 test('SMPTE timecode formats 30fps accurately', () => {
   assert.equal(formatTimecode(0, 30), '00:00:00:00');
@@ -188,6 +217,24 @@ test('splitClipAtTime splits clip and preserves 3D keyframes', () => {
   const [left, right] = result;
   assert.equal(evaluateClipTransform(left, 3).rotationY, 45);
   assert.equal(evaluateClipTransform(right, 3).rotationY, 45);
+});
+
+test('splitting a clip keeps its incoming transition only on the original left segment', () => {
+  const incomingTransition = {
+    id: 'transition_existing',
+    presetId: 'crossfade',
+    name: 'Cross Dissolve',
+    style: 'cross-dissolve' as const,
+    direction: 'left' as const,
+    duration: 0.6,
+    intensity: 1,
+  };
+  const clip = makeClip({ start: 2, duration: 6, transitionIn: incomingTransition });
+  const result = splitClipAtTime(clip, 5);
+  assert.ok(result);
+  const [left, right] = result;
+  assert.equal(left.transitionIn?.id, 'transition_existing');
+  assert.equal(right.transitionIn, undefined);
 });
 
 test('trimClipEdge adjusts right and left edges while shifting keyframes', () => {

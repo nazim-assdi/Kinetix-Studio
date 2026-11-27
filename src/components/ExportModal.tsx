@@ -165,7 +165,7 @@ async function renderFastWebM(options: {
     for (let index = 0; index < totalFrames; index++) {
       if (options.isAborted()) break;
       const time = Math.min(options.endSec, options.startSec + index / options.fps);
-      await awaitMediaReadyForFrame(options.mediaCache, options.clips, time);
+      await awaitMediaReadyForFrame(options.mediaCache, options.clips, time, options.fps);
       if (options.isAborted()) break;
       renderCompositionFrame({
         canvas: options.canvas,
@@ -505,7 +505,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   const handleSnapshotPng = async () => {
     try {
-      await awaitMediaReadyForFrame(mediaCache, clips, playheadTime);
+      await awaitMediaReadyForFrame(mediaCache, clips, playheadTime, composition.fps);
       const offscreen = document.createElement('canvas');
       offscreen.width = outW;
       offscreen.height = outH;
@@ -620,7 +620,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       for (let f = 0; f < totalFrames; f++) {
         if (abortRef.current) break;
         const t = Math.min(endSec, startSec + f / exportFps);
-        await awaitMediaReadyForFrame(mediaCache, clips, t);
+        await awaitMediaReadyForFrame(mediaCache, clips, t, exportFps);
         if (abortRef.current) break;
         audioSession?.updateAt(t);
 

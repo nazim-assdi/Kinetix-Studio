@@ -62,6 +62,7 @@ import { parseSrtSubtitles } from './engine/srt';
 import { createMediaCache } from './renderer/canvasRenderer';
 import { loadNamedProject, loadProjectFromIndexedDb, saveNamedProject, saveProjectToIndexedDb } from './engine/projectStorage';
 import { orderFusionEffectIds } from './engine/fusionGraph';
+import { createTimelineTransition, resolveTransitionPairForClip } from './engine/transitions';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { audioEngine } from './audio/audioEngine';
 import { TopToolbar } from './components/TopToolbar';
@@ -1588,6 +1589,77 @@ export default function App() {
     setSelectedClipId(clip.id);
   };
 
+
+  const handleAttachTransitionsAtEditPoint = (anchorClipIds: string[], item: MotionPresetItem) => {
+    if (item.category !== 'Transition') return;
+    let nextClips = [...clips];
+    const newAssets: ProjectAsset[] = [];
+    const newAudioClips: TimelineClip[] = [];
+    const handledIncomingIds = new Set<string>();
+    let firstIncomingId: string | null = null;
+    let appliedCount = 0;
+
+    for (const anchorId of anchorClipIds) {
+      const anchor = nextClips.find((clip) => clip.id === anchorId);
+      if (!anchor) continue;
+      const track = tracks.find((candidate) => candidate.id === anchor.trackId);
+      if (!track || track.kind !== 'video' || track.locked) continue;
+
+      const pair = resolveTransitionPairForClip(nextClips, anchor, composition.fps);
+      if (!pair || handledIncomingIds.has(pair.incoming.id)) continue;
+      if (tracks.find((candidate) => candidate.id === pair.incoming.trackId)?.locked) continue;
+
+      const baseTransition = createTimelineTransition(item, composition.fps);
+      const duration = Math.min(baseTransition.duration, pair.outgoing.duration, pair.incoming.duration);
+      if (duration < 2 / Math.max(1, composition.fps) - 0.0001) continue;
+
+      const transition = { ...baseTransition, duration };
+      nextClips = nextClips.map((clip) =>
+        clip.id === pair.incoming.id ? { ...clip, transitionIn: transition } : clip
+      );
+      handledIncomingIds.add(pair.incoming.id);
+      firstIncomingId ??= pair.incoming.id;
+      appliedCount++;
+
+      if (item.sfxPreset) {
+        const cutTime = pair.incoming.start;
+        const alreadyExists = nextClips.some((clip) =>
+          clip.kind === 'audio' &&
+          clip.synthPreset === item.sfxPreset &&
+          Math.abs(clip.start - cutTime) < 0.25
+        );
+        if (!alreadyExists) {
+          const asset: ProjectAsset = {
+            id: `asset_transition_sfx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: `${item.name} · SFX`,
+            kind: 'audio',
+            duration: 0.75,
+            synthPreset: item.sfxPreset,
+            waveform: generateWaveformPeaks(Math.random() * 9, 48),
+          };
+          const audioTrack = tracks.find((candidate) => candidate.kind === 'audio');
+          const sfxClip = buildClipFromAsset(asset, audioTrack?.id, Math.max(0, cutTime - 0.15));
+          if (sfxClip) {
+            newAssets.push(asset);
+            newAudioClips.push(sfxClip);
+          }
+        }
+      }
+    }
+
+    if (appliedCount === 0) {
+      setSaveBadgeText('Place two clips edge-to-edge on the same unlocked video track');
+      window.setTimeout(() => setSaveBadgeText(null), 2400);
+      return;
+    }
+
+    if (newAssets.length) setAssets((previous) => [...newAssets, ...previous]);
+    commitHistory(tracks, [...nextClips, ...newAudioClips]);
+    setSelectedClipId(firstIncomingId);
+    setSaveBadgeText(appliedCount === 1 ? 'Transition added at edit point' : `${appliedCount} edit-point transitions added`);
+    window.setTimeout(() => setSaveBadgeText(null), 1800);
+  };
+
   // Apply any item from 1000+ Mega Catalog (Presets, Transitions w/ SFX, Live Shaders, DaVinci LUTs)
   const handleApplyCatalogPreset = (
     item: MotionPresetItem,
@@ -1671,50 +1743,12 @@ export default function App() {
     }
 
     if (item.category === 'Transition') {
-      if (!targetClip) return;
-      if (targetClip.appliedPresetIds?.includes(item.id)) {
-        setSelectedClipId(targetClip.id);
-        setSaveBadgeText('Transition already applied');
+      if (!targetClip) {
+        setSaveBadgeText('Select a cut or drag the transition onto a clip join');
         window.setTimeout(() => setSaveBadgeText(null), 1800);
         return;
       }
-
-      const baseId = item.basePresetId || item.id;
-      let nextClips = clips.map((clip) => {
-        if (clip.id !== targetClip.id) return clip;
-        const animated = applyCatalogMotionVariant(applyMotionPresetToClip(clip, baseId), item.motionVariant);
-        return {
-          ...animated,
-          appliedPresetIds: [...(clip.appliedPresetIds ?? []), item.id],
-        };
-      });
-
-      if (item.sfxPreset) {
-        const sfxAlreadyExists = clips.some((clip) =>
-          clip.kind === 'audio' &&
-          clip.synthPreset === item.sfxPreset &&
-          Math.abs(clip.start - targetClip.start) < 0.25
-        );
-        if (!sfxAlreadyExists) {
-          const sfxAsset: ProjectAsset = {
-            id: `asset_sfx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            name: `${item.name} · SFX`,
-            kind: 'audio',
-            duration: 0.75,
-            synthPreset: item.sfxPreset,
-            waveform: generateWaveformPeaks(Math.random() * 9, 48),
-          };
-          const audioTrack = tracks.find((track) => track.kind === 'audio');
-          const sfxClip = buildClipFromAsset(sfxAsset, audioTrack?.id, targetClip.start);
-          if (sfxClip) {
-            setAssets((previous) => [sfxAsset, ...previous]);
-            nextClips = [...nextClips, sfxClip];
-          }
-        }
-      }
-
-      commitHistory(tracks, nextClips);
-      setSelectedClipId(targetClip.id);
+      handleAttachTransitionsAtEditPoint([targetClip.id], item);
       return;
     }
 
@@ -1779,45 +1813,7 @@ export default function App() {
     }
 
     if (item.category === 'Transition') {
-      const baseId = item.basePresetId || item.id;
-      let changed = false;
-      const next = clips.map((clip) => {
-        if (!targetIds.includes(clip.id) || clip.appliedPresetIds?.includes(item.id)) return clip;
-        changed = true;
-        const animated = applyCatalogMotionVariant(applyMotionPresetToClip(clip, baseId), item.motionVariant);
-        return { ...animated, appliedPresetIds: [...(clip.appliedPresetIds ?? []), item.id] };
-      });
-      if (!changed) {
-        setSaveBadgeText('Transition already applied');
-        window.setTimeout(() => setSaveBadgeText(null), 1600);
-        return;
-      }
-
-      const newAssets: ProjectAsset[] = [];
-      const newSfxClips: TimelineClip[] = [];
-      if (item.sfxPreset) {
-        const audioTrack = tracks.find((track) => track.kind === 'audio');
-        for (const target of clips.filter((clip) => targetIds.includes(clip.id))) {
-          const exists = clips.some((clip) => clip.kind === 'audio' && clip.synthPreset === item.sfxPreset && Math.abs(clip.start - target.start) < 0.25);
-          if (exists) continue;
-          const asset: ProjectAsset = {
-            id: `asset_transition_sfx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            name: `${item.name} · SFX`,
-            kind: 'audio',
-            duration: 0.75,
-            synthPreset: item.sfxPreset,
-            waveform: generateWaveformPeaks(Math.random() * 9, 48),
-          };
-          const sfxClip = buildClipFromAsset(asset, audioTrack?.id, target.start);
-          if (sfxClip) {
-            newAssets.push(asset);
-            newSfxClips.push(sfxClip);
-          }
-        }
-      }
-      if (newAssets.length) setAssets((previous) => [...newAssets, ...previous]);
-      commitHistory(tracks, [...next, ...newSfxClips]);
-      setSelectedClipId(targetIds[0]);
+      handleAttachTransitionsAtEditPoint(targetIds, item);
       return;
     }
 
@@ -2801,6 +2797,7 @@ export default function App() {
         onDropEffectToSelection={handleAddEffectToClips}
         onDropPreset={(clipId, item) => handleApplyCatalogPreset(item, clipId)}
         onDropPresetToSelection={handleApplyCatalogPresetToClips}
+        onDropTransitionAtEditPoint={(incomingClipId, item) => handleAttachTransitionsAtEditPoint([incomingClipId], item)}
         onMoveKeyframe={handleMoveKeyframe}
         onDeleteKeyframe={handleDeleteKeyframe}
         onAddVoiceover={handleAddVoiceoverFile}

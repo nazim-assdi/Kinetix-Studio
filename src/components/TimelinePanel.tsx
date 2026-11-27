@@ -13,6 +13,7 @@ import {
   VolumeX,
   Bookmark,
   Trash2,
+  ArrowLeftRight,
 } from 'lucide-react';
 import {
   AnimatableProperty,
@@ -75,6 +76,7 @@ interface TimelinePanelProps {
   onDropEffectToSelection?: (clipIds: string[], effectType: EffectType) => void;
   onDropPreset?: (clipId: string, item: MotionPresetItem) => void;
   onDropPresetToSelection?: (clipIds: string[], item: MotionPresetItem) => void;
+  onDropTransitionAtEditPoint?: (incomingClipId: string, item: MotionPresetItem) => void;
   onMoveClips?: (clipIds: string[], deltaTime: number, primaryClipId: string, targetTrackId?: string) => void;
   onDeleteClips?: (clipIds: string[]) => void;
   onSetClipSpeed?: (clipIds: string[], speed: number) => void;
@@ -113,6 +115,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onDropEffectToSelection,
   onDropPreset,
   onDropPresetToSelection,
+  onDropTransitionAtEditPoint,
   onMoveClips,
   onDeleteClips,
   onSetClipSpeed,
@@ -764,7 +767,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
             {/* Track Lanes */}
             <div className="divide-y divide-[#20242C]">
               {tracks.map((track) => {
-                const trackClips = clips.filter((c) => c.trackId === track.id);
+                const trackClips = clips.filter((c) => c.trackId === track.id).sort((a, b) => a.start - b.start);
                 return (
                   <div
                     key={track.id}
@@ -813,8 +816,13 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                             if (presetRaw) {
                               try {
                                 const item = JSON.parse(presetRaw) as MotionPresetItem;
-                                if (onDropPresetToSelection && targetIds.length > 1) onDropPresetToSelection(targetIds, item);
-                                else targetIds.forEach((id) => onDropPreset?.(id, item));
+                                if (item.category === 'Transition' && onDropTransitionAtEditPoint) {
+                                  onDropTransitionAtEditPoint(clip.id, item);
+                                } else if (onDropPresetToSelection && targetIds.length > 1) {
+                                  onDropPresetToSelection(targetIds, item);
+                                } else {
+                                  targetIds.forEach((id) => onDropPreset?.(id, item));
+                                }
                               } catch { /* ignore invalid drag payload */ }
                             }
                           }}
@@ -951,6 +959,50 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                             title="Trim Clip Out"
                             className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/0 hover:bg-white/40 transition-colors"
                           />
+                        </div>
+                      );
+                    })}
+                    {/* A dedicated edit-point target, like an NLE transition handle. */}
+                    {trackClips.slice(1).map((incoming, index) => {
+                      const outgoing = trackClips[index];
+                      const tolerance = 1.5 / Math.max(1, composition.fps);
+                      const isVisualPair = !['audio', 'camera', 'light', 'null', 'adjustment'].includes(outgoing.kind) &&
+                        !['audio', 'camera', 'light', 'null', 'adjustment'].includes(incoming.kind);
+                      const touches = Math.abs(outgoing.start + outgoing.duration - incoming.start) <= tolerance;
+                      if (!isVisualPair || !touches) return null;
+                      const existing = incoming.transitionIn;
+                      return (
+                        <div
+                          key={`transition-drop-${incoming.id}`}
+                          data-testid={`transition-drop-${incoming.id}`}
+                          data-transition-name={existing?.name ?? ''}
+                          onDragOver={(event) => {
+                            if (Array.from(event.dataTransfer.types).includes('application/x-kinetix-preset')) {
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = 'copy';
+                            }
+                          }}
+                          onDrop={(event) => {
+                            const raw = event.dataTransfer.getData('application/x-kinetix-preset');
+                            if (!raw) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            try {
+                              const item = JSON.parse(raw) as MotionPresetItem;
+                              if (item.category === 'Transition' && !track.locked) {
+                                onDropTransitionAtEditPoint?.(incoming.id, item);
+                              }
+                            } catch { /* ignore invalid drag payload */ }
+                          }}
+                          title={existing ? `${existing.name} · drop another transition to replace · ${existing.duration.toFixed(2)}s` : 'Drop a transition here between these two clips'}
+                          style={{
+                            left: incoming.start * pxPerSecond - 12,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                          }}
+                          className={`absolute z-20 w-6 h-6 rounded-md border shadow-lg flex items-center justify-center cursor-copy transition-colors ${existing ? 'bg-[#7C3AED] border-[#C4B5FD] text-white' : 'bg-[#25203A] border-[#A78BFA]/80 text-[#DDD6FE] hover:bg-[#7C3AED] hover:text-white'} ${track.locked ? 'opacity-40 pointer-events-none' : ''}`}
+                        >
+                          <ArrowLeftRight className="w-3.5 h-3.5" />
                         </div>
                       );
                     })}

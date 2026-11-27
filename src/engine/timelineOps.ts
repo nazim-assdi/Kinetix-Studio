@@ -247,6 +247,9 @@ export function splitClipAtTime(
       id: `${fx.id}_r`,
       params: { ...fx.params },
     })),
+    // A transition belongs to the clip's original incoming edge, not to a cut
+    // introduced later inside that clip.
+    transitionIn: undefined,
     fadeIn: Math.min(clip.fadeIn, rightDuration),
   };
 

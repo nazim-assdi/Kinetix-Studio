@@ -437,6 +437,8 @@ export interface TimelineClip {
   synthPreset?: SynthPreset;
   /** Catalog preset IDs already applied to this clip; prevents accidental duplicate transitions. */
   appliedPresetIds?: string[];
+  /** Edit-point transition attached to this clip's incoming cut. */
+  transitionIn?: TimelineTransition;
   colorLabel: string;
 }
 
@@ -456,6 +458,19 @@ export interface TimelineTrack {
   eqMid?: number; // -12 .. +12 dB
   eqHigh?: number; // -12 .. +12 dB
   compressor?: boolean;
+}
+
+export type TimelineTransitionStyle = 'cross-dissolve' | 'dip-black' | 'dip-white' | 'wipe' | 'push' | 'zoom';
+export type TimelineTransitionDirection = 'left' | 'right' | 'up' | 'down';
+
+export interface TimelineTransition {
+  id: string;
+  presetId: string;
+  name: string;
+  style: TimelineTransitionStyle;
+  direction: TimelineTransitionDirection;
+  duration: number;
+  intensity: number;
 }
 
 export interface TimelineMarker {
