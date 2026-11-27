@@ -9,6 +9,7 @@ import {
   TimelineTrack,
   ToolMode,
   ViewportCameraAngle,
+  ViewportOrbitState,
 } from '../types/editor';
 import {
   applyLumaMatteToPixels,
@@ -1091,6 +1092,9 @@ export interface RenderOptions {
   onMediaLoaded?: () => void;
   drawGizmo?: boolean;
   activeTool?: ToolMode;
+  /** Preview backing-store scale; capped to avoid excessive GPU/CPU memory use. */
+  renderScale?: number;
+  viewportOrbit?: ViewportOrbitState;
 }
 
 export interface BoundingBox {
@@ -1110,34 +1114,33 @@ function renderOrthographic3DView(
   tracks: TimelineTrack[],
   clips: TimelineClip[],
   playheadTime: number,
-  selectedClipId: string | null
+  selectedClipId: string | null,
+  orbit: ViewportOrbitState = { yaw: 34, pitch: 24, zoom: 1, panX: 0, panY: 0 }
 ) {
   ctx.fillStyle = '#0D0F14';
   ctx.fillRect(0, 0, width, height);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  // Fine grid plus stronger major divisions for precise scene navigation.
   ctx.lineWidth = 1;
-  const step = 64;
-  for (let x = 0; x < width; x += step) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
+  const step = 32;
+  for (let x = 0; x <= width; x += step) {
+    const major = Math.abs(x - width / 2) % 256 === 0;
+    ctx.strokeStyle = major ? 'rgba(148,163,184,0.16)' : 'rgba(255,255,255,0.045)';
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
   }
-  for (let y = 0; y < height; y += step) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.stroke();
+  for (let y = 0; y <= height; y += step) {
+    const major = Math.abs(y - height / 2) % 256 === 0;
+    ctx.strokeStyle = major ? 'rgba(148,163,184,0.16)' : 'rgba(255,255,255,0.045)';
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
   }
-
-  ctx.strokeStyle = 'rgba(59, 130, 246, 0.35)';
-  ctx.beginPath();
-  ctx.moveTo(width / 2, 0);
-  ctx.lineTo(width / 2, height);
-  ctx.moveTo(0, height / 2);
-  ctx.lineTo(width, height / 2);
-  ctx.stroke();
+  // World origin axes: X red, Y green, Z blue.
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = 'rgba(248,113,113,0.72)';
+  ctx.beginPath(); ctx.moveTo(0, height / 2); ctx.lineTo(width, height / 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(74,222,128,0.72)';
+  ctx.beginPath(); ctx.moveTo(width / 2, 0); ctx.lineTo(width / 2, height); ctx.stroke();
+  ctx.fillStyle = '#FCA5A5'; ctx.font = '600 11px "JetBrains Mono", monospace'; ctx.fillText('X', width - 18, height / 2 - 8);
+  ctx.fillStyle = '#86EFAC'; ctx.fillText('Y', width / 2 + 8, 16);
 
   const activeTracks = new Set(
     tracks.filter((track) => track.kind === 'video' && track.visible).map((track) => track.id)
@@ -1151,6 +1154,21 @@ function renderOrthographic3DView(
   const scale = 0.42;
 
   const projectPoint = (point: { x: number; y: number; z: number }) => {
+    if (angle === 'orbit') {
+      const yaw = (orbit.yaw * Math.PI) / 180;
+      const pitch = (Math.max(-82, Math.min(82, orbit.pitch)) * Math.PI) / 180;
+      const dx = point.x - orbit.panX;
+      const dy = point.y - orbit.panY;
+      const dz = point.z;
+      const yawX = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+      const yawZ = dx * Math.sin(yaw) + dz * Math.cos(yaw);
+      const pitchY = dy * Math.cos(pitch) - yawZ * Math.sin(pitch);
+      const pitchZ = dy * Math.sin(pitch) + yawZ * Math.cos(pitch);
+      const cameraDistance = 2400;
+      const perspective = cameraDistance / Math.max(420, cameraDistance + pitchZ);
+      const orbitScale = scale * Math.max(0.2, Math.min(5, orbit.zoom)) * perspective;
+      return { x: width / 2 + yawX * orbitScale, y: height / 2 + pitchY * orbitScale };
+    }
     if (angle === 'top') {
       return { x: width / 2 + point.x * scale, y: height / 2 + point.z * scale };
     }
@@ -1294,6 +1312,40 @@ function renderOrthographic3DView(
       ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
       ctx.fillText(clip.name.slice(0, 16), labelPoint.x, labelPoint.y);
     }
+
+    if (isSelected) {
+      const axisOrigin = projectPoint(origin);
+      const axisLength = 132;
+      const axes = [
+        { label: 'X', color: '#F87171', vector: rotateVector3({ x: 1, y: 0, z: 0 }, orientation) },
+        { label: 'Y', color: '#4ADE80', vector: rotateVector3({ x: 0, y: 1, z: 0 }, orientation) },
+        { label: 'Z', color: '#60A5FA', vector: rotateVector3({ x: 0, y: 0, z: 1 }, orientation) },
+      ];
+      ctx.save();
+      ctx.lineCap = 'round';
+      axes.forEach((axis) => {
+        const end = projectPoint({
+          x: origin.x + axis.vector.x * axisLength,
+          y: origin.y + axis.vector.y * axisLength,
+          z: origin.z + axis.vector.z * axisLength,
+        });
+        ctx.strokeStyle = axis.color;
+        ctx.fillStyle = axis.color;
+        ctx.lineWidth = 2.8;
+        ctx.beginPath(); ctx.moveTo(axisOrigin.x, axisOrigin.y); ctx.lineTo(end.x, end.y); ctx.stroke();
+        const angleRad = Math.atan2(end.y - axisOrigin.y, end.x - axisOrigin.x);
+        ctx.beginPath();
+        ctx.moveTo(end.x, end.y);
+        ctx.lineTo(end.x - Math.cos(angleRad - 0.45) * 10, end.y - Math.sin(angleRad - 0.45) * 10);
+        ctx.lineTo(end.x - Math.cos(angleRad + 0.45) * 10, end.y - Math.sin(angleRad + 0.45) * 10);
+        ctx.closePath(); ctx.fill();
+        ctx.font = '700 11px "JetBrains Mono", monospace';
+        ctx.fillText(axis.label, end.x + 5, end.y - 5);
+      });
+      ctx.fillStyle = '#F8FAFC';
+      ctx.beginPath(); ctx.arc(axisOrigin.x, axisOrigin.y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
     ctx.restore();
   }
 }
@@ -1316,17 +1368,31 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     onMediaLoaded,
     drawGizmo = true,
     activeTool = 'select',
+    renderScale = 1,
+    viewportOrbit = { yaw: 34, pitch: 24, zoom: 1, panX: 0, panY: 0 },
   } = options;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
   const { width, height } = composition;
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
+  const requestedScale = Math.max(0.35, Math.min(1.5, renderScale));
+  const maxBackingPixels = 16_777_216;
+  const safeScale = Math.min(
+    requestedScale,
+    Math.sqrt(maxBackingPixels / Math.max(1, width * height)),
+    8192 / Math.max(1, width),
+    8192 / Math.max(1, height)
+  );
+  const backingWidth = Math.max(1, Math.round(width * safeScale));
+  const backingHeight = Math.max(1, Math.round(height * safeScale));
+  if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+    canvas.width = backingWidth;
+    canvas.height = backingHeight;
   }
-
+  const scaleX = canvas.width / width;
+  const scaleY = canvas.height / height;
+  ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
   if (cameraAngle !== 'active') {
@@ -1338,7 +1404,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       tracks,
       clips,
       playheadTime,
-      selectedClipId
+      selectedClipId,
+      viewportOrbit
     );
     return null;
   }
