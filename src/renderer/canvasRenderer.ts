@@ -1120,27 +1120,28 @@ function renderOrthographic3DView(
   ctx.fillStyle = '#0D0F14';
   ctx.fillRect(0, 0, width, height);
 
-  // Fine grid plus stronger major divisions for precise scene navigation.
-  ctx.lineWidth = 1;
-  const step = 32;
-  for (let x = 0; x <= width; x += step) {
-    const major = Math.abs(x - width / 2) % 256 === 0;
-    ctx.strokeStyle = major ? 'rgba(148,163,184,0.16)' : 'rgba(255,255,255,0.045)';
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+  if (angle !== 'orbit') {
+    // Fine grid plus stronger major divisions for the orthographic views.
+    ctx.lineWidth = 1;
+    const step = 32;
+    for (let x = 0; x <= width; x += step) {
+      const major = Math.abs(x - width / 2) % 256 === 0;
+      ctx.strokeStyle = major ? 'rgba(148,163,184,0.16)' : 'rgba(255,255,255,0.045)';
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+    }
+    for (let y = 0; y <= height; y += step) {
+      const major = Math.abs(y - height / 2) % 256 === 0;
+      ctx.strokeStyle = major ? 'rgba(148,163,184,0.16)' : 'rgba(255,255,255,0.045)';
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+    }
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = 'rgba(248,113,113,0.72)';
+    ctx.beginPath(); ctx.moveTo(0, height / 2); ctx.lineTo(width, height / 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(74,222,128,0.72)';
+    ctx.beginPath(); ctx.moveTo(width / 2, 0); ctx.lineTo(width / 2, height); ctx.stroke();
+    ctx.fillStyle = '#FCA5A5'; ctx.font = '600 11px "JetBrains Mono", monospace'; ctx.fillText('X', width - 18, height / 2 - 8);
+    ctx.fillStyle = '#86EFAC'; ctx.fillText('Y', width / 2 + 8, 16);
   }
-  for (let y = 0; y <= height; y += step) {
-    const major = Math.abs(y - height / 2) % 256 === 0;
-    ctx.strokeStyle = major ? 'rgba(148,163,184,0.16)' : 'rgba(255,255,255,0.045)';
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
-  }
-  // World origin axes: X red, Y green, Z blue.
-  ctx.lineWidth = 1.6;
-  ctx.strokeStyle = 'rgba(248,113,113,0.72)';
-  ctx.beginPath(); ctx.moveTo(0, height / 2); ctx.lineTo(width, height / 2); ctx.stroke();
-  ctx.strokeStyle = 'rgba(74,222,128,0.72)';
-  ctx.beginPath(); ctx.moveTo(width / 2, 0); ctx.lineTo(width / 2, height); ctx.stroke();
-  ctx.fillStyle = '#FCA5A5'; ctx.font = '600 11px "JetBrains Mono", monospace'; ctx.fillText('X', width - 18, height / 2 - 8);
-  ctx.fillStyle = '#86EFAC'; ctx.fillText('Y', width / 2 + 8, 16);
 
   const activeTracks = new Set(
     tracks.filter((track) => track.kind === 'video' && track.visible).map((track) => track.id)
@@ -1177,6 +1178,35 @@ function renderOrthographic3DView(
     }
     return { x: width / 2 + point.z * scale, y: height / 2 + point.y * scale };
   };
+
+  if (angle === 'orbit') {
+    // Perspective floor grid gives the free-orbit view an actual spatial horizon.
+    const floorY = orbit.panY + 260;
+    const extent = 1800;
+    const divisions = 24;
+    for (let index = -divisions; index <= divisions; index++) {
+      const offset = (index / divisions) * extent;
+      const major = index % 4 === 0;
+      ctx.strokeStyle = major ? 'rgba(148,163,184,0.22)' : 'rgba(148,163,184,0.09)';
+      ctx.lineWidth = major ? 1.2 : 0.7;
+      const x1 = projectPoint({ x: -extent, y: floorY, z: offset });
+      const x2 = projectPoint({ x: extent, y: floorY, z: offset });
+      const z1 = projectPoint({ x: offset, y: floorY, z: -extent });
+      const z2 = projectPoint({ x: offset, y: floorY, z: extent });
+      ctx.beginPath(); ctx.moveTo(x1.x, x1.y); ctx.lineTo(x2.x, x2.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(z1.x, z1.y); ctx.lineTo(z2.x, z2.y); ctx.stroke();
+    }
+    const axisStart = projectPoint({ x: -extent, y: floorY, z: 0 });
+    const axisEnd = projectPoint({ x: extent, y: floorY, z: 0 });
+    ctx.strokeStyle = 'rgba(248,113,113,0.85)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(axisStart.x, axisStart.y); ctx.lineTo(axisEnd.x, axisEnd.y); ctx.stroke();
+    const zStart = projectPoint({ x: 0, y: floorY, z: -extent });
+    const zEnd = projectPoint({ x: 0, y: floorY, z: extent });
+    ctx.strokeStyle = 'rgba(96,165,250,0.85)';
+    ctx.beginPath(); ctx.moveTo(zStart.x, zStart.y); ctx.lineTo(zEnd.x, zEnd.y); ctx.stroke();
+    ctx.fillStyle = '#FCA5A5'; ctx.font = '600 11px "JetBrains Mono", monospace'; ctx.fillText('X', axisEnd.x - 14, axisEnd.y - 8);
+    ctx.fillStyle = '#93C5FD'; ctx.fillText('Z', zEnd.x + 6, zEnd.y - 6);
+  }
 
   for (const clip of activeClips) {
     const world = resolveWorldTransform(clip, clips, playheadTime);
@@ -1286,27 +1316,60 @@ function renderOrthographic3DView(
         : clip.kind === 'text' ? Math.max(48, (clip.textProps?.fontSize ?? 28) * 1.5) : 100;
       const halfW = baseW * world.scale / 200;
       const halfH = baseH * world.scale / 200;
-      const planeCorners = [
-        { x: -halfW, y: -halfH, z: 0 },
-        { x: halfW, y: -halfH, z: 0 },
-        { x: halfW, y: halfH, z: 0 },
-        { x: -halfW, y: halfH, z: 0 },
-      ].map((local) => {
+      const projectLocalPoint = (local: { x: number; y: number; z: number }) => {
         const rotated = rotateVector3(local, orientation);
-        return projectPoint({ x: origin.x + rotated.x, y: origin.y + rotated.y, z: origin.z + rotated.z });
-      });
+        return projectPoint({
+          x: origin.x + rotated.x,
+          y: origin.y + rotated.y,
+          z: origin.z + rotated.z,
+        });
+      };
+      const localCorners = [
+        { x: -halfW, y: -halfH }, { x: halfW, y: -halfH },
+        { x: halfW, y: halfH }, { x: -halfW, y: halfH },
+      ];
+      const planeCorners = localCorners.map((point) => projectLocalPoint({ ...point, z: 0 }));
+      const extrusion = clip.is3D && clip.kind === 'shape'
+        ? Math.max(0, Math.min(2000, (clip.shapeProps?.depth ?? 0) * world.scale / 100))
+        : 0;
 
-      ctx.strokeStyle = isSelected ? '#3B82F6' : clip.is3D ? '#A78BFA' : '#64748B';
-      ctx.fillStyle = clip.is3D ? 'rgba(139, 92, 246, 0.08)' : 'rgba(100, 116, 139, 0.04)';
-      ctx.lineWidth = isSelected ? 2.5 : 1.5;
-      ctx.beginPath();
-      planeCorners.forEach((point, index) => {
-        if (index === 0) ctx.moveTo(point.x, point.y);
-        else ctx.lineTo(point.x, point.y);
-      });
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      if (extrusion > 0) {
+        const front = localCorners.map((point) => projectLocalPoint({ ...point, z: -extrusion / 2 }));
+        const rear = localCorners.map((point) => projectLocalPoint({ ...point, z: extrusion / 2 }));
+        // Rear cap, four shaded side faces, then the front cap.
+        ctx.fillStyle = 'rgba(91, 74, 155, 0.16)';
+        ctx.strokeStyle = 'rgba(167,139,250,0.58)';
+        ctx.lineWidth = isSelected ? 2 : 1;
+        ctx.beginPath();
+        rear.forEach((point, index) => index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        for (let index = 0; index < 4; index++) {
+          const next = (index + 1) % 4;
+          ctx.fillStyle = index % 2 === 0 ? 'rgba(139,92,246,0.20)' : 'rgba(96,80,168,0.25)';
+          ctx.beginPath();
+          ctx.moveTo(front[index].x, front[index].y);
+          ctx.lineTo(front[next].x, front[next].y);
+          ctx.lineTo(rear[next].x, rear[next].y);
+          ctx.lineTo(rear[index].x, rear[index].y);
+          ctx.closePath(); ctx.fill(); ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(139, 92, 246, 0.16)';
+        ctx.beginPath();
+        front.forEach((point, index) => index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      } else {
+        ctx.strokeStyle = isSelected ? '#3B82F6' : clip.is3D ? '#A78BFA' : '#64748B';
+        ctx.fillStyle = clip.is3D ? 'rgba(139, 92, 246, 0.08)' : 'rgba(100, 116, 139, 0.04)';
+        ctx.lineWidth = isSelected ? 2.5 : 1.5;
+        ctx.beginPath();
+        planeCorners.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(point.x, point.y);
+          else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
       const labelPoint = projectPoint({ x: origin.x + 10, y: origin.y - 10, z: origin.z });
       ctx.fillStyle = isSelected ? '#93C5FD' : '#9BA1AD';
       ctx.font = '500 11px "Plus Jakarta Sans", sans-serif';
