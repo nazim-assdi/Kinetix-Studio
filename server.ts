@@ -120,7 +120,7 @@ If a user asks for a transition but no adjacent cut is in the selected context, 
 Available layer kinds: text, shape, solid, null, adjustment, camera, light, particles, visualizer, caption.
 Available effect types: blur, motionblur, glow, color, hue_sat, tint, vignette, chromatic, glitch, dropshadow, filmgrain, lensflare, wavewarp, posterize, chromakey, sharpen, pixelate, halation.
 Available presetIds: elastic_pop_in, smooth_slide_in, flip_3d_in, kinetic_scale_drop, glitch_flicker_in, parallax_float, whip_pan_transition, zoom_punch_transition, film_burn_flash, hud_callout_pack, lower_third_pack, cyber_neon_title.
-Return 1-4 relevant actions, not an essay. When targeting a selected clip, use the currently selected clip rather than adding a duplicate. Positions should usually be -400..400, scale 50..200, rotation -180..180, mask geometry 0..100, exposure -5..5, contrast 50..180, saturation 0..200. Keep the summary concise.`;
+Return 1-4 relevant actions, not an essay. When targeting a selected clip, use the currently selected clip rather than adding a duplicate. Positions should usually be -400..400, scale 50..200, rotation -180..180, mask x/y -100..100, mask width/height 1..100, exposure -5..5, contrast 50..180, saturation 0..200. Keep the summary concise.`;
 
     const userMessage = `User request: "${prompt.trim()}"
 Timeline context: playhead=${context?.playheadTime ?? 0}s, selectedClip=${context?.selectedClipName ?? 'none'} (${context?.selectedClipKind ?? 'none'}), totalClips=${context?.clipCount ?? 0}, compDuration=${context?.duration ?? 14}s.`;
