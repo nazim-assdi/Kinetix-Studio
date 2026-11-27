@@ -402,12 +402,23 @@ export async function awaitMediaReadyForFrame(
   clips: TimelineClip[],
   playheadTime: number
 ): Promise<void> {
+  const transitionMediaIds = new Set<string>();
+  for (const incoming of clips) {
+    const transition = incoming.transitionIn;
+    if (!transition) continue;
+    const outgoing = findAdjacentOutgoingClip(clips, incoming, 30);
+    if (!outgoing) continue;
+    const halfDuration = transition.duration / 2;
+    if (playheadTime < incoming.start - halfDuration || playheadTime > incoming.start + halfDuration) continue;
+    transitionMediaIds.add(outgoing.id);
+    transitionMediaIds.add(incoming.id);
+  }
+
   const activeMediaClips = clips.filter(
     (c) =>
       (c.kind === 'image' || c.kind === 'video') &&
       Boolean(c.src) &&
-      playheadTime >= c.start &&
-      playheadTime <= c.start + c.duration
+      ((playheadTime >= c.start && playheadTime <= c.start + c.duration) || transitionMediaIds.has(c.id))
   );
 
   await Promise.all(
