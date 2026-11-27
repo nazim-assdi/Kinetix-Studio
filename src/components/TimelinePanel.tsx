@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Eye,
   EyeOff,
@@ -72,6 +72,10 @@ interface TimelinePanelProps {
   onAddVoiceover?: (file: File) => void;
   onDropEffect?: (clipId: string, effectType: EffectType) => void;
   onDropPreset?: (clipId: string, item: MotionPresetItem) => void;
+  onDropPresetToSelection?: (clipIds: string[], item: MotionPresetItem) => void;
+  onMoveClips?: (clipIds: string[], deltaTime: number, primaryClipId: string, targetTrackId?: string) => void;
+  onDeleteClips?: (clipIds: string[]) => void;
+  onSetClipSpeed?: (clipIds: string[], speed: number) => void;
   panelHeight?: number;
 }
 
@@ -104,6 +108,10 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onAddVoiceover,
   onDropEffect,
   onDropPreset,
+  onDropPresetToSelection,
+  onMoveClips,
+  onDeleteClips,
+  onSetClipSpeed,
   panelHeight = 300,
 }) => {
   const [pxPerSecond, setPxPerSecond] = useState(72);
@@ -118,6 +126,22 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
 
   const lanesScrollRef = useRef<HTMLDivElement>(null);
   const keyframeDragDidMoveRef = useRef(false);
+  const selectionAnchorRef = useRef<string | null>(selectedClipId);
+  const [selectedClipIds, setSelectedClipIds] = useState<string[]>(selectedClipId ? [selectedClipId] : []);
+
+  useEffect(() => {
+    if (selectedClipId && !selectedClipIds.includes(selectedClipId)) {
+      setSelectedClipIds([selectedClipId]);
+      selectionAnchorRef.current = selectedClipId;
+    }
+  }, [selectedClipId, selectedClipIds]);
+
+  useEffect(() => {
+    setSelectedClipIds((previous) => {
+      const valid = previous.filter((id) => clips.some((clip) => clip.id === id));
+      return valid.length === previous.length ? previous : valid;
+    });
+  }, [clips]);
 
   const timelineEndTime = clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), composition.duration);
   const totalWidth = Math.max(1100, Math.ceil((timelineEndTime + 4) * pxPerSecond));
@@ -145,7 +169,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     window.addEventListener('pointerup', onUp);
   };
 
-  // Clip Dragging / Trimming / Razor Splitting
+  // Clip selection supports Ctrl/Cmd toggle, Shift range and group dragging.
   const handleClipPointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
     clip: TimelineClip,
@@ -154,18 +178,44 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     e.stopPropagation();
     const clickTime = timeFromClientX(e.clientX);
 
-    if (track.locked) {
-      onSelectClip(clip.id);
-      return;
-    }
-
     if (tool === 'razor') {
+      onSelectClip(clip.id);
+      setSelectedClipIds([clip.id]);
       onSplitClip(clip.id, clickTime);
       return;
     }
 
-    onSelectClip(clip.id);
+    let nextSelection = selectedClipIds;
+    const orderedIds = tracks.flatMap((item) =>
+      clips.filter((candidate) => candidate.trackId === item.id).map((candidate) => candidate.id)
+    );
+    if (e.shiftKey && selectionAnchorRef.current) {
+      const anchorIndex = orderedIds.indexOf(selectionAnchorRef.current);
+      const targetIndex = orderedIds.indexOf(clip.id);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const range = orderedIds.slice(Math.min(anchorIndex, targetIndex), Math.max(anchorIndex, targetIndex) + 1);
+        nextSelection = Array.from(new Set([...selectedClipIds, ...range]));
+      } else {
+        nextSelection = Array.from(new Set([...selectedClipIds, clip.id]));
+      }
+    } else if (e.ctrlKey || e.metaKey) {
+      nextSelection = selectedClipIds.includes(clip.id)
+        ? selectedClipIds.filter((id) => id !== clip.id)
+        : [...selectedClipIds, clip.id];
+      selectionAnchorRef.current = clip.id;
+    } else if (!selectedClipIds.includes(clip.id)) {
+      nextSelection = [clip.id];
+      selectionAnchorRef.current = clip.id;
+    }
 
+    setSelectedClipIds(nextSelection);
+    const primaryId = nextSelection.includes(clip.id) ? clip.id : (nextSelection[nextSelection.length - 1] ?? null);
+    onSelectClip(primaryId);
+
+    // Modifier-click is selection only. Drag a selected clip normally to move the group.
+    if (e.ctrlKey || e.metaKey || e.shiftKey || track.locked) return;
+
+    const movingIds = nextSelection.includes(clip.id) ? nextSelection : [clip.id];
     const startX = e.clientX;
     const origStart = clip.start;
     const snapThreshold = 10 / pxPerSecond;
@@ -175,17 +225,11 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       const deltaT = dx / pxPerSecond;
       let candidate = Math.max(0, Number((origStart + deltaT).toFixed(3)));
       if (snapEnabled) {
-        candidate = findSnapTime(
-          candidate,
-          clips,
-          clip.id,
-          playheadTime,
-          snapThreshold,
-          clip.duration
-        );
+        const movingSet = new Set(movingIds);
+        const snapCandidates = clips.filter((item) => !movingSet.has(item.id));
+        candidate = findSnapTime(candidate, snapCandidates, clip.id, playheadTime, snapThreshold, clip.duration);
       }
 
-      // Check vertical track target if hovered over another compatible track
       let targetTrackId = clip.trackId;
       const elem = document.elementFromPoint(ev.clientX, ev.clientY);
       const trackAttr = elem?.closest('[data-track-id]')?.getAttribute('data-track-id');
@@ -193,25 +237,28 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
         const hoveredTrack = tracks.find((t) => t.id === trackAttr);
         if (hoveredTrack && !hoveredTrack.locked) {
           const isClipAudio = clip.kind === 'audio';
-          if (
-            (isClipAudio && hoveredTrack.kind === 'audio') ||
-            (!isClipAudio && hoveredTrack.kind === 'video')
-          ) {
+          if ((isClipAudio && hoveredTrack.kind === 'audio') || (!isClipAudio && hoveredTrack.kind === 'video')) {
             targetTrackId = hoveredTrack.id;
           }
         }
       }
 
-      onMoveClip(clip.id, candidate, targetTrackId);
+      if (movingIds.length > 1 && onMoveClips) {
+        onMoveClips(movingIds, candidate - origStart, clip.id, targetTrackId);
+      } else {
+        onMoveClip(clip.id, candidate, targetTrackId);
+      }
     };
 
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   const handleTrimPointerDown = (
@@ -376,6 +423,37 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
 
           {selectedClip && (
             <>
+              {selectedClipIds.length > 1 && (
+                <>
+                  <span className="text-[10px] text-[#93C5FD] font-mono-tabular">{selectedClipIds.length} selected</span>
+                  <select
+                    aria-label="Set Speed for Selected Clips"
+                    title="Set speed for all selected clips"
+                    value=""
+                    onChange={(e) => {
+                      const speed = Number(e.target.value);
+                      if (speed && onSetClipSpeed) onSetClipSpeed(selectedClipIds, speed);
+                    }}
+                    className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-1 text-[10px] text-[#C8CDD6]"
+                  >
+                    <option value="">Set Speed</option>
+                    <option value="0.25">0.25× Slow</option>
+                    <option value="0.5">0.5× Half</option>
+                    <option value="1">1× Normal</option>
+                    <option value="2">2× Fast</option>
+                    <option value="4">4× Fast</option>
+                    <option value="8">8× Fast</option>
+                  </select>
+                  {onDeleteClips && (
+                    <button type="button" onClick={() => {
+                      onDeleteClips(selectedClipIds);
+                      setSelectedClipIds([]);
+                    }} title="Delete all selected clips" className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#3A2024] hover:bg-[#EF4444] text-[10px] font-medium text-[#FCA5A5] hover:text-white">
+                      <Trash2 className="w-3 h-3" /><span>Delete Selected</span>
+                    </button>
+                  )}
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => onSplitClip(selectedClip.id, playheadTime)}
@@ -697,7 +775,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                     {trackClips.map((clip) => {
                       const left = clip.start * pxPerSecond;
                       const width = Math.max(18, clip.duration * pxPerSecond);
-                      const isSelected = clip.id === selectedClipId;
+                      const isSelected = selectedClipIds.includes(clip.id);
                       const allKfs = Object.entries(clip.keyframes) as [
                         AnimatableProperty,
                         NonNullable<TimelineClip['keyframes'][AnimatableProperty]>
@@ -717,10 +795,14 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                             if (!effectType && !presetRaw) return;
                             e.preventDefault();
                             e.stopPropagation();
-                            if (effectType) onDropEffect?.(clip.id, effectType as EffectType);
+                            const targetIds = selectedClipIds.includes(clip.id) ? selectedClipIds : [clip.id];
+                            if (effectType) targetIds.forEach((id) => onDropEffect?.(id, effectType as EffectType));
                             if (presetRaw) {
-                              try { onDropPreset?.(clip.id, JSON.parse(presetRaw) as MotionPresetItem); }
-                              catch { /* ignore invalid drag payload */ }
+                              try {
+                                const item = JSON.parse(presetRaw) as MotionPresetItem;
+                                if (onDropPresetToSelection && targetIds.length > 1) onDropPresetToSelection(targetIds, item);
+                                else targetIds.forEach((id) => onDropPreset?.(id, item));
+                              } catch { /* ignore invalid drag payload */ }
                             }
                           }}
                           style={{
