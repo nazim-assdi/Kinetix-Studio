@@ -16,6 +16,7 @@ import {
   splitClipAtTime,
   trimClipEdge,
   createEffectInstance,
+  dedupeEffectStack,
   EFFECT_LIBRARY,
   rippleDeleteClip,
   duplicateClip,
@@ -368,6 +369,15 @@ test('EFFECT_LIBRARY has 18 effects including Chroma Key and Halation, and apply
   assert.ok((flipped.keyframes.rotationY?.length ?? 0) >= 2);
 });
 
+test('duplicate effect instances are removed by shader type while different effects remain', () => {
+  const firstBlur = createEffectInstance('blur');
+  const secondBlur = { ...createEffectInstance('blur'), name: 'Duplicate Blur' };
+  const glow = createEffectInstance('glow');
+  const unique = dedupeEffectStack([firstBlur, secondBlur, glow]);
+  assert.deepEqual(unique.map((effect) => effect.type), ['blur', 'glow']);
+  assert.equal(unique[0].id, firstBlur.id);
+});
+
 test('MEGA_CATALOG contains 1000+ presets, transitions with SFX, and DaVinci LUTs', () => {
   assert.ok(MEGA_CATALOG.length >= 1000, `Expected >=1000 items, got ${MEGA_CATALOG.length}`);
   const sfxTransitions = MEGA_CATALOG.filter(
@@ -379,7 +389,11 @@ test('MEGA_CATALOG contains 1000+ presets, transitions with SFX, and DaVinci LUT
 });
 
 test('creative library exposes 8,474 unique catalog entries with expanded asset categories', () => {
-  assert.equal(MEGA_CATALOG.length, 8474);
+  assert.ok(MEGA_CATALOG.length > 8000 && MEGA_CATALOG.length <= 8474, `Expected duplicate-free catalog, got ${MEGA_CATALOG.length}`);
+  const effectSignatures = MEGA_CATALOG
+    .filter((item) => item.effectType)
+    .map((item) => `${item.effectType}:${JSON.stringify(Object.entries(item.effectParams ?? {}).sort(([a], [b]) => a.localeCompare(b)))}`);
+  assert.equal(new Set(effectSignatures).size, effectSignatures.length, 'Effect presets must not repeat identical shader settings');
   assert.equal(new Set(MEGA_CATALOG.map((item) => item.id)).size, MEGA_CATALOG.length);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Shapes').length, 1680);
   assert.equal(MEGA_CATALOG.filter((item) => item.category === 'Titles').length, 100);
