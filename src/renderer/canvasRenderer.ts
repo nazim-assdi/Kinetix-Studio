@@ -2222,17 +2222,6 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
       // Text glyphs are kept as editable raster text on a perspective 3D plane.
       // A small stack of depth slices gives the title a visible solid body instead of a flat card.
-      if (clip.kind === 'text' && textExtrusion > 0) {
-        const depthSlices = Math.min(5, Math.max(2, Math.ceil(textExtrusion / 20)));
-        for (let slice = 0; slice < depthSlices; slice++) {
-          const sliceDepth = -(textExtrusion * (slice / depthSlices));
-          drawPerspectiveLayerPlane(
-            targetCtx, layerTexture, world, activeCamera, clips, playheadTime,
-            width, height, baseW, baseH, ax, ay, activeCameraView, sliceDepth
-          );
-        }
-      }
-
       drawPerspectiveLayerPlane(
         targetCtx,
         layerTexture,
