@@ -1520,6 +1520,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
   }
   const scaleX = canvas.width / width;
   const scaleY = canvas.height / height;
+  // Canvas resizing resets drawing state, so set interpolation quality after sizing.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
