@@ -152,8 +152,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
     },
     {
       id: 'shape',
-      label: shapeMode === 'mask' ? 'Draw Mask (R)' : 'Add Vector Shape Layer (R)',
-      shortcut: 'R',
+      label: shapeMode === 'mask' ? 'Draw Mask (M)' : 'Add Vector Shape Layer (R)',
+      shortcut: shapeMode === 'mask' ? 'M' : 'R',
       icon: <Square className="w-3.5 h-3.5" />,
       onClick: () => {
         if (shapeMode === 'mask') onChangeTool('mask');
