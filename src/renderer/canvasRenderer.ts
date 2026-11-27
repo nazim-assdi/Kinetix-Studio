@@ -24,6 +24,7 @@ import {
   rotateVector3,
 } from '../engine/math3d';
 import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
+import { findAdjacentOutgoingClip, getTransitionProgress } from '../engine/transitions';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
 
 export interface MediaCache {
@@ -1535,6 +1536,39 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       playheadTime >= c.start &&
       playheadTime <= c.start + c.duration
   );
+
+  // Resolve edit-point transitions only when both neighbouring clips still touch.
+  const activeTransitions: {
+    id: string;
+    outgoing: TimelineClip;
+    incoming: TimelineClip;
+    transition: NonNullable<TimelineClip['transitionIn']>;
+    progress: number;
+  }[] = [];
+  for (const incoming of clips) {
+    const transition = incoming.transitionIn;
+    if (!transition || !visibleTrackIds.has(incoming.trackId)) continue;
+    const outgoing = findAdjacentOutgoingClip(clips, incoming, composition.fps);
+    if (!outgoing) continue;
+    const halfDuration = transition.duration / 2;
+    if (playheadTime < incoming.start - halfDuration || playheadTime > incoming.start + halfDuration) continue;
+    activeTransitions.push({
+      id: incoming.id,
+      outgoing,
+      incoming,
+      transition,
+      progress: getTransitionProgress(transition, incoming.start, playheadTime),
+    });
+  }
+  const transitionByClipId = new Map<string, (typeof activeTransitions)[number]>();
+  const transitionClipIds = new Set<string>();
+  activeTransitions.forEach((pair) => {
+    transitionByClipId.set(pair.outgoing.id, pair);
+    transitionByClipId.set(pair.incoming.id, pair);
+    transitionClipIds.add(pair.outgoing.id);
+    transitionClipIds.add(pair.incoming.id);
+  });
+
   const activeCameraView = resolveCameraViewState(activeCamera, clips, playheadTime, width);
 
   let selectedBox: BoundingBox | null = null;
@@ -1571,7 +1605,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
   const drawSingleClipToContext = (
     targetCtx: CanvasRenderingContext2D,
     clip: TimelineClip,
-    ignoreBlendMode: boolean = false
+    ignoreBlendMode: boolean = false,
+    transitionAlpha: number = 1
   ): BoundingBox | null => {
     const world = resolveWorldTransform(clip, clips, playheadTime);
     let cx = width / 2 + world.x;
@@ -2189,7 +2224,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
     if (clip.is3D) {
       targetCtx.save();
-      targetCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100));
+      targetCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100)) * Math.max(0, Math.min(1, transitionAlpha));
       if (!ignoreBlendMode) {
         targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
       }
@@ -2484,8 +2519,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         c.kind !== 'light' &&
         c.kind !== 'audio' &&
         !consumedMatteIds.has(c.id) &&
-        playheadTime >= c.start &&
-        playheadTime <= c.start + c.duration
+        ((playheadTime >= c.start && playheadTime <= c.start + c.duration) || transitionClipIds.has(c.id))
     );
 
     // Sort 3D clips back-to-front within track if multiple 3D layers share track
@@ -2496,7 +2530,100 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       return wb.z - wa.z;
     });
 
+    const renderedTransitionIds = new Set<string>();
+    const drawTransitionParticipant = (
+      clip: TimelineClip,
+      alpha: number,
+      offsetX = 0,
+      offsetY = 0,
+      scale = 1,
+      revealRect?: { x: number; y: number; width: number; height: number }
+    ) => {
+      ctx.save();
+      if (revealRect) {
+        ctx.beginPath();
+        ctx.rect(revealRect.x, revealRect.y, revealRect.width, revealRect.height);
+        ctx.clip();
+      }
+      if (offsetX !== 0 || offsetY !== 0 || scale !== 1) {
+        ctx.beginPath();
+        ctx.rect(0, 0, width, height);
+        ctx.clip();
+        ctx.translate(width / 2 + offsetX, height / 2 + offsetY);
+        ctx.scale(scale, scale);
+        ctx.translate(-width / 2, -height / 2);
+      }
+      const boundedAlpha = Math.max(0, Math.min(1, alpha));
+      ctx.globalAlpha = boundedAlpha;
+      const box = drawSingleClipToContext(ctx, clip, false, boundedAlpha);
+      ctx.restore();
+      if (box) selectedBox = box;
+    };
+
+    const drawEditPointTransition = (pair: (typeof activeTransitions)[number]) => {
+      const { outgoing, incoming, transition, progress } = pair;
+      const p = Math.max(0, Math.min(1, progress));
+      const direction = transition.direction;
+      const strength = Math.max(0.5, Math.min(1.8, transition.intensity));
+      if (transition.style === 'dip-black' || transition.style === 'dip-white') {
+        if (p < 0.5) drawTransitionParticipant(outgoing, 1);
+        else drawTransitionParticipant(incoming, 1);
+        const veilAlpha = p < 0.5 ? p * 2 : (1 - p) * 2;
+        if (veilAlpha > 0.001) {
+          ctx.save();
+          ctx.globalAlpha = veilAlpha;
+          ctx.fillStyle = transition.style === 'dip-white' ? '#FFFFFF' : '#000000';
+          ctx.fillRect(0, 0, width, height);
+          ctx.restore();
+        }
+        return;
+      }
+      if (transition.style === 'wipe') {
+        drawTransitionParticipant(outgoing, 1);
+        const revealWidth = width * p;
+        const revealHeight = height * p;
+        const revealRect = direction === 'right'
+          ? { x: width - revealWidth, y: 0, width: revealWidth, height }
+          : direction === 'up'
+            ? { x: 0, y: height - revealHeight, width, height: revealHeight }
+            : direction === 'down'
+              ? { x: 0, y: 0, width, height: revealHeight }
+              : { x: 0, y: 0, width: revealWidth, height };
+        if (p > 0) drawTransitionParticipant(incoming, 1, 0, 0, 1, revealRect);
+        return;
+      }
+      if (transition.style === 'push') {
+        const travelX = width * strength;
+        const travelY = height * strength;
+        const incomingX = direction === 'left' ? -travelX * (1 - p) : direction === 'right' ? travelX * (1 - p) : 0;
+        const outgoingX = direction === 'left' ? travelX * p : direction === 'right' ? -travelX * p : 0;
+        const incomingY = direction === 'up' ? -travelY * (1 - p) : direction === 'down' ? travelY * (1 - p) : 0;
+        const outgoingY = direction === 'up' ? travelY * p : direction === 'down' ? -travelY * p : 0;
+        drawTransitionParticipant(outgoing, 1, outgoingX, outgoingY);
+        drawTransitionParticipant(incoming, 1, incomingX, incomingY);
+        return;
+      }
+      if (transition.style === 'zoom') {
+        drawTransitionParticipant(outgoing, 1);
+        const startScale = Math.max(0.72, 0.94 - (strength - 1) * 0.06);
+        drawTransitionParticipant(incoming, p, 0, 0, startScale + (1 - startScale) * p);
+        return;
+      }
+      // A true alpha cross-dissolve: the outgoing image remains underneath while
+      // the incoming image is composited over it from transparent to opaque.
+      drawTransitionParticipant(outgoing, 1);
+      drawTransitionParticipant(incoming, p);
+    };
+
     for (const clip of activeClips) {
+      const transitionPair = transitionByClipId.get(clip.id);
+      if (transitionPair) {
+        if (renderedTransitionIds.has(transitionPair.id)) continue;
+        renderedTransitionIds.add(transitionPair.id);
+        drawEditPointTransition(transitionPair);
+        continue;
+      }
+
       if (clip.kind === 'adjustment') {
         const filterStr = buildFilterString(clip.effects);
         if (filterStr !== 'none') {
