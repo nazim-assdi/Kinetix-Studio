@@ -218,6 +218,24 @@ test('splitClipAtTime splits clip and preserves 3D keyframes', () => {
   assert.equal(evaluateClipTransform(right, 3).rotationY, 45);
 });
 
+test('splitting a clip keeps its incoming transition only on the original left segment', () => {
+  const incomingTransition = {
+    id: 'transition_existing',
+    presetId: 'crossfade',
+    name: 'Cross Dissolve',
+    style: 'cross-dissolve' as const,
+    direction: 'left' as const,
+    duration: 0.6,
+    intensity: 1,
+  };
+  const clip = makeClip({ start: 2, duration: 6, transitionIn: incomingTransition });
+  const result = splitClipAtTime(clip, 5);
+  assert.ok(result);
+  const [left, right] = result;
+  assert.equal(left.transitionIn?.id, 'transition_existing');
+  assert.equal(right.transitionIn, undefined);
+});
+
 test('trimClipEdge adjusts right and left edges while shifting keyframes', () => {
   let clip = makeClip({ start: 2, duration: 6, sourceIn: 1 });
   clip = upsertKeyframe(clip, 'scale', 2, 120, 'linear');
