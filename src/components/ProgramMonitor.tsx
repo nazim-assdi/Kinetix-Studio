@@ -466,8 +466,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         let maskControlHit = false;
         if (c.id === selectedClipId && c.mask?.enabled && (tool === 'select' || tool === 'pin' || tool === 'mask')) {
           const mask = c.mask;
-          const mx = (mask.x / 100) * composition.width - composition.width / 2;
-          const my = (mask.y / 100) * composition.height - composition.height / 2;
+          const mx = (mask.x / 100) * composition.width;
+          const my = (mask.y / 100) * composition.height;
           const mw = (mask.width / 100) * composition.width;
           const mh = (mask.height / 100) * composition.height;
           const handleRadius = 18 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
@@ -540,7 +540,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     );
     if (tool === 'mask' || canEditExistingMask) {
       const originalMask: LayerMask = hitClip.mask ?? {
-        enabled: true, shape: 'rect', x: 50, y: 50, width: 65, height: 65,
+        enabled: true, shape: 'rect', x: 0, y: 0, width: 65, height: 65,
         feather: 0, inverted: false, opacity: 100,
       };
       const mask = { ...originalMask, enabled: true };
@@ -571,8 +571,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         const selectedMask: LayerMask = mode === 'draw-mask'
           ? {
               ...mask,
-              x: ((localX + composition.width / 2) / composition.width) * 100,
-              y: ((localY + composition.height / 2) / composition.height) * 100,
+              x: (localX / composition.width) * 100,
+              y: (localY / composition.height) * 100,
               width: 1,
               height: 1,
             }
@@ -795,8 +795,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       const endY = drag.startLocalY + unscaledDy;
       nextMask = {
         ...original,
-        x: (((drag.startLocalX + endX) / 2 + composition.width / 2) / composition.width) * 100,
-        y: (((drag.startLocalY + endY) / 2 + composition.height / 2) / composition.height) * 100,
+        x: ((drag.startLocalX + endX) / 2 / composition.width) * 100,
+        y: ((drag.startLocalY + endY) / 2 / composition.height) * 100,
         width: Math.max(1, (Math.abs(endX - drag.startLocalX) / composition.width) * 100),
         height: Math.max(1, (Math.abs(endY - drag.startLocalY) / composition.height) * 100),
       };
