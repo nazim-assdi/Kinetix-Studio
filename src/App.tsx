@@ -260,6 +260,11 @@ export default function App() {
     const list = initialSave?.clips ?? INITIAL_CLIPS;
     return list.find((c) => c.id === 'clip_v3_title')?.id ?? list[0]?.id ?? null;
   });
+  const [selectedClipIds, setSelectedClipIds] = useState<string[]>(() => {
+    const list = initialSave?.clips ?? INITIAL_CLIPS;
+    const selected = list.find((clip) => clip.id === 'clip_v3_title') ?? list[0];
+    return selected ? [selected.id] : [];
+  });
 
   const [exportOpen, setExportOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -2424,8 +2429,10 @@ export default function App() {
               onImportFiles={handleImportFiles}
               onAddAssetToTimeline={(asset) => insertAssetToTimeline(asset)}
               onApplyEffectToSelected={(fxType) => {
-                if (selectedClip) handleAddEffect(selectedClip.id, fxType);
+                const targets = selectedClipIds.length > 1 ? selectedClipIds : selectedClip ? [selectedClip.id] : [];
+                handleAddEffectToClips(targets, fxType);
               }}
+              selectedClipIds={selectedClipIds}
               onUpdateFusionGraph={handleUpdateFusionGraph}
               onAdd3DLayer={(kind) => handleQuickAddLayer(kind)}
               onToggleEffect={(clipId, effectId) =>
@@ -2498,7 +2505,11 @@ export default function App() {
               onToggle3D={(clipId) =>
                 updateClipById(clipId, (c) => ({ ...c, is3D: !c.is3D }), true)
               }
-              onApplyCatalogPreset={(item) => { setPreviewPreset(null); handleApplyCatalogPreset(item); }}
+              onApplyCatalogPreset={(item) => {
+                setPreviewPreset(null);
+                const targets = selectedClipIds.length > 1 ? selectedClipIds : selectedClip ? [selectedClip.id] : [];
+                handleApplyCatalogPresetToClips(targets, item);
+              }}
               onPreviewCatalogPreset={setPreviewPreset}
               onPreviewSfx={(preset) => audioEngine.previewSfx(preset)}
               onAddSfxToTimeline={handleAddSfxToTimeline}
@@ -2760,6 +2771,7 @@ export default function App() {
         }
         onSeek={handleSeek}
         onSelectClip={setSelectedClipId}
+        onSelectionChange={setSelectedClipIds}
         onMoveClip={handleMoveClip}
         onMoveClips={handleMoveClips}
         onDeleteClips={handleDeleteClips}
