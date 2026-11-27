@@ -400,13 +400,14 @@ function getOrLoadVideo(
 export async function awaitMediaReadyForFrame(
   cache: MediaCache,
   clips: TimelineClip[],
-  playheadTime: number
+  playheadTime: number,
+  fps: number = 30
 ): Promise<void> {
   const transitionMediaIds = new Set<string>();
   for (const incoming of clips) {
     const transition = incoming.transitionIn;
     if (!transition) continue;
-    const outgoing = findAdjacentOutgoingClip(clips, incoming, 30);
+    const outgoing = findAdjacentOutgoingClip(clips, incoming, fps);
     if (!outgoing) continue;
     const halfDuration = transition.duration / 2;
     if (playheadTime < incoming.start - halfDuration || playheadTime > incoming.start + halfDuration) continue;
