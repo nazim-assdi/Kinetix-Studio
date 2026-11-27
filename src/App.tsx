@@ -33,7 +33,7 @@ import {
 } from './data/demoProject';
 import { applyMotionPresetToClip } from './data/motionPresets';
 import { applyCatalogMotionVariant, buildCatalogColorGrade } from './engine/catalogVariants';
-import { DAVINCI_LUTS } from './data/megaCatalog';
+import { DAVINCI_LUTS, DEFAULT_COLOR_GRADE } from './data/megaCatalog';
 import {
   evaluateClipTransform,
   moveKeyframe,
@@ -208,6 +208,16 @@ interface AiAction {
   exposure?: number;
   contrast?: number;
   saturation?: number;
+  temp?: number;
+  tint?: number;
+  maskShape?: 'rect' | 'rounded-rect' | 'ellipse';
+  maskX?: number;
+  maskY?: number;
+  maskWidth?: number;
+  maskHeight?: number;
+  maskFeather?: number;
+  maskInverted?: boolean;
+  transitionDirection?: 'left' | 'right' | 'up' | 'down';
 }
 
 export default function App() {
@@ -2057,6 +2067,9 @@ export default function App() {
     }
 
     const actions: AiAction[] = Array.isArray(data.actions) ? data.actions : [];
+    if (actions.length === 0) {
+      throw new Error(data.summary || 'AI returned no timeline actions. Try describing one specific edit, effect, mask, transition or grade.');
+    }
     let nextClips = [...clips];
     let latestSelected = selectedClipId;
 
@@ -2225,6 +2238,68 @@ export default function App() {
               }
             : c
         );
+      }
+      else if (act.actionType === 'set_mask' && latestSelected) {
+        nextClips = nextClips.map((clip) => {
+          if (clip.id !== latestSelected) return clip;
+          const previous = clip.mask;
+          return {
+            ...clip,
+            mask: {
+              enabled: true,
+              shape: act.maskShape ?? previous?.shape ?? 'rect',
+              x: Math.max(0, Math.min(100, act.maskX ?? previous?.x ?? 50)),
+              y: Math.max(0, Math.min(100, act.maskY ?? previous?.y ?? 50)),
+              width: Math.max(1, Math.min(100, act.maskWidth ?? previous?.width ?? 70)),
+              height: Math.max(1, Math.min(100, act.maskHeight ?? previous?.height ?? 70)),
+              feather: Math.max(0, Math.min(100, act.maskFeather ?? previous?.feather ?? 0)),
+              inverted: act.maskInverted ?? previous?.inverted ?? false,
+              opacity: previous?.opacity ?? 100,
+            },
+          };
+        });
+      } else if (act.actionType === 'add_transition' && latestSelected) {
+        const anchor = nextClips.find((clip) => clip.id === latestSelected);
+        const pair = anchor ? resolveTransitionPairForClip(nextClips, anchor, composition.fps) : null;
+        if (pair) {
+          const item: MotionPresetItem = {
+            id: act.presetId || 'ai-cross-dissolve',
+            name: act.name || 'AI Cross Dissolve',
+            vendor: 'FX',
+            category: 'Transition',
+            description: 'AI-generated edit-point transition.',
+            accentColor: act.color || '#A78BFA',
+            motionVariant: {
+              direction: act.transitionDirection || 'left',
+              duration: act.duration ?? 0.75,
+              intensity: 1,
+            },
+          };
+          const transition = createTimelineTransition(item, composition.fps);
+          const duration = Math.min(transition.duration, pair.outgoing.duration, pair.incoming.duration);
+          if (duration >= 2 / Math.max(1, composition.fps) - 0.0001) {
+            nextClips = nextClips.map((clip) =>
+              clip.id === pair.incoming.id ? { ...clip, transitionIn: { ...transition, duration } } : clip
+            );
+          }
+        }
+      } else if (act.actionType === 'set_color_grade' && latestSelected) {
+        nextClips = nextClips.map((clip) => {
+          if (clip.id !== latestSelected) return clip;
+          const grade = clip.colorGrade ?? { ...DEFAULT_COLOR_GRADE, enabled: true };
+          return {
+            ...clip,
+            colorGrade: {
+              ...grade,
+              enabled: true,
+              exposureStops: Math.max(-5, Math.min(5, act.exposure ?? grade.exposureStops ?? 0)),
+              contrast: Math.max(50, Math.min(180, act.contrast ?? grade.contrast)),
+              saturation: Math.max(0, Math.min(200, act.saturation ?? grade.saturation)),
+              temp: Math.max(-100, Math.min(100, act.temp ?? grade.temp)),
+              tint: Math.max(-100, Math.min(100, act.tint ?? grade.tint)),
+            },
+          };
+        });
       }
     }
 
