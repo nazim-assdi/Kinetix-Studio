@@ -225,6 +225,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     const startX = e.clientX;
     const origStart = clip.start;
     const snapThreshold = 10 / pxPerSecond;
+    let lastGroupDelta = 0;
 
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX;
@@ -250,7 +251,10 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       }
 
       if (movingIds.length > 1 && onMoveClips) {
-        onMoveClips(movingIds, candidate - origStart, clip.id, targetTrackId);
+        const desiredDelta = candidate - origStart;
+        const incrementalDelta = desiredDelta - lastGroupDelta;
+        lastGroupDelta = desiredDelta;
+        onMoveClips(movingIds, incrementalDelta, clip.id, targetTrackId);
       } else {
         onMoveClip(clip.id, candidate, targetTrackId);
       }
