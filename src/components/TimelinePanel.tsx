@@ -68,6 +68,7 @@ interface TimelinePanelProps {
     time: number,
     value: number
   ) => void;
+  onDeleteKeyframe: (clipId: string, prop: AnimatableProperty, kfId: string) => void;
   onAddVoiceover?: (file: File) => void;
   onDropEffect?: (clipId: string, effectType: EffectType) => void;
   onDropPreset?: (clipId: string, item: MotionPresetItem) => void;
@@ -99,6 +100,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onDropAssetOnTrack,
   onUpdateKeyframeEasing,
   onMoveKeyframe,
+  onDeleteKeyframe,
   onAddVoiceover,
   onDropEffect,
   onDropPreset,
@@ -117,7 +119,8 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   const lanesScrollRef = useRef<HTMLDivElement>(null);
   const keyframeDragDidMoveRef = useRef(false);
 
-  const totalWidth = Math.max(1100, Math.ceil((composition.duration + 4) * pxPerSecond));
+  const timelineEndTime = clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), composition.duration);
+  const totalWidth = Math.max(1100, Math.ceil((timelineEndTime + 4) * pxPerSecond));
 
   const timeFromClientX = (clientX: number): number => {
     const el = lanesScrollRef.current;
@@ -475,6 +478,11 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   {label}
                 </button>
               ))}
+              <button type="button" onClick={() => {
+                onDeleteKeyframe(selectedKf.clipId, selectedKf.prop, selectedKf.kfId);
+                setSelectedKf(null);
+              }} title="Delete selected keyframe" aria-label="Delete selected keyframe"
+                className="ml-1 p-1 rounded text-[#F87171] hover:bg-[#3A2024] hover:text-white"><Trash2 className="w-3 h-3" /></button>
             </div>
           )}
 

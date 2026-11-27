@@ -62,6 +62,14 @@ function pointInProjectedQuad(
   return inside;
 }
 
+function getCompositionCanvasPoint(event: React.PointerEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement, width: number, height: number) {
+  const rect = canvas.getBoundingClientRect();
+  const fitScale = Math.max(0.0001, Math.min(rect.width / width, rect.height / height));
+  const offsetX = (rect.width - width * fitScale) / 2;
+  const offsetY = (rect.height - height * fitScale) / 2;
+  return { x: (event.clientX - rect.left - offsetX) / fitScale, y: (event.clientY - rect.top - offsetY) / fitScale, scaleX: 1 / fitScale, scaleY: 1 / fitScale };
+}
+
 const SEQUENCE_PRESETS = [
   { id: 'youtube1080', label: 'YouTube · 16:9 · Full HD', width: 1920, height: 1080, fps: 30 },
   { id: 'youtube4k', label: 'YouTube · 16:9 · 4K UHD', width: 3840, height: 2160, fps: 30 },
@@ -95,7 +103,7 @@ interface ProgramMonitorProps {
   onStepFrame: (dir: -1 | 1) => void;
   onToggleLoop: () => void;
   onSelectClip: (clipId: string | null) => void;
-  onMoveClipCanvas: (clipId: string, x: number, y: number) => void;
+  onMoveClipCanvas: (clipId: string, x: number, y: number, z?: number) => void;
   onSetAnchorCanvas: (clipId: string, anchorX: number, anchorY: number) => void;
   onTransformClipCanvas: (clipId: string, patch: { scale?: number; rotation?: number }) => void;
   onResizeShapeCanvas: (clipId: string, width: number, height: number) => void;
@@ -120,18 +128,10 @@ interface ViewportSlotProps {
   mediaCache: MediaCache;
   renderTick: number;
   onMediaLoaded: () => void;
-  onPointerDown?: (
-    e: React.PointerEvent<HTMLCanvasElement>,
-    canvas: HTMLCanvasElement
-  ) => void;
-  onPointerMove?: (
-    e: React.PointerEvent<HTMLCanvasElement>,
-    canvas: HTMLCanvasElement
-  ) => void;
-  onPointerUp?: (
-    e: React.PointerEvent<HTMLCanvasElement>,
-    canvas: HTMLCanvasElement
-  ) => void;
+  zoomLevel: number;
+  onPointerDown?: (e: React.PointerEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement, angle: ViewportCameraAngle) => void;
+  onPointerMove?: (e: React.PointerEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement, angle: ViewportCameraAngle) => void;
+  onPointerUp?: (e: React.PointerEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement, angle: ViewportCameraAngle) => void;
 }
 
 const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
@@ -150,6 +150,7 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
   mediaCache,
   renderTick,
   onMediaLoaded,
+  zoomLevel,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -199,11 +200,12 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
     <canvas
       ref={canvasRef}
       data-testid={angle === 'active' ? 'composition-canvas' : `viewport-${angle}`}
-      onPointerDown={(e) => canvasRef.current && onPointerDown?.(e, canvasRef.current)}
-      onPointerMove={(e) => canvasRef.current && onPointerMove?.(e, canvasRef.current)}
-      onPointerUp={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current)}
-      onPointerCancel={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current)}
-      className="w-full h-full object-contain block cursor-crosshair"
+      onPointerDown={(e) => canvasRef.current && onPointerDown?.(e, canvasRef.current, angle)}
+      onPointerMove={(e) => canvasRef.current && onPointerMove?.(e, canvasRef.current, angle)}
+      onPointerUp={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current, angle)}
+      onPointerCancel={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current, angle)}
+      style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
+      className={`w-full h-full object-contain block ${tool === 'hand' ? 'cursor-grab' : tool === 'pen' || tool === 'pin' || tool === 'mask' ? 'cursor-crosshair' : 'cursor-default'}`}
     />
   );
 };
@@ -234,7 +236,10 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   onCreatePathClip,
   onUpdateComposition,
 }) => {
-  const [zoomMode, setZoomMode] = useState<'fit' | '50' | '100'>('fit');
+  const [zoomMode, setZoomMode] = useState<'fit' | '50' | '75' | '100' | '125' | '150' | '200' | '250'>('fit');
+  const zoomLevel = zoomMode === 'fit' ? 100 : Number(zoomMode);
+  const adjustZoom = (direction: -1 | 1) => setZoomMode(String(Math.min(250, Math.max(50, zoomLevel + direction * 25))) as typeof zoomMode);
+  const handlePreviewWheel = (event: React.WheelEvent<HTMLDivElement>) => { event.preventDefault(); adjustZoom(event.deltaY < 0 ? 1 : -1); };
   const [singleAngle, setSingleAngle] = useState<ViewportCameraAngle>('active');
   const [showSafeMargins, setShowSafeMargins] = useState(false);
   const [showTransparencyGrid, setShowTransparencyGrid] = useState(false);
@@ -263,6 +268,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   }, [clips, selectedClipId, previewPreset]);
 
   type CanvasDrag =
+    | { mode: 'move-camera'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number; origZ: number; angle: Exclude<ViewportCameraAngle, 'active'> }
     | { mode: 'move'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number }
     | { mode: 'resize-shape'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
     | { mode: 'resize-text'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; origScale: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
@@ -274,13 +280,23 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
 
   const handleCanvasPointerDown = (
     e: React.PointerEvent<HTMLCanvasElement>,
-    canvas: HTMLCanvasElement
+    canvas: HTMLCanvasElement,
+    angle: ViewportCameraAngle = 'active'
   ) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = composition.width / rect.width;
-    const scaleY = composition.height / rect.height;
-    const compX = (e.clientX - rect.left) * scaleX;
-    const compY = (e.clientY - rect.top) * scaleY;
+    const geometry = getCompositionCanvasPoint(e, canvas, composition.width, composition.height);
+    if (angle !== 'active') {
+      const cameraClip = clips.find((clip) => clip.id === selectedClipId && clip.kind === 'camera' && playheadTime >= clip.start && playheadTime <= clip.start + clip.duration);
+      if (!cameraClip) return;
+      const cameraTransform = evaluateClipTransform(cameraClip, playheadTime);
+      dragRef.current = { mode: 'move-camera', clipId: cameraClip.id, startClientX: e.clientX, startClientY: e.clientY,
+        origX: cameraTransform.x, origY: cameraTransform.y, origZ: cameraTransform.z, angle };
+      canvas.setPointerCapture(e.pointerId); e.stopPropagation(); return;
+    }
+    const scaleX = geometry.scaleX;
+    const scaleY = geometry.scaleY;
+    const compX = geometry.x;
+    const compY = geometry.y;
+    if (compX < 0 || compY < 0 || compX > composition.width || compY > composition.height) return;
 
     if (tool === 'pen') {
       const relX = Math.round(compX - composition.width / 2);
@@ -593,12 +609,12 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     e: React.PointerEvent<HTMLCanvasElement>,
     canvas: HTMLCanvasElement
   ) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = composition.width / rect.width;
-    const scaleY = composition.height / rect.height;
+    const geometry = getCompositionCanvasPoint(e, canvas, composition.width, composition.height);
+    const scaleX = geometry.scaleX;
+    const scaleY = geometry.scaleY;
     if (tool === 'pen' && penHandleRef.current) {
-      const compX = (e.clientX - rect.left) * scaleX;
-      const compY = (e.clientY - rect.top) * scaleY;
+      const compX = geometry.x;
+      const compY = geometry.y;
       const point = penDraftPoints[penHandleRef.current.index];
       if (point) {
         const dx = compX - penHandleRef.current.startX;
@@ -613,9 +629,19 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     }
     const drag = dragRef.current;
     if (!drag) return;
+    if (drag.mode === 'move-camera') {
+      const dx = (e.clientX - drag.startClientX) * scaleX;
+      const dy = (e.clientY - drag.startClientY) * scaleY;
+      let x = drag.origX, y = drag.origY, z = drag.origZ;
+      if (drag.angle === 'top') { x += dx; z -= dy; }
+      else if (drag.angle === 'front') { x += dx; y -= dy; }
+      else { z += dx; y -= dy; }
+      onMoveClipCanvas(drag.clipId, Math.round(x), Math.round(y), Math.round(z));
+      return;
+    }
     if (drag.mode === 'rotate') {
-      const compX = (e.clientX - rect.left) * scaleX;
-      const compY = (e.clientY - rect.top) * scaleY;
+      const compX = geometry.x;
+      const compY = geometry.y;
       const angle = Math.atan2(compY - drag.centerY, compX - drag.centerX);
       let rotation = drag.origRotation + ((angle - drag.startAngle) * 180) / Math.PI;
       if (e.shiftKey) rotation = Math.round(rotation / 15) * 15;
@@ -951,14 +977,16 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           <select
             aria-label="Monitor Zoom"
             value={zoomMode}
-            onChange={(e) => setZoomMode(e.target.value as 'fit' | '50' | '100')}
+            onChange={(e) => setZoomMode(e.target.value as typeof zoomMode)}
             className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[11px] text-[#C8CDD6] focus:outline-none"
           >
-            <option value="fit">Fit</option>
-            <option value="50">50%</option>
-            <option value="100">100%</option>
+            <option value="fit">Fit</option><option value="50">50%</option><option value="75">75%</option>
+            <option value="100">100%</option><option value="125">125%</option><option value="150">150%</option>
+            <option value="200">200%</option><option value="250">250%</option>
           </select>
 
+          <button type="button" onClick={() => adjustZoom(-1)} title="Zoom Out" aria-label="Zoom Out" className="p-1 rounded text-[#9BA1AD] hover:text-white hover:bg-[#232730]">−</button>
+          <button type="button" onClick={() => adjustZoom(1)} title="Zoom In" aria-label="Zoom In" className="p-1 rounded text-[#9BA1AD] hover:text-white hover:bg-[#232730]">+</button>
           <button
             type="button"
             onClick={() => setShowWireframes((v) => !v)}
@@ -1066,7 +1094,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       )}
 
       {/* Viewport Grid (1 / 2H / 2V / 4 Quad) */}
-      <div className="flex-1 min-h-0 p-3 overflow-auto bg-[#0D0E11] flex items-center justify-center">
+      <div className="flex-1 min-h-0 p-3 overflow-hidden bg-[#0D0E11] flex items-center justify-center" onWheel={handlePreviewWheel}>
         <div
           data-testid="viewport-grid"
           data-layout={viewLayout}
@@ -1103,8 +1131,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                     }
                   : viewLayout === '1-view' && zoomMode !== 'fit'
                   ? {
-                      width: composition.width * (zoomMode === '50' ? 0.5 : 1),
-                      height: composition.height * (zoomMode === '50' ? 0.5 : 1),
+                      width: composition.width,
+                      height: composition.height,
                     }
                   : undefined
               }
@@ -1130,13 +1158,10 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                 mediaCache={mediaCache}
                 renderTick={renderTick}
                 onMediaLoaded={() => setRenderTick((v) => v + 1)}
-                onPointerDown={
-                  angle === 'active' ? handleCanvasPointerDown : undefined
-                }
-                onPointerMove={
-                  angle === 'active' ? handleCanvasPointerMove : undefined
-                }
-                onPointerUp={angle === 'active' ? handleCanvasPointerUp : undefined}
+                zoomLevel={zoomLevel}
+                onPointerDown={handleCanvasPointerDown}
+                onPointerMove={handleCanvasPointerMove}
+                onPointerUp={handleCanvasPointerUp}
               />
             </div>
           ))}

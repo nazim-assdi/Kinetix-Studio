@@ -98,7 +98,7 @@ const ColorWheelControl: React.FC<ColorWheelControlProps> = ({
           background:
             'conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444)',
         }}
-        className="relative w-20 h-20 rounded-full border border-[#323845] cursor-crosshair shadow-inner"
+        className="relative w-[5.5rem] h-[5.5rem] rounded-full border border-[#46505F] cursor-crosshair shadow-inner ring-1 ring-white/5"
       >
         <div
           style={{
@@ -112,7 +112,7 @@ const ColorWheelControl: React.FC<ColorWheelControlProps> = ({
             left: `${50 + puckX * 42}%`,
             top: `${50 + puckY * 42}%`,
           }}
-          className="absolute -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-[#111215] shadow pointer-events-none"
+          className="absolute -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-[#111215] shadow-[0_0_0_2px_rgba(255,255,255,0.2)] pointer-events-none"
         />
       </div>
 

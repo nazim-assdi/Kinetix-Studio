@@ -25,12 +25,12 @@ interface ExportModalProps {
 }
 
 const RESOLUTION_PRESETS = [
-  { id: '720p', label: '720p HD (1280×720)', width: 1280, height: 720, bitrate: 8_000_000 },
-  { id: '1080p', label: '1080p Full HD (1920×1080)', width: 1920, height: 1080, bitrate: 16_000_000 },
-  { id: '2k', label: '2K QHD (2560×1440)', width: 2560, height: 1440, bitrate: 24_000_000 },
-  { id: '4k', label: '4K UHD (3840×2160)', width: 3840, height: 2160, bitrate: 40_000_000 },
-  { id: '6k', label: '6K Cinema (6144×3160)', width: 6144, height: 3160, bitrate: 60_000_000 },
-  { id: '8k', label: '8K UHD (7680×4320)', width: 7680, height: 4320, bitrate: 80_000_000 },
+  { id: '720p', label: '720p HD (1280×720)', width: 1280, height: 720, bitrate: 12_000_000 },
+  { id: '1080p', label: '1080p Full HD (1920×1080)', width: 1920, height: 1080, bitrate: 24_000_000 },
+  { id: '2k', label: '2K QHD (2560×1440)', width: 2560, height: 1440, bitrate: 38_000_000 },
+  { id: '4k', label: '4K UHD (3840×2160)', width: 3840, height: 2160, bitrate: 70_000_000 },
+  { id: '6k', label: '6K Cinema (6144×3160)', width: 6144, height: 3160, bitrate: 115_000_000 },
+  { id: '8k', label: '8K UHD (7680×4320)', width: 7680, height: 4320, bitrate: 160_000_000 },
 ] as const;
 
 const ASPECT_PRESETS = [
@@ -364,12 +364,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const outW = portrait ? preset.height : preset.width;
   const outH = Math.max(1, Math.round(outW / exportRatio));
 
-  const startSec =
-    rangeMode === 'workArea' && workArea ? Math.max(0, workArea.inTime) : 0;
-  const endSec =
-    rangeMode === 'workArea' && workArea
-      ? Math.max(startSec + 0.2, Math.min(composition.duration, workArea.outTime))
-      : composition.duration;
+  const timelineEndTime = clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), composition.duration);
+  const startSec = rangeMode === 'workArea' && workArea ? Math.max(0, workArea.inTime) : 0;
+  const endSec = rangeMode === 'workArea' && workArea
+    ? Math.max(startSec + 0.2, Math.min(timelineEndTime, workArea.outTime))
+    : timelineEndTime;
   const exportDuration = Number((endSec - startSec).toFixed(2));
 
   const handleSnapshotPng = async () => {
@@ -468,7 +467,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       const totalFrames = Math.max(1, Math.ceil(exportDuration * exportFps));
       const frameIntervalMs = 1000 / exportFps;
 
-      for (let f = 0; f <= totalFrames; f++) {
+      for (let f = 0; f < totalFrames; f++) {
         if (abortRef.current) break;
         const t = Math.min(endSec, startSec + f / exportFps);
         await awaitMediaReadyForFrame(mediaCache, clips, t);
@@ -645,7 +644,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 onChange={(e) => setRangeMode(e.target.value as 'full' | 'workArea')}
                 className="w-full bg-[#111215] border border-[#2B303A] rounded px-2.5 py-1.5 text-xs text-white"
               >
-                <option value="full">Entire Comp (0.0s – {composition.duration.toFixed(1)}s)</option>
+                <option value="full">Entire Timeline (0.0s – {timelineEndTime.toFixed(1)}s)</option>
                 {workArea && (
                   <option value="workArea">
                     Work Area ({workArea.inTime.toFixed(1)}s – {workArea.outTime.toFixed(1)}s)

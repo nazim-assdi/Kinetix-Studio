@@ -216,6 +216,10 @@ export default function App() {
   const [clips, setClips] = useState<TimelineClip[]>(
     initialSave?.clips ?? INITIAL_CLIPS
   );
+  const timelineEndTime = useMemo(
+    () => clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), composition.duration),
+    [clips, composition.duration]
+  );
   const [markers, setMarkers] = useState<TimelineMarker[]>(
     initialSave?.markers ?? []
   );
@@ -407,8 +411,8 @@ export default function App() {
       lastTs = now;
       const loopStart = workArea.enabled ? workArea.inTime : 0;
       const loopEnd = workArea.enabled
-        ? Math.min(composition.duration, workArea.outTime)
-        : composition.duration;
+        ? Math.min(timelineEndTime, workArea.outTime)
+        : timelineEndTime;
       setPlayheadTime((prev) => {
         const next = prev + dt;
         if (next >= loopEnd) {
@@ -426,13 +430,13 @@ export default function App() {
       cancelAnimationFrame(rafId);
       audioEngine.stopPlayback();
     };
-  }, [isPlaying, composition.duration, loopEnabled, workArea]);
+  }, [isPlaying, timelineEndTime, loopEnabled, workArea]);
 
   const handleSeek = useCallback(
     (t: number) => {
-      setPlayheadTime(clamp(t, 0, composition.duration));
+      setPlayheadTime(clamp(t, 0, timelineEndTime));
     },
-    [composition.duration]
+    [timelineEndTime]
   );
 
   const handleStepFrame = useCallback(
@@ -443,11 +447,11 @@ export default function App() {
         clamp(
           snapToFrame(prev + dir * step, composition.fps),
           0,
-          composition.duration
+          timelineEndTime
         )
       );
     },
-    [composition.fps, composition.duration]
+    [composition.fps, timelineEndTime]
   );
 
   const buildClipFromAsset = useCallback(
@@ -699,7 +703,7 @@ export default function App() {
   );
 
   const handleQuickAddLayer = useCallback(
-    (kind: MediaKind) => {
+    (kind: MediaKind, selectedShapeType: NonNullable<ProjectAsset['defaultShape']>['shapeType'] = 'polygon') => {
       const defaults: Record<MediaKind, ProjectAsset> = {
         text: {
           id: `asset_txt_${Date.now()}`,
@@ -717,11 +721,11 @@ export default function App() {
         },
         shape: {
           id: `asset_shp_${Date.now()}`,
-          name: 'Vector Shape',
+          name: `Vector ${selectedShapeType}`,
           kind: 'shape',
           duration: 4,
           defaultShape: {
-            shapeType: 'polygon',
+            shapeType: selectedShapeType,
             width: 240,
             height: 240,
             fillColor: 'rgba(59, 130, 246, 0.22)',
@@ -1187,7 +1191,7 @@ export default function App() {
   );
 
   const handleMoveClipCanvas = useCallback(
-    (clipId: string, x: number, y: number) => {
+    (clipId: string, x: number, y: number, z?: number) => {
       setClips((prev) =>
         prev.map((clip) => {
           if (clip.id !== clipId) return clip;
@@ -1207,11 +1211,22 @@ export default function App() {
           } else {
             updated = { ...updated, transform: { ...updated.transform, y } };
           }
+          if (z !== undefined) {
+            if ((updated.keyframes.z?.length ?? 0) > 0) updated = upsertKeyframe(updated, 'z', localTime, z);
+            else updated = { ...updated, transform: { ...updated.transform, z } };
+          }
           return updated;
         })
       );
     },
     []
+  );
+
+  const handleDeleteKeyframe = useCallback(
+    (clipId: string, prop: AnimatableProperty, keyframeId: string) => {
+      updateClipById(clipId, (clip) => removeKeyframeAtTime(clip, prop, keyframeId), true);
+    },
+    [updateClipById]
   );
 
   const handleMoveKeyframe = useCallback(
@@ -2028,13 +2043,13 @@ export default function App() {
         }
         const nextOut = clamp(
           Number(time.toFixed(2)),
-          Math.min(composition.duration, prev.inTime + 0.2),
-          composition.duration
+          Math.min(timelineEndTime, prev.inTime + 0.2),
+          timelineEndTime
         );
         return { ...prev, outTime: nextOut, enabled: true };
       });
     },
-    [composition.duration]
+    [timelineEndTime]
   );
 
   useEffect(() => {
@@ -2512,6 +2527,7 @@ export default function App() {
         onDropEffect={(clipId, effectType) => handleAddEffect(clipId, effectType)}
         onDropPreset={(clipId, item) => handleApplyCatalogPreset(item, clipId)}
         onMoveKeyframe={handleMoveKeyframe}
+        onDeleteKeyframe={handleDeleteKeyframe}
         onAddVoiceover={handleAddVoiceoverFile}
         onUpdateKeyframeEasing={(clipId, prop, kfId, easing: EasingType) =>
           updateClipById(
