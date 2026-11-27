@@ -567,7 +567,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                     if (activeTab !== 'sfx' && !isAsset) onPreviewCatalogPreset(preset);
                   }}
                   onMouseLeave={() => onPreviewCatalogPreset(null)}
-                  title={activeTab === 'sfx' ? undefined : isAsset ? 'Drag to the timeline or add as a new editable layer' : 'Drag onto a timeline clip to apply'}
+                  title={activeTab === 'sfx' ? undefined : isAsset ? 'Drag to the timeline or add as a new editable layer' : activeTab === 'transitions' ? 'Drag onto the edit point between two adjacent clips' : 'Drag onto a timeline clip to apply'}
                   className="rounded bg-[#14161A] border border-[#262B34] hover:border-[#3B82F6]/60 transition-colors p-2"
                 >
                   <div className="flex items-start gap-2">
@@ -578,7 +578,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                         {preset.sfxPreset && <Volume2 className="w-3 h-3 text-[#14B8A6] shrink-0" aria-label="Includes SFX" />}
                       </div>
                       <div className="text-[10px] text-[#8D95A5]">{preset.vendor} · {preset.category}</div>
-                      <div className="text-[10px] text-[#6E7685] mt-0.5 leading-snug">{preset.description}</div>
+                      <div className="text-[10px] text-[#6E7685] mt-0.5 leading-snug">{activeTab === 'transitions' ? 'Drag to the join between two clips · Applied at the cut point' : preset.description}</div>
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <button
