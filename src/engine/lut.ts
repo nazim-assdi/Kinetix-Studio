@@ -47,7 +47,7 @@ export function parseCubeLut(source: string, fileName = 'Imported LUT'): CubeLut
 
   if (!size) throw new Error('The .cube file is missing LUT_3D_SIZE.');
   if (rows.length !== size * size * size) {
-    throw new Error(\`Expected \${size ** 3} LUT samples, found \${rows.length}.\`);
+    throw new Error('Expected ' + (size ** 3) + ' LUT samples, found ' + rows.length + '.');
   }
   if (domainMax.some((value, index) => value <= domainMin[index])) {
     throw new Error('LUT DOMAIN_MAX values must be greater than DOMAIN_MIN.');
