@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Film, MonitorPlay } from 'lucide-react';
 import { CompositionSettings } from '../types/editor';
 
@@ -28,9 +28,7 @@ export const SequenceSetupModal: React.FC<SequenceSetupModalProps> = ({
   const [height, setHeight] = useState(1080);
   const [fps, setFps] = useState(30);
   const [duration, setDuration] = useState(30);
-  const [custom, setCustom] = useState(false);
 
-  const preset = useMemo(() => SEQUENCE_PRESETS.find((item) => item.id === presetId), [presetId]);
   if (!isOpen) return null;
 
   const choosePreset = (value: string) => {
@@ -40,9 +38,7 @@ export const SequenceSetupModal: React.FC<SequenceSetupModalProps> = ({
       setWidth(next.width);
       setHeight(next.height);
       setFps(next.fps);
-      setCustom(false);
     } else {
-      setCustom(true);
     }
   };
 
