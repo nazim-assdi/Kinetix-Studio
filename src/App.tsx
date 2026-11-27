@@ -44,6 +44,7 @@ import {
 } from './engine/keyframes';
 import {
   createEffectInstance,
+  dedupeEffectStack,
   duplicateClip,
   freezeFrameClip,
   rippleDeleteClip,
@@ -163,6 +164,7 @@ function restoreProjectMedia(payload: SavedProjectPayload): SavedProjectPayload 
     assets,
     clips: payload.clips.map((clip) => ({
       ...clip,
+      effects: dedupeEffectStack(clip.effects ?? []),
       src: assetById.get(clip.assetId)?.src ?? clip.src,
     })),
   };
@@ -216,7 +218,10 @@ export default function App() {
     initialSave?.tracks ?? INITIAL_TRACKS
   );
   const [clips, setClips] = useState<TimelineClip[]>(
-    initialSave?.clips ?? INITIAL_CLIPS
+    (initialSave?.clips ?? INITIAL_CLIPS).map((clip) => ({
+      ...clip,
+      effects: dedupeEffectStack(clip.effects ?? []),
+    }))
   );
   const timelineEndTime = useMemo(
     () => clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), composition.duration),
@@ -1316,9 +1321,12 @@ export default function App() {
     const fx = createEffectInstance(type);
     updateClipById(
       clipId,
-      (clip) => clip.effects.some((existing) => existing.type === type)
-        ? clip
-        : { ...clip, effects: [...clip.effects, fx] },
+      (clip) => {
+        const effects = dedupeEffectStack(clip.effects ?? []);
+        return effects.some((existing) => existing.type === type)
+          ? { ...clip, effects }
+          : { ...clip, effects: [...effects, fx] };
+      },
       true
     );
   };

@@ -138,6 +138,18 @@ export const EFFECT_LIBRARY: EffectDefinition[] = [
   },
 ];
 
+/** Keep one live instance of each shader type on a clip. */
+export function dedupeEffectStack(effects: EffectItem[] = []): EffectItem[] {
+  const seen = new Set<EffectType>();
+  const unique: EffectItem[] = [];
+  for (const effect of effects) {
+    if (!effect || seen.has(effect.type)) continue;
+    seen.add(effect.type);
+    unique.push(effect);
+  }
+  return unique;
+}
+
 export function createEffectInstance(type: EffectType): EffectItem {
   const def = EFFECT_LIBRARY.find((e) => e.type === type);
   if (!def) {

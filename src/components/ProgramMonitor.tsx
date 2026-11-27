@@ -27,6 +27,7 @@ import {
   ToolMode,
   ViewLayoutMode,
   ViewportCameraAngle,
+  ViewportOrbitState,
 } from '../types/editor';
 import { formatTimecode } from '../engine/timecode';
 import { evaluateClipTransform } from '../engine/keyframes';
@@ -85,6 +86,10 @@ const SEQUENCE_PRESETS = [
   { id: 'story4k', label: 'Vertical · 4K', width: 2160, height: 3840, fps: 30 },
 ] as const;
 
+const DEFAULT_ORBIT_VIEW: ViewportOrbitState = {
+  yaw: 34, pitch: 24, zoom: 1, panX: 0, panY: 0,
+};
+
 interface ProgramMonitorProps {
   composition: CompositionSettings;
   tracks: TimelineTrack[];
@@ -129,6 +134,8 @@ interface ViewportSlotProps {
   renderTick: number;
   onMediaLoaded: () => void;
   zoomLevel: number;
+  renderScale: number;
+  viewportOrbit: ViewportOrbitState;
   onPointerDown?: (e: React.PointerEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement, angle: ViewportCameraAngle) => void;
   onPointerMove?: (e: React.PointerEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement, angle: ViewportCameraAngle) => void;
   onPointerUp?: (e: React.PointerEvent<HTMLCanvasElement>, canvas: HTMLCanvasElement, angle: ViewportCameraAngle) => void;
@@ -151,6 +158,8 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
   renderTick,
   onMediaLoaded,
   zoomLevel,
+  renderScale,
+  viewportOrbit,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -177,6 +186,8 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
       onMediaLoaded,
       drawGizmo: angle === 'active',
       activeTool: tool,
+      renderScale,
+      viewportOrbit,
     });
   }, [
     angle,
@@ -194,6 +205,8 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
     mediaCache,
     renderTick,
     onMediaLoaded,
+    renderScale,
+    viewportOrbit,
   ]);
 
   return (
@@ -205,7 +218,7 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
       onPointerUp={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current, angle)}
       onPointerCancel={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current, angle)}
       style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
-      className={`w-full h-full object-contain block ${tool === 'hand' ? 'cursor-grab' : tool === 'pen' || tool === 'pin' || tool === 'mask' ? 'cursor-crosshair' : 'cursor-default'}`}
+      className={`w-full h-full object-contain block ${angle === 'orbit' || tool === 'hand' ? 'cursor-grab' : tool === 'pen' || tool === 'pin' || tool === 'mask' ? 'cursor-crosshair' : 'cursor-default'}`}
     />
   );
 };
@@ -239,7 +252,24 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   const [zoomMode, setZoomMode] = useState<'fit' | '50' | '75' | '100' | '125' | '150' | '200' | '250'>('fit');
   const zoomLevel = zoomMode === 'fit' ? 100 : Number(zoomMode);
   const adjustZoom = (direction: -1 | 1) => setZoomMode(String(Math.min(250, Math.max(50, zoomLevel + direction * 25))) as typeof zoomMode);
-  const handlePreviewWheel = (event: React.WheelEvent<HTMLDivElement>) => { event.preventDefault(); adjustZoom(event.deltaY < 0 ? 1 : -1); };
+  const [previewQuality, setPreviewQuality] = useState<'auto' | 'draft' | 'balanced' | 'high' | 'ultra'>('auto');
+  const [orbitView, setOrbitView] = useState<ViewportOrbitState>(DEFAULT_ORBIT_VIEW);
+  const previewRenderScale = previewQuality === 'draft' ? 0.5
+    : previewQuality === 'balanced' ? 0.75
+    : previewQuality === 'high' ? 1
+    : previewQuality === 'ultra' ? 1.25
+    : viewLayout === '4-views' ? 0.5
+    : isPlaying ? 0.65 : 1;
+  const handlePreviewWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const viewport = (event.target as HTMLElement).closest<HTMLElement>('[data-view-angle]');
+    if (viewport?.dataset.viewAngle === 'orbit') {
+      const factor = event.deltaY < 0 ? 1.1 : 0.9;
+      setOrbitView((current) => ({ ...current, zoom: Math.max(0.2, Math.min(5, current.zoom * factor)) }));
+      return;
+    }
+    adjustZoom(event.deltaY < 0 ? 1 : -1);
+  };
   const [singleAngle, setSingleAngle] = useState<ViewportCameraAngle>('active');
   const [showSafeMargins, setShowSafeMargins] = useState(false);
   const [showTransparencyGrid, setShowTransparencyGrid] = useState(false);
@@ -257,7 +287,11 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       const effect = createEffectInstance(previewPreset.effectType);
       effect.name = previewPreset.name;
       effect.params = { ...effect.params, ...(previewPreset.effectParams ?? {}) };
-      preview = { ...original, effects: [...original.effects, effect] };
+      const existingIndex = original.effects.findIndex((item) => item.type === effect.type);
+      const effects = existingIndex >= 0
+        ? original.effects.map((item, index) => index === existingIndex ? { ...effect, id: item.id } : item)
+        : [...original.effects, effect];
+      preview = { ...original, effects };
     } else if (previewPreset.lutName) {
       const lut = DAVINCI_LUTS.find((entry) => entry.name === previewPreset.lutName);
       if (lut) preview = { ...original, colorGrade: buildCatalogColorGrade(previewPreset, lut.grade) };
@@ -268,6 +302,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   }, [clips, selectedClipId, previewPreset]);
 
   type CanvasDrag =
+    | { mode: 'orbit'; startClientX: number; startClientY: number; origYaw: number; origPitch: number; origPanX: number; origPanY: number; panMode: boolean }
     | { mode: 'move-camera'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number; origZ: number; angle: Exclude<ViewportCameraAngle, 'active'> }
     | { mode: 'move'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number }
     | { mode: 'resize-shape'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
@@ -284,6 +319,16 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     angle: ViewportCameraAngle = 'active'
   ) => {
     const geometry = getCompositionCanvasPoint(e, canvas, composition.width, composition.height);
+    if (angle === 'orbit') {
+      dragRef.current = {
+        mode: 'orbit', startClientX: e.clientX, startClientY: e.clientY,
+        origYaw: orbitView.yaw, origPitch: orbitView.pitch,
+        origPanX: orbitView.panX, origPanY: orbitView.panY, panMode: e.shiftKey,
+      };
+      canvas.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+      return;
+    }
     if (angle !== 'active') {
       const cameraClip = clips.find((clip) => clip.id === selectedClipId && clip.kind === 'camera' && playheadTime >= clip.start && playheadTime <= clip.start + clip.duration);
       if (!cameraClip) return;
@@ -629,6 +674,18 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     }
     const drag = dragRef.current;
     if (!drag) return;
+    if (drag.mode === 'orbit') {
+      const dx = e.clientX - drag.startClientX;
+      const dy = e.clientY - drag.startClientY;
+      setOrbitView((current) => ({
+        ...current,
+        yaw: drag.panMode ? drag.origYaw : drag.origYaw + dx * 0.42,
+        pitch: drag.panMode ? drag.origPitch : Math.max(-82, Math.min(82, drag.origPitch + dy * 0.38)),
+        panX: drag.panMode ? drag.origPanX - dx * 2.2 : drag.origPanX,
+        panY: drag.panMode ? drag.origPanY - dy * 2.2 : drag.origPanY,
+      }));
+      return;
+    }
     if (drag.mode === 'move-camera') {
       const dx = (e.clientX - drag.startClientX) * scaleX;
       const dy = (e.clientY - drag.startClientY) * scaleY;
@@ -971,7 +1028,11 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
               <option value="top">Top (Ortho)</option>
               <option value="front">Front (Ortho)</option>
               <option value="right">Right (Ortho)</option>
+              <option value="orbit">Orbit 3D · Drag to rotate</option>
             </select>
+          )}
+          {viewLayout === '1-view' && singleAngle === 'orbit' && (
+            <button type="button" onClick={() => setOrbitView(DEFAULT_ORBIT_VIEW)} title="Reset 3D Orbit View" className="px-2 py-0.5 rounded border border-[#2B303A] bg-[#111215] text-[10px] text-[#C8CDD6] hover:border-[#8B5CF6]">Reset 3D</button>
           )}
 
           <select
@@ -983,6 +1044,19 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             <option value="fit">Fit</option><option value="50">50%</option><option value="75">75%</option>
             <option value="100">100%</option><option value="125">125%</option><option value="150">150%</option>
             <option value="200">200%</option><option value="250">250%</option>
+          </select>
+          <select
+            aria-label="Preview Render Quality"
+            title="Adaptive preview resolution balances playback speed and image detail"
+            value={previewQuality}
+            onChange={(e) => setPreviewQuality(e.target.value as typeof previewQuality)}
+            className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[10px] text-[#C8CDD6] focus:outline-none"
+          >
+            <option value="auto">Auto Quality</option>
+            <option value="draft">Draft · ½</option>
+            <option value="balanced">Balanced · ¾</option>
+            <option value="high">High · 1×</option>
+            <option value="ultra">Ultra · up to 1.25×</option>
           </select>
 
           <button type="button" onClick={() => adjustZoom(-1)} title="Zoom Out" aria-label="Zoom Out" className="p-1 rounded text-[#9BA1AD] hover:text-white hover:bg-[#232730]">−</button>
@@ -1111,6 +1185,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           {viewAngles.map((angle) => (
             <div
               key={angle}
+              data-view-angle={angle}
               className={`relative border border-[#2B303A] overflow-hidden flex items-center justify-center ${
                 angle === 'active' && showTransparencyGrid
                   ? 'checkerboard-bg'
@@ -1159,6 +1234,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                 renderTick={renderTick}
                 onMediaLoaded={() => setRenderTick((v) => v + 1)}
                 zoomLevel={zoomLevel}
+                renderScale={previewRenderScale}
+                viewportOrbit={orbitView}
                 onPointerDown={handleCanvasPointerDown}
                 onPointerMove={handleCanvasPointerMove}
                 onPointerUp={handleCanvasPointerUp}

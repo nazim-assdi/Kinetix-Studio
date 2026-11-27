@@ -67,7 +67,19 @@ export type WorkspacePreset =
 
 export type ViewLayoutMode = '1-view' | '2-views-h' | '2-views-v' | '4-views';
 
-export type ViewportCameraAngle = 'active' | 'top' | 'front' | 'right';
+export type ViewportCameraAngle = 'active' | 'top' | 'front' | 'right' | 'orbit';
+
+export interface ViewportOrbitState {
+  /** Horizontal orbit angle in degrees. */
+  yaw: number;
+  /** Vertical orbit angle in degrees, clamped away from the poles. */
+  pitch: number;
+  /** Scene zoom multiplier. */
+  zoom: number;
+  /** Scene target pan offset in world units. */
+  panX: number;
+  panY: number;
+}
 
 export type EffectType =
   | 'blur'
