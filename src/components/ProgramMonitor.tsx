@@ -1056,7 +1056,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             <option value="draft">Draft · ½</option>
             <option value="balanced">Balanced · ¾</option>
             <option value="high">High · 1×</option>
-            <option value="ultra">Ultra · 1.25×</option>
+            <option value="ultra">Ultra · up to 1.25×</option>
           </select>
 
           <button type="button" onClick={() => adjustZoom(-1)} title="Zoom Out" aria-label="Zoom Out" className="p-1 rounded text-[#9BA1AD] hover:text-white hover:bg-[#232730]">−</button>
