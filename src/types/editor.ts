@@ -229,6 +229,7 @@ export interface MotionTrackData {
 export interface TextLayerProps {
   text: string;
   fontSize: number;
+  fontFamily?: string;
   color: string;
   fontWeight: number;
   letterSpacing: number;
