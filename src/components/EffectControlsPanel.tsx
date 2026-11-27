@@ -448,6 +448,19 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                       </div>
                     </div>
 
+                    {(() => {
+                      const bounds: Record<AnimatableProperty, [number, number]> = {
+                        x: [-4000, 4000], y: [-4000, 4000], z: [-10000, 10000], scale: [0, 1000],
+                        rotation: [-720, 720], rotationX: [-720, 720], rotationY: [-720, 720], opacity: [0, 100],
+                        anchorX: [-4000, 4000], anchorY: [-4000, 4000], shapeWidth: [1, 8192], shapeHeight: [1, 8192], volume: [0, 200],
+                      };
+                      const [minimum, maximum] = bounds[row.prop];
+                      return <input type="range" aria-label={`${row.label} Drag Control`} min={minimum} max={maximum}
+                        step={row.prop === 'scale' || row.prop === 'opacity' ? 1 : row.step}
+                        value={Math.min(maximum, Math.max(minimum, val))}
+                        onChange={(e) => onUpdateProperty(selectedClip.id, row.prop, Number(e.target.value))}
+                        className="w-full studio-slider" />;
+                    })()}
                     <input
                       type="number"
                       aria-label={row.label}

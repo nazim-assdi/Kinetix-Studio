@@ -30,7 +30,7 @@ import {
   Upload,
   FileText,
 } from 'lucide-react';
-import { LeftDockTab, MediaKind, ToolMode, ViewLayoutMode, WorkspacePreset } from '../types/editor';
+import { LeftDockTab, MediaKind, ShapeLayerProps, ToolMode, ViewLayoutMode, WorkspacePreset } from '../types/editor';
 
 interface TopToolbarProps {
   workspace: WorkspacePreset;
@@ -43,7 +43,7 @@ interface TopToolbarProps {
   onRedo: () => void;
   snapEnabled: boolean;
   onToggleSnap: () => void;
-  onQuickAddLayer: (kind: MediaKind) => void;
+  onQuickAddLayer: (kind: MediaKind, shapeType?: ShapeLayerProps['shapeType']) => void;
   onSaveProject: () => void;
   onExportProjectFile: () => void;
   onLoadProjectFile: (file: File) => void;
@@ -86,6 +86,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onChangeViewLayout,
 }) => {
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const [selectedShapeType, setSelectedShapeType] = useState<ShapeLayerProps['shapeType']>('rect');
   const [openMenu, setOpenMenu] = useState<'file' | 'effect' | 'view' | null>(null);
   const loadInputRef = React.useRef<HTMLInputElement>(null);
   const mediaInputRef = React.useRef<HTMLInputElement>(null);
@@ -149,7 +150,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       label: 'Add Vector Shape Layer (R)',
       shortcut: 'R',
       icon: <Square className="w-3.5 h-3.5" />,
-      onClick: () => onQuickAddLayer('shape'),
+      onClick: () => onQuickAddLayer('shape', selectedShapeType),
     },
   ];
 
@@ -285,6 +286,17 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
               </button>
             );
           })}
+          <select aria-label="New Shape Type" title="Choose the vector shape to add" value={selectedShapeType}
+            onChange={(event) => setSelectedShapeType(event.target.value as ShapeLayerProps['shapeType'])}
+            className="max-w-[118px] bg-[#111215] border border-[#2B303A] rounded px-1.5 py-1 text-[10px] text-[#C8CDD6] focus:outline-none">
+            <option value="rect">Rectangle</option><option value="rounded-rect">Rounded rectangle</option><option value="circle">Circle</option><option value="ellipse">Ellipse</option>
+            <option value="triangle">Triangle</option><option value="diamond">Diamond</option><option value="pentagon">Pentagon</option><option value="hexagon">Hexagon</option>
+            <option value="heptagon">Heptagon</option><option value="octagon">Octagon</option><option value="star">Star</option><option value="star-6">Six-point star</option>
+            <option value="burst">Burst</option><option value="heart">Heart</option><option value="arrow">Arrow</option><option value="chevron">Chevron</option>
+            <option value="cross">Cross</option><option value="plus">Plus</option><option value="minus">Minus</option><option value="trapezoid">Trapezoid</option>
+            <option value="parallelogram">Parallelogram</option><option value="speech-bubble">Speech bubble</option><option value="cloud">Cloud</option><option value="lightning">Lightning</option>
+            <option value="line">Line</option><option value="lower-third">Lower third</option><option value="ring">Ring</option><option value="polygon">Polygon</option>
+          </select>
         </div>
 
         {/* + New Layer Dropdown */}

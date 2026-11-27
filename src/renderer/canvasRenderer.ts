@@ -2043,7 +2043,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       skewX
     );
 
-    if (drawGizmo && clip.id === selectedClipId && clip.mask?.enabled) {
+    if (drawGizmo && clip.id === selectedClipId && clip.mask?.enabled && world.opacity > 0.01) {
       targetCtx.save();
       targetCtx.translate(cx, cy);
       targetCtx.rotate(rotRad);
@@ -2079,7 +2079,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       targetCtx.restore();
     }
 
-    if (drawGizmo && clip.id === selectedClipId) {
+    if (drawGizmo && clip.id === selectedClipId && world.opacity > 0.01) {
       targetCtx.save();
       if (activeTool === 'pin') {
         // The pivot is the transform origin (cx/cy), not the visible layer center.
@@ -2116,7 +2116,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       drawGizmo &&
       clip.id === selectedClipId &&
       (clip.kind === 'text' || clip.kind === 'shape') &&
-      activeTool === 'select'
+      activeTool === 'select' &&
+      world.opacity > 0.01
     ) {
       targetCtx.save();
       targetCtx.translate(cx, cy);
@@ -2158,7 +2159,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       targetCtx.restore();
     }
 
-    if (drawGizmo && clip.id === selectedClipId && clip.is3D) {
+    if (drawGizmo && clip.id === selectedClipId && clip.is3D && world.opacity > 0.01) {
       const anchorOffsetX = screenCx - cx;
       const anchorOffsetY = screenCy - cy;
       const axes = [
@@ -2418,7 +2419,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     ctx.restore();
   }
 
-  if (drawGizmo && selectedBox) {
+  const selectedBoxClip = selectedBox ? clips.find((clip) => clip.id === selectedBox.clipId) : null;
+  const selectedBoxOpacity = selectedBoxClip ? resolveWorldTransform(selectedBoxClip, clips, playheadTime).opacity : 100;
+  if (drawGizmo && selectedBox && selectedBoxOpacity > 0.01) {
     ctx.save();
     ctx.translate(selectedBox.cx, selectedBox.cy);
     ctx.rotate(selectedBox.rotationRad);
