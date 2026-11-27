@@ -360,7 +360,7 @@ export default function App() {
   // Debounced project autosave. Imported media is embedded once and cached so
   // repeated edits do not repeatedly decode large blob URLs.
   useEffect(() => {
-    if (!projectStorageReady || !autoSaveEnabled) return;
+    if (!projectStorageReady || !autoSaveEnabled || sequenceSetupOpen) return;
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -385,7 +385,7 @@ export default function App() {
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [
-    projectStorageReady, autoSaveEnabled, composition, tracks, clips, assets, markers, workArea,
+    projectStorageReady, autoSaveEnabled, sequenceSetupOpen, composition, tracks, clips, assets, markers, workArea,
     currentProjectId, currentProjectName, currentProjectFolder,
   ]);
 
