@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import { resolveGeminiApiKey } from './src/engine/aiConfig';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -61,10 +62,9 @@ function rateLimitAiRequests(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-function getAiClient(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
+function getAiClient(apiKey: string): GoogleGenAI {
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured in the server environment.');
+    throw new Error('A Gemini API key is required for AI editing.');
   }
   return new GoogleGenAI({
     apiKey,
@@ -97,12 +97,21 @@ app.post('/api/ai-edit', requireAiAccessKey, rateLimitAiRequests, async (req, re
       res.status(413).json({ error: 'Prompt is too long. Keep AI editing prompts under 4,000 characters.' });
       return;
     }
-    if (!process.env.GEMINI_API_KEY) {
-      res.status(503).json({ error: 'AI editing is not configured on this server.' });
+    // A server-managed key is preferred. Otherwise use the key supplied by this
+    // user for this request only; it is never saved by the server.
+    const apiKey = resolveGeminiApiKey(
+      process.env.GEMINI_API_KEY,
+      req.header('x-kinetix-gemini-key')
+    );
+    if (!apiKey) {
+      res.status(503).json({
+        code: 'AI_NOT_CONFIGURED',
+        error: 'Add your Gemini API key in the AI panel to enable AI editing.',
+      });
       return;
     }
 
-    const ai = getAiClient();
+    const ai = getAiClient(apiKey);
 
     const systemInstruction = `You are an expert After Effects + Premiere Pro + DaVinci Resolve AI Editing & Motion Graphics Director inside Kinetix Studio.
 Convert the user's request into a precise JSON plan of editing actions that the studio executes immediately on the timeline.
