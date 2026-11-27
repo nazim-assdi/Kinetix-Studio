@@ -753,6 +753,11 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
                 onChange={(event) => {
                   setAiApiKey(event.target.value);
                   setAiKeySaved(false);
+                  try {
+                    window.sessionStorage.removeItem('kinetix_gemini_api_key');
+                  } catch {
+                    // The edited value is saved only after the user confirms it.
+                  }
                 }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
