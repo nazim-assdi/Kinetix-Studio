@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
+import { resolveGeminiApiKey } from './aiConfig';
 import { DEFAULT_TIMELINE_TRANSITION, createTimelineTransition, findAdjacentOutgoingClip, findNearestTransitionPair, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
@@ -127,6 +128,13 @@ test('transition preset maps to a real edit-point style and computes centered pr
   assert.equal(getTransitionProgress(transition, 5, 4.7), 0);
   assert.ok(Math.abs(getTransitionProgress(transition, 5, 5) - 0.5) < 1e-9);
   assert.equal(getTransitionProgress(transition, 5, 5.3), 1);
+});
+
+test('Gemini AI key resolver prefers server configuration and supports per-user fallback', () => {
+  assert.equal(resolveGeminiApiKey('server-secret', 'browser-secret'), 'server-secret');
+  assert.equal(resolveGeminiApiKey('   ', 'browser-secret'), 'browser-secret');
+  assert.equal(resolveGeminiApiKey(undefined, '  browser-secret  '), 'browser-secret');
+  assert.equal(resolveGeminiApiKey(null, '  '), null);
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {
