@@ -45,11 +45,8 @@ export function mergeFusionGraphWithClip(graph: FusionGraph | undefined, clip: T
   }
   const ids = new Set(kept.map((node) => node.id));
   const connections = graph.connections.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
-  const edgeKeys = new Set(connections.map((edge) => `${edge.from}->${edge.to}`));
-  for (const edge of fallback.connections) {
-    const key = `${edge.from}->${edge.to}`;
-    if (!edgeKeys.has(key) && ids.has(edge.from) && ids.has(edge.to)) connections.push(edge);
-  }
+  // Preserve the user's explicit cable edits, including intentionally disconnected defaults.
+  // New effect nodes are inserted as unconnected nodes so the user chooses their position in the flow.
   return { nodes: kept, connections };
 }
 

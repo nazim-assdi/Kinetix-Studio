@@ -701,6 +701,15 @@ test('Fusion graph persists draggable node positions and validates cable cycles'
   assert.equal(restored.nodes.find((node) => node.id === mediaIn.id)?.x, 420);
 });
 
+test('Fusion graph merge preserves intentionally disconnected cables', () => {
+  const clip = makeClip({ effects: [createEffectInstance('glow'), createEffectInstance('blur')] });
+  const graph = createDefaultFusionGraph(clip);
+  const disconnected = { ...graph, connections: graph.connections.slice(1) };
+  const restored = mergeFusionGraphWithClip(disconnected, clip);
+  assert.deepEqual(restored.connections, disconnected.connections);
+  assert.equal(restored.nodes.length, graph.nodes.length);
+});
+
 test('Fusion node cable order controls effect processing order', () => {
   const clip = makeClip({ effects: [createEffectInstance('glow'), createEffectInstance('blur')] });
   const graph = createDefaultFusionGraph(clip);
