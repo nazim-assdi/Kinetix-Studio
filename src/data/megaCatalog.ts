@@ -599,7 +599,7 @@ const rawMegaCatalog: MotionPresetItem[] = [
 export const MEGA_CATALOG: MotionPresetItem[] = (() => {
   const seen = new Set<string>();
   return rawMegaCatalog.filter((item) => {
-    if (!item.effectType) return true;
+    if (item.category !== 'Effects' || !item.effectType) return true;
     const params = Object.entries(item.effectParams ?? {}).sort(([a], [b]) => a.localeCompare(b));
     const signature = `effect:${item.effectType}:${JSON.stringify(params)}`;
     if (seen.has(signature)) return false;
