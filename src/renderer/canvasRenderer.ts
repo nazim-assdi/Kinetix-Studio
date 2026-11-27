@@ -100,11 +100,26 @@ function drawTexturedTriangle(
     d3.y * (s1.x * s2.y - s2.x * s1.y)
   ) / denominator;
 
+  // Separate affine triangle clips otherwise leave hairline gaps along the
+  // perspective mesh diagonals. Expand the clip only (not the UV transform)
+  // by a sub-pixel overlap so neighbouring triangles meet cleanly.
+  const centerX = (d1.x + d2.x + d3.x) / 3;
+  const centerY = (d1.y + d2.y + d3.y) / 3;
+  const seamOverlap = 0.85;
+  const expand = (point: ScreenPoint2D): ScreenPoint2D => {
+    const dx = point.x - centerX;
+    const dy = point.y - centerY;
+    const length = Math.hypot(dx, dy) || 1;
+    return { x: point.x + (dx / length) * seamOverlap, y: point.y + (dy / length) * seamOverlap };
+  };
+  const c1 = expand(d1);
+  const c2 = expand(d2);
+  const c3 = expand(d3);
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(d1.x, d1.y);
-  ctx.lineTo(d2.x, d2.y);
-  ctx.lineTo(d3.x, d3.y);
+  ctx.moveTo(c1.x, c1.y);
+  ctx.lineTo(c2.x, c2.y);
+  ctx.lineTo(c3.x, c3.y);
   ctx.closePath();
   ctx.clip();
   ctx.transform(a, b, c, d, e, f);
@@ -129,7 +144,7 @@ function drawPerspectiveLayerPlane(
   cameraState: CameraViewState,
   planeDepth = 0
 ) {
-  const segments = 6;
+  const segments = 8;
   const left = width / 2 - layerWidth / 2 - anchorX;
   const top = height / 2 - layerHeight / 2 - anchorY;
   const cellW = layerWidth / segments;
@@ -1482,6 +1497,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   const { width, height } = composition;
   const requestedScale = Math.max(0.35, Math.min(1.5, renderScale));
@@ -2334,11 +2351,19 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       targetCtx.stroke();
       targetCtx.setLineDash([]);
       targetCtx.fillStyle = '#FFFFFF';
-      const maskHandle = 9 / Math.max(0.01, Math.abs(effScaleX));
-      for (const sx of [-1, 1]) {
-        for (const sy of [-1, 1]) {
-          targetCtx.fillRect(mx + sx * mw / 2 - maskHandle / 2, my + sy * mh / 2 - maskHandle / 2, maskHandle, maskHandle);
-        }
+      const maskHandle = 10 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+      const maskHandles = [
+        { x: -1, y: -1 }, { x: 0, y: -1 }, { x: 1, y: -1 },
+        { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+        { x: -1, y: 1 }, { x: -1, y: 0 },
+      ];
+      for (const handle of maskHandles) {
+        targetCtx.fillRect(
+          mx + handle.x * mw / 2 - maskHandle / 2,
+          my + handle.y * mh / 2 - maskHandle / 2,
+          maskHandle,
+          maskHandle
+        );
       }
       targetCtx.restore();
     }
