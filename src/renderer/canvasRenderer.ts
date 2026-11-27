@@ -2342,10 +2342,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       }
       const mw = (clip.mask.width / 100) * width;
       const mh = (clip.mask.height / 100) * height;
-      // The gizmo origin is the layer center; masks are stored in 0..100%
-      // composition coordinates, so convert their center to signed local space.
-      const mx = (clip.mask.x / 100) * width - width / 2;
-      const my = (clip.mask.y / 100) * height - height / 2;
+      // Mask x/y are signed offsets from the layer center, in composition-percent units.
+      const mx = (clip.mask.x / 100) * width;
+      const my = (clip.mask.y / 100) * height;
       targetCtx.strokeStyle = '#F59E0B';
       targetCtx.lineWidth = 2;
       targetCtx.setLineDash([6, 4]);
