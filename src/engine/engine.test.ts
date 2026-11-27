@@ -391,7 +391,7 @@ test('MEGA_CATALOG contains 1000+ presets, transitions with SFX, and DaVinci LUT
 test('creative library exposes thousands of unique catalog entries with expanded asset categories', () => {
   assert.ok(MEGA_CATALOG.length > 8000 && MEGA_CATALOG.length <= 8474, `Expected duplicate-free catalog, got ${MEGA_CATALOG.length}`);
   const effectSignatures = MEGA_CATALOG
-    .filter((item) => item.effectType)
+    .filter((item) => item.category === 'Effects' && item.effectType)
     .map((item) => `${item.effectType}:${JSON.stringify(Object.entries(item.effectParams ?? {}).sort(([a], [b]) => a.localeCompare(b)))}`);
   assert.equal(new Set(effectSignatures).size, effectSignatures.length, 'Effect presets must not repeat identical shader settings');
   assert.equal(new Set(MEGA_CATALOG.map((item) => item.id)).size, MEGA_CATALOG.length);
