@@ -71,6 +71,7 @@ interface TimelinePanelProps {
   onDeleteKeyframe: (clipId: string, prop: AnimatableProperty, kfId: string) => void;
   onAddVoiceover?: (file: File) => void;
   onDropEffect?: (clipId: string, effectType: EffectType) => void;
+  onDropEffectToSelection?: (clipIds: string[], effectType: EffectType) => void;
   onDropPreset?: (clipId: string, item: MotionPresetItem) => void;
   onDropPresetToSelection?: (clipIds: string[], item: MotionPresetItem) => void;
   onMoveClips?: (clipIds: string[], deltaTime: number, primaryClipId: string, targetTrackId?: string) => void;
@@ -107,6 +108,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onDeleteKeyframe,
   onAddVoiceover,
   onDropEffect,
+  onDropEffectToSelection,
   onDropPreset,
   onDropPresetToSelection,
   onMoveClips,
@@ -796,7 +798,10 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                             e.preventDefault();
                             e.stopPropagation();
                             const targetIds = selectedClipIds.includes(clip.id) ? selectedClipIds : [clip.id];
-                            if (effectType) targetIds.forEach((id) => onDropEffect?.(id, effectType as EffectType));
+                            if (effectType) {
+              if (targetIds.length > 1 && onDropEffectToSelection) onDropEffectToSelection(targetIds, effectType as EffectType);
+              else targetIds.forEach((id) => onDropEffect?.(id, effectType as EffectType));
+            }
                             if (presetRaw) {
                               try {
                                 const item = JSON.parse(presetRaw) as MotionPresetItem;
