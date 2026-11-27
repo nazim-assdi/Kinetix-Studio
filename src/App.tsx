@@ -1369,6 +1369,20 @@ export default function App() {
     );
   };
 
+  const handleAddEffectToClips = (clipIds: string[], type: EffectType) => {
+    const ids = new Set(clipIds);
+    const template = createEffectInstance(type);
+    const next = clips.map((clip) => {
+      if (!ids.has(clip.id)) return clip;
+      const effects = dedupeEffectStack(clip.effects ?? []);
+      if (effects.some((effect) => effect.type === type)) return { ...clip, effects };
+      const fx = { ...template, id: `fx_${Date.now()}_${clip.id}`, params: { ...template.params } };
+      return { ...clip, effects: [...effects, fx] };
+    });
+    commitHistory(tracks, next);
+    setSelectedClipId(clipIds[0] ?? null);
+  };
+
   // Apply Motion Bro / Mr Horse / AEJuice Preset
   const handleApplyMotionPreset = (presetId: string) => {
     if (presetId === 'camera_3d_push') {
@@ -2760,6 +2774,7 @@ export default function App() {
           if (asset) insertAssetToTimeline(asset, trackId, time);
         }}
         onDropEffect={(clipId, effectType) => handleAddEffect(clipId, effectType)}
+        onDropEffectToSelection={handleAddEffectToClips}
         onDropPreset={(clipId, item) => handleApplyCatalogPreset(item, clipId)}
         onDropPresetToSelection={handleApplyCatalogPresetToClips}
         onMoveKeyframe={handleMoveKeyframe}
