@@ -88,6 +88,9 @@ export const FusionNodesPanel: React.FC<FusionNodesPanelProps> = ({
     dragRef.current = null;
     onUpdateGraph(selectedClip.id, graphRef.current);
   };
+  const removeConnection = (connectionId: string) => {
+    commitGraph({ ...graphRef.current, connections: graphRef.current.connections.filter((edge) => edge.id !== connectionId) });
+  };
   const removeNode = (node: FusionNode) => {
     commitGraph({ ...graph, nodes: graph.nodes.filter((item) => item.id !== node.id), connections: graph.connections.filter((edge) => edge.from !== node.id && edge.to !== node.id) });
   };
@@ -122,8 +125,8 @@ export const FusionNodesPanel: React.FC<FusionNodesPanelProps> = ({
       {error && <div role="alert" className="rounded bg-[#321B20] border border-[#71313B] p-2 text-[10px] text-[#FCA5A5]">{error}</div>}
       <div className="overflow-auto rounded-lg border border-[#2B303A] bg-[#0B0E13]">
         <div className="relative" style={{ width: graphWidth, height: graphHeight, backgroundImage: 'radial-gradient(rgba(148,163,184,0.2) 1px, transparent 1px)', backgroundSize: '20px 20px' }} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
-          <svg className="absolute inset-0 pointer-events-none" width={graphWidth} height={graphHeight}>
-            {graph.connections.map((edge) => { const from = positions.get(edge.from), to = positions.get(edge.to); if (!from || !to) return null; const x1 = from.x + NODE_WIDTH, y1 = from.y + NODE_HEIGHT / 2, x2 = to.x, y2 = to.y + NODE_HEIGHT / 2, bend = Math.max(48, Math.abs(x2 - x1) * 0.45); return <path key={edge.id} d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`} fill="none" stroke="#64748B" strokeWidth="2" opacity="0.75" />; })}
+          <svg className="absolute inset-0" width={graphWidth} height={graphHeight}>
+            {graph.connections.map((edge) => { const from = positions.get(edge.from), to = positions.get(edge.to); if (!from || !to) return null; const x1 = from.x + NODE_WIDTH, y1 = from.y + NODE_HEIGHT / 2, x2 = to.x, y2 = to.y + NODE_HEIGHT / 2, bend = Math.max(48, Math.abs(x2 - x1) * 0.45); return <g key={edge.id}><path d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`} fill="none" stroke="transparent" strokeWidth="14" style={{ pointerEvents: 'stroke', cursor: 'pointer' }} onClick={() => removeConnection(edge.id)}><title>Click to disconnect this cable</title></path><path d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`} fill="none" stroke="#64748B" strokeWidth="2" opacity="0.85" pointerEvents="none" /></g>; })}
           </svg>
           {graph.nodes.map((node) => (
             <div key={node.id} onPointerDown={(event) => dragStart(event, node)} style={{ left: node.x, top: node.y, width: NODE_WIDTH, height: NODE_HEIGHT, borderColor: NODE_ACCENTS[node.type] }} className="absolute rounded-lg border bg-[#171B23] shadow-xl select-none touch-none">

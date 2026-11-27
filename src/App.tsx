@@ -1700,7 +1700,7 @@ export default function App() {
     setSaveBadgeText('Project Saved');
   };
 
-  const handleOpenLibraryProject = async (id: string) => {
+  const handleOpenLibraryProject = async (id: string, libraryName: string, libraryFolder: string) => {
     const saved = await loadNamedProject(id);
     if (!saved) throw new Error('This saved project is missing from the local project library.');
     const restored = restoreProjectMedia(saved);
@@ -1716,7 +1716,8 @@ export default function App() {
     setPlayheadTime(0);
     setCurrentProjectId(id);
     try { window.localStorage.setItem('kinetix_current_project_id_v1', id); } catch { /* optional */ }
-    setCurrentProjectName(restored.composition.name);
+    setCurrentProjectName(libraryName || restored.composition.name);
+    setCurrentProjectFolder(libraryFolder || 'My Projects');
     await saveProjectToIndexedDb(restored);
     setSaveBadgeText('Project Opened');
   };
@@ -1766,6 +1767,10 @@ export default function App() {
           throw new Error('This is not a valid Kinetix Studio project file.');
         }
         const restored = restoreProjectMedia(parsed);
+        setCurrentProjectId(null);
+        setCurrentProjectName(restored.composition.name);
+        setCurrentProjectFolder('My Projects');
+        try { window.localStorage.removeItem('kinetix_current_project_id_v1'); } catch { /* optional */ }
         setComposition(restored.composition);
         setAssets(restored.assets ?? INITIAL_ASSETS);
         commitHistory(restored.tracks, restored.clips);

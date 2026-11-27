@@ -209,7 +209,9 @@ async function renderFastWebM(options: {
     frames.sort((a, b) => a.timestamp - b.timestamp);
     if (frames.length === 0) throw new Error('The video encoder did not return any frames.');
     const bytes = muxWebMVideo(frames, width, height, options.fps, selected.id);
-    return new Blob([bytes], { type: 'video/webm' });
+    const outputBuffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(outputBuffer).set(bytes);
+    return new Blob([outputBuffer], { type: 'video/webm' });
   } finally {
     try { encoder.close(); } catch { /* Ignore an already-closed encoder. */ }
   }

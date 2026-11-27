@@ -9,7 +9,7 @@ interface ProjectManagerModalProps {
   onClose: () => void;
   onNewProject: () => void;
   onSaveAs: (name: string, folder: string) => Promise<void>;
-  onOpenProject: (id: string) => Promise<void>;
+  onOpenProject: (id: string, name: string, folder: string) => Promise<void>;
 }
 
 export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
@@ -54,10 +54,10 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const openProject = async (id: string) => {
-    setBusyId(id);
+  const openProject = async (project: ProjectLibraryEntry) => {
+    setBusyId(project.id);
     try {
-      await onOpenProject(id);
+      await onOpenProject(project.id, project.name, project.folder);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not open project.');
@@ -111,7 +111,7 @@ export const ProjectManagerModal: React.FC<ProjectManagerModalProps> = ({
                 <div key={project.id} className={`flex items-center gap-3 border rounded-lg p-3 ${currentProjectId === project.id ? 'border-[#3B82F6] bg-[#18263C]' : 'border-[#2B303A] bg-[#111318]'}`}>
                   <div className="w-10 h-10 rounded bg-[#202A39] flex items-center justify-center text-[#60A5FA]"><FileVideo className="w-5 h-5" /></div>
                   <div className="min-w-0 flex-1"><div className="text-xs font-semibold text-white truncate">{project.name}</div><div className="text-[10px] text-[#8D95A5] truncate">{project.folder || 'My Projects'} · {project.clipCount} layers · {new Date(project.savedAt).toLocaleString()}</div></div>
-                  <button type="button" disabled={busyId === project.id} onClick={() => void openProject(project.id)} className="px-3 py-1.5 rounded bg-[#2563EB] hover:bg-[#1D4ED8] text-[10px] font-semibold text-white disabled:opacity-50">{busyId === project.id ? 'Opening…' : 'Open'}</button>
+                  <button type="button" disabled={busyId === project.id} onClick={() => void openProject(project)} className="px-3 py-1.5 rounded bg-[#2563EB] hover:bg-[#1D4ED8] text-[10px] font-semibold text-white disabled:opacity-50">{busyId === project.id ? 'Opening…' : 'Open'}</button>
                   <button type="button" disabled={busyId === project.id} onClick={() => void removeProject(project.id)} aria-label={`Delete ${project.name}`} className="p-2 rounded text-[#9BA1AD] hover:text-red-400 hover:bg-[#302126]"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               ))}

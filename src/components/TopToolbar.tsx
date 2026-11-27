@@ -207,7 +207,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             )}
           </div>
           <div className="relative">
-            <button type="button" onClick={() => setOpenMenu((m) => m === 'effect' ? null : 'effect')} aria-expanded={openMenu === 'effect'} className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${openMenu === 'effect' ? 'bg-[#303642] text-white' : 'text-[#C8CDD6] hover:bg-[#252932] hover:text-white'}`}>Effect</button>
+            <button type="button" onClick={() => setOpenMenu((m) => m === 'effect' ? null : 'effect')} aria-expanded={openMenu === 'effect'} className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${openMenu === 'effect' ? 'bg-[#303642] text-white' : 'text-[#C8CDD6] hover:bg-[#252932] hover:text-white'}`}>FX / SFX</button>
             {openMenu === 'effect' && (
               <div role="menu" aria-label="Effect Menu" className="absolute left-0 top-full mt-1 w-48 rounded-md border border-[#303744] bg-[#181A1F] p-1 shadow-2xl z-[80]">
                 {([
