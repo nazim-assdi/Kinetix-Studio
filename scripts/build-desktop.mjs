@@ -4,10 +4,10 @@ import { mkdir } from 'node:fs/promises';
 await mkdir('dist-electron', { recursive: true });
 const shared = {
   bundle: true,
-  platform: 'node' as const,
+  platform: 'node',
   target: 'node24',
-  format: 'cjs' as const,
-  packages: 'external' as const,
+  format: 'cjs',
+  packages: 'external',
   external: ['electron'],
   sourcemap: false,
   minify: true,
