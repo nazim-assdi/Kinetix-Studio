@@ -2775,18 +2775,23 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     ctx.restore();
   }
 
-  const selectedBoxClip = selectedBox ? clips.find((clip) => clip.id === selectedBox.clipId) : null;
+  // A final snapshot keeps TypeScript's narrowing stable after transition
+  // render callbacks, which may update selectedBox while drawing both sides.
+  const finalSelectedBox = selectedBox;
+  const selectedBoxClip = finalSelectedBox
+    ? clips.find((clip) => clip.id === finalSelectedBox.clipId)
+    : null;
   const selectedBoxOpacity = selectedBoxClip ? resolveWorldTransform(selectedBoxClip, clips, playheadTime).opacity : 100;
-  if (drawGizmo && selectedBox && selectedBoxOpacity > 0.01) {
+  if (drawGizmo && finalSelectedBox && selectedBoxOpacity > 0.01) {
     ctx.save();
-    ctx.translate(selectedBox.cx, selectedBox.cy);
-    ctx.rotate(selectedBox.rotationRad);
-    const hw = selectedBox.width / 2;
-    const hh = selectedBox.height / 2;
+    ctx.translate(finalSelectedBox.cx, finalSelectedBox.cy);
+    ctx.rotate(finalSelectedBox.rotationRad);
+    const hw = finalSelectedBox.width / 2;
+    const hh = finalSelectedBox.height / 2;
 
     ctx.strokeStyle = '#3B82F6';
     ctx.lineWidth = 2;
-    ctx.strokeRect(-hw, -hh, selectedBox.width, selectedBox.height);
+    ctx.strokeRect(-hw, -hh, finalSelectedBox.width, finalSelectedBox.height);
 
     const corners = [
       [-hw, -hh],
@@ -2809,5 +2814,5 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     ctx.restore();
   }
 
-  return selectedBox;
+  return finalSelectedBox;
 }
