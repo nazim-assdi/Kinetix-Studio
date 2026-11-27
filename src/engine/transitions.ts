@@ -12,6 +12,52 @@ export interface TimelineTransitionPair {
   incoming: TimelineClip;
 }
 
+/** A safe, predictable default for one-click edit-point transitions. */
+export const DEFAULT_TIMELINE_TRANSITION: MotionPresetItem = {
+  id: 'default-cross-dissolve',
+  name: 'Cross Dissolve',
+  vendor: 'FX',
+  category: 'Transition',
+  description: 'A clean, centered dissolve between two adjacent visual clips.',
+  accentColor: '#A78BFA',
+  motionVariant: {
+    direction: 'left',
+    duration: 0.75,
+    intensity: 1,
+  },
+};
+
+/**
+ * Resolve the nearest real edit point on a track. This powers forgiving
+ * drag-and-drop: users can drop a transition near a cut instead of hitting a
+ * tiny pixel-perfect handle.
+ */
+export function findNearestTransitionPair(
+  clips: TimelineClip[],
+  trackId: string,
+  time: number,
+  fps: number,
+  maxDistance: number
+): TimelineTransitionPair | null {
+  let nearest: TimelineTransitionPair | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  const tolerance = Math.max(0, maxDistance);
+
+  for (const incoming of clips) {
+    if (incoming.trackId !== trackId || !isTransitionableClip(incoming)) continue;
+    const outgoing = findAdjacentOutgoingClip(clips, incoming, fps);
+    if (!outgoing) continue;
+
+    const distance = Math.abs(incoming.start - time);
+    if (distance <= tolerance && distance < nearestDistance) {
+      nearest = { outgoing, incoming };
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
+}
+
 export function isTransitionableClip(clip: TimelineClip): boolean {
   return !NON_TRANSITIONABLE_KINDS.has(clip.kind);
 }

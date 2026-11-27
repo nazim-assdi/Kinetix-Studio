@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
-import { createTimelineTransition, findAdjacentOutgoingClip, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
+import { resolveGeminiApiKey } from './aiConfig';
+import { DEFAULT_TIMELINE_TRANSITION, createTimelineTransition, findAdjacentOutgoingClip, findNearestTransitionPair, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
   evaluateClipTransform,
@@ -95,6 +96,23 @@ test('edit-point transitions resolve only adjacent clips on the same track', () 
   assert.equal(findAdjacentOutgoingClip([outgoing, separatedIncoming], separatedIncoming, 30), null);
 });
 
+test('default transition is a usable Cross Dissolve and forgiving drop finds the nearest cut', () => {
+  const outgoing = makeClip({ id: 'outgoing-near', trackId: 'track_v1', start: 0, duration: 3 });
+  const incoming = makeClip({ id: 'incoming-near', trackId: 'track_v1', start: 3, duration: 4 });
+  const wrongTrackIncoming = makeClip({ id: 'wrong-track-incoming', trackId: 'track_v2', start: 3, duration: 4 });
+
+  assert.equal(DEFAULT_TIMELINE_TRANSITION.category, 'Transition');
+  assert.equal(createTimelineTransition(DEFAULT_TIMELINE_TRANSITION, 30).style, 'cross-dissolve');
+  assert.equal(
+    findNearestTransitionPair([outgoing, incoming, wrongTrackIncoming], 'track_v1', 3.25, 30, 0.3)?.incoming.id,
+    'incoming-near'
+  );
+  assert.equal(
+    findNearestTransitionPair([outgoing, incoming], 'track_v1', 3.5, 30, 0.2),
+    null
+  );
+});
+
 test('transition preset maps to a real edit-point style and computes centered progress', () => {
   const transition = createTimelineTransition({
     id: 'mega_tr_test',
@@ -110,6 +128,13 @@ test('transition preset maps to a real edit-point style and computes centered pr
   assert.equal(getTransitionProgress(transition, 5, 4.7), 0);
   assert.ok(Math.abs(getTransitionProgress(transition, 5, 5) - 0.5) < 1e-9);
   assert.equal(getTransitionProgress(transition, 5, 5.3), 1);
+});
+
+test('Gemini AI key resolver prefers server configuration and supports per-user fallback', () => {
+  assert.equal(resolveGeminiApiKey('server-secret', 'browser-secret'), 'server-secret');
+  assert.equal(resolveGeminiApiKey('   ', 'browser-secret'), 'browser-secret');
+  assert.equal(resolveGeminiApiKey(undefined, '  browser-secret  '), 'browser-secret');
+  assert.equal(resolveGeminiApiKey(null, '  '), null);
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {

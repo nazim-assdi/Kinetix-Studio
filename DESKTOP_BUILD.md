@@ -29,13 +29,15 @@ npm run desktop:dev
 
 ## Gemini AI configuration
 
-The desktop app reads an optional `.env` file from Electron's per-user application data directory. Add:
+Open the **AI** tab and enter your Google AI Studio Gemini API key in the **Gemini API Key** field. The key is kept in the current browser session and sent only with your AI requests; it is not added to projects or stored in the app database.
+
+You may instead configure a server-wide default key in the server environment:
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 ```
 
-For a managed deployment that requires a shared access key, also set:
+A server-wide key takes precedence over a user's session key. For a managed deployment that requires a shared access key, also set:
 
 ```env
 KINETIX_AI_ACCESS_KEY=your_long_random_access_key

@@ -157,6 +157,20 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   });
   const [sortMode, setSortMode] = useState<'catalog' | 'name' | 'favorites'>('catalog');
   const [aiPrompt, setAiPrompt] = useState('');
+  const [aiApiKey, setAiApiKey] = useState(() => {
+    try {
+      return window.sessionStorage.getItem('kinetix_gemini_api_key') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [aiKeySaved, setAiKeySaved] = useState(() => {
+    try {
+      return Boolean(window.sessionStorage.getItem('kinetix_gemini_api_key'));
+    } catch {
+      return false;
+    }
+  });
   const [aiLoading, setAiLoading] = useState(false);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -206,6 +220,36 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
     );
     return filtered;
   }, [vendorFilter, categoryFilter, q, activeTab, favoritesOnly, favoriteIds, sortMode]);
+
+  const saveAiApiKey = () => {
+    const key = aiApiKey.trim();
+    try {
+      if (!key) {
+        window.sessionStorage.removeItem('kinetix_gemini_api_key');
+        setAiKeySaved(false);
+        setAiError(null);
+        return;
+      }
+      window.sessionStorage.setItem('kinetix_gemini_api_key', key);
+      setAiApiKey(key);
+      setAiKeySaved(true);
+      setAiError(null);
+    } catch {
+      setAiKeySaved(false);
+      setAiError('Could not save the key in this browser session. Check browser storage permissions.');
+    }
+  };
+
+  const removeAiApiKey = () => {
+    try {
+      window.sessionStorage.removeItem('kinetix_gemini_api_key');
+    } catch {
+      // The current input is still cleared even when storage is unavailable.
+    }
+    setAiApiKey('');
+    setAiKeySaved(false);
+    setAiError(null);
+  };
 
   const handleAiSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -690,6 +734,64 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
 
         {activeTab === 'ai' && (
           <div className="space-y-3 p-1">
+            {/* Request-scoped BYO Gemini key; never saved to the project or localStorage. */}
+            <div className="rounded border border-[#2B303A] bg-[#14161A] p-2 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="kinetix-gemini-api-key" className="text-[11px] font-semibold text-[#D6D9E0]">
+                  Gemini API Key
+                </label>
+                <span className={`text-[9px] font-semibold ${aiKeySaved ? 'text-[#5EEAD4]' : 'text-[#8D95A5]'}`}>
+                  {aiKeySaved ? 'SAVED FOR SESSION' : 'NEEDED FOR AI'}
+                </span>
+              </div>
+              <input
+                id="kinetix-gemini-api-key"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={aiApiKey}
+                onChange={(event) => {
+                  setAiApiKey(event.target.value);
+                  setAiKeySaved(false);
+                  try {
+                    window.sessionStorage.removeItem('kinetix_gemini_api_key');
+                  } catch {
+                    // The edited value is saved only after the user confirms it.
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    saveAiApiKey();
+                  }
+                }}
+                placeholder="Paste your Google AI Studio API key"
+                aria-label="Gemini API Key"
+                className="w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1.5 text-[11px] text-white placeholder:text-[#6E7685] focus:outline-none focus:border-[#3B82F6]"
+              />
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={saveAiApiKey}
+                  disabled={!aiApiKey.trim()}
+                  className="flex-1 rounded bg-[#263B58] hover:bg-[#31527A] disabled:opacity-40 px-2 py-1 text-[10px] font-semibold text-[#DBEAFE]"
+                >
+                  Save for This Session
+                </button>
+                <button
+                  type="button"
+                  onClick={removeAiApiKey}
+                  disabled={!aiKeySaved && !aiApiKey}
+                  className="rounded border border-[#343B49] hover:bg-[#303744] disabled:opacity-40 px-2 py-1 text-[10px] text-[#C8CDD6]"
+                >
+                  Remove
+                </button>
+              </div>
+              <p className="text-[9px] leading-snug text-[#7F8795]">
+                Your key is kept in this browser session and sent only with your AI requests. It is not saved in the project.
+              </p>
+            </div>
+
             {/* AI Director Editing */}
             <form onSubmit={handleAiSubmit} className="space-y-2">
               <div className="text-xs font-semibold text-[#E6E8EC] flex items-center gap-1.5">
