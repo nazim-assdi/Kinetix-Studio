@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { RotateCcw, Palette } from 'lucide-react';
+import { RotateCcw, Palette, Upload } from 'lucide-react';
 import {
   ColorWheelChannel,
   ColorWheelGrade,
@@ -7,7 +7,7 @@ import {
 } from '../types/editor';
 import { DAVINCI_LUTS, DEFAULT_COLOR_GRADE } from '../data/megaCatalog';
 import { VideoScopesPanel } from './VideoScopesPanel';
-import { ColorPalettePicker } from './ColorPalettePicker';
+import { parseCubeLut } from '../engine/lut';
 
 interface DaVinciColorPanelProps {
   selectedClip: TimelineClip | null;
@@ -116,6 +116,27 @@ const ColorWheelControl: React.FC<ColorWheelControlProps> = ({
         />
       </div>
 
+      <div className="w-full grid grid-cols-3 gap-1">
+        {(['r', 'g', 'b'] as const).map((component) => (
+          <label key={component} className="block min-w-0">
+            <span className="block text-[9px] uppercase text-[#8D95A5] mb-0.5">{component}</span>
+            <input
+              type="number"
+              aria-label={`${label} ${component.toUpperCase()} value`}
+              min={-1}
+              max={1}
+              step={0.01}
+              value={Number(channel[component].toFixed(2))}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value)) onChange({ ...channel, [component]: Math.max(-1, Math.min(1, value)) });
+              }}
+              className="w-full min-w-0 bg-[#0E1013] border border-[#2B303A] rounded px-1 py-1 text-[10px] text-[#E6E8EC] font-mono-tabular"
+            />
+          </label>
+        ))}
+      </div>
+
       <div className="w-full space-y-0.5">
         <div className="flex justify-between text-[9px] text-[#8D95A5] font-mono-tabular">
           <span>Luma</span>
@@ -143,6 +164,8 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
   scopeRefreshKey = '',
   onUpdateColorGrade,
 }) => {
+  const lutInputRef = useRef<HTMLInputElement>(null);
+  const [lutStatus, setLutStatus] = useState<string | null>(null);
   if (
     !selectedClip ||
     selectedClip.kind === 'audio' ||
@@ -185,14 +208,19 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
   };
 
   const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.offset?.luma ?? 0}_${grade.exposureStops ?? 0}_${grade.hue ?? 0}_${grade.vibrance ?? 0}_${grade.colorBoost ?? 0}_${grade.midtoneDetail ?? 0}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.lut}`;
-  const paletteColorToWheel = (hex: string): ColorWheelChannel => {
-    const value = Number.parseInt(hex.replace('#', ''), 16);
-    return {
-      r: (((value >> 16) & 255) / 255 - 0.5) * 0.72,
-      g: (((value >> 8) & 255) / 255 - 0.5) * 0.72,
-      b: ((value & 255) / 255 - 0.5) * 0.72,
-      luma: 0,
-    };
+  const importCubeLut = async (file: File) => {
+    try {
+      const parsed = parseCubeLut(await file.text(), file.name);
+      onUpdateColorGrade(selectedClip.id, {
+        ...grade,
+        enabled: true,
+        lut: parsed.name,
+        lutData: parsed,
+      });
+      setLutStatus(`Imported ${parsed.name} · ${parsed.size}³`);
+    } catch (error) {
+      setLutStatus(error instanceof Error ? error.message : 'Could not read the .cube LUT.');
+    }
   };
 
   return (
@@ -225,45 +253,62 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
         </button>
       </div>
 
-      {/* LUT Selector */}
-      <div>
-        <label className="text-[10px] text-[#8D95A5] block mb-1">
-          DaVinci Film LUT
-        </label>
+      {/* LUT Selector and .cube Import */}
+      <div className="rounded border border-[#262B34] bg-[#14161A] p-2 space-y-2">
+        <input
+          ref={lutInputRef}
+          type="file"
+          accept=".cube,text/plain"
+          className="hidden"
+          aria-label="Import 3D LUT file"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (file) void importCubeLut(file);
+            event.currentTarget.value = '';
+          }}
+        />
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-[10px] text-[#8D95A5]">3D LUT</label>
+          <button
+            type="button"
+            onClick={() => lutInputRef.current?.click()}
+            className="flex items-center gap-1 rounded border border-[#384254] px-2 py-1 text-[10px] font-semibold text-[#C8D7F0] hover:bg-[#202B3B]"
+          >
+            <Upload className="w-3 h-3" /> Import .cube
+          </button>
+        </div>
         <select
           aria-label="DaVinci Film LUT"
           value={grade.lut}
-          onChange={(e) => {
-            const preset = DAVINCI_LUTS.find((l) => l.name === e.target.value);
+          onChange={(event) => {
+            const selected = event.target.value;
+            if (selected === 'None') {
+              onUpdateColorGrade(selectedClip.id, { ...grade, enabled: true, lut: 'None', lutData: undefined });
+              setLutStatus('LUT bypassed · RGB controls remain active');
+              return;
+            }
+            const preset = DAVINCI_LUTS.find((item) => item.name === selected);
             if (preset) {
               onUpdateColorGrade(selectedClip.id, {
                 ...preset.grade,
                 enabled: preset.id !== 'lut_neutral',
+                lutData: undefined,
               });
+              setLutStatus(null);
             }
           }}
-          className="w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC] focus:outline-none"
+          className="w-full bg-[#111215] border border-[#2B303A] rounded px-2 py-1.5 text-xs text-[#E6E8EC] focus:outline-none"
         >
-          {DAVINCI_LUTS.map((l) => (
-            <option key={l.id} value={l.name}>
-              {l.name}
-            </option>
+          <option value="None">None · No LUT</option>
+          {DAVINCI_LUTS.map((item) => (
+            <option key={item.id} value={item.name}>{item.name}</option>
           ))}
+          {grade.lutData && !DAVINCI_LUTS.some((item) => item.name === grade.lut) && (
+            <option value={grade.lut}>{grade.lut} · Imported</option>
+          )}
         </select>
+        {lutStatus && <p className="text-[9px] leading-snug text-[#9BA1AD]">{lutStatus}</p>}
       </div>
-
-      <ColorPalettePicker
-        onApply={(palette) =>
-          onUpdateColorGrade(selectedClip.id, {
-            ...grade,
-            enabled: true,
-            lift: paletteColorToWheel(palette.colors[0]),
-            gamma: paletteColorToWheel(palette.colors[2]),
-            gain: paletteColorToWheel(palette.colors[4]),
-            lut: 'Rec.709 Neutral',
-          })
-        }
-      />
 
       {/* 3-Way Color Wheels */}
       <div className="grid grid-cols-2 gap-2">
