@@ -2248,8 +2248,8 @@ export default function App() {
             mask: {
               enabled: true,
               shape: act.maskShape ?? previous?.shape ?? 'rect',
-              x: Math.max(0, Math.min(100, act.maskX ?? previous?.x ?? 50)),
-              y: Math.max(0, Math.min(100, act.maskY ?? previous?.y ?? 50)),
+              x: Math.max(-100, Math.min(100, act.maskX ?? previous?.x ?? 0)),
+              y: Math.max(-100, Math.min(100, act.maskY ?? previous?.y ?? 0)),
               width: Math.max(1, Math.min(100, act.maskWidth ?? previous?.width ?? 70)),
               height: Math.max(1, Math.min(100, act.maskHeight ?? previous?.height ?? 70)),
               feather: Math.max(0, Math.min(100, act.maskFeather ?? previous?.feather ?? 0)),
@@ -2405,6 +2405,9 @@ export default function App() {
       } else if (modifier && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault();
         setExportOpen(true);
+      } else if (modifier && e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void handleExportProjectFile();
       } else if (modifier && !e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         void handleSaveProject();
@@ -2471,6 +2474,7 @@ export default function App() {
     handleQuickAddLayer,
     handleAddMarker,
     handleSetWorkArea,
+    handleSaveProject,
   ]);
 
   const handleUpdateFusionGraph = useCallback(
