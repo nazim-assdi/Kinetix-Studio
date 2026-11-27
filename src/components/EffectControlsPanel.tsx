@@ -1610,7 +1610,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                           value={mask.shape}
                           onChange={(e) =>
                             patchMask({
-                              shape: e.target.value as 'rect' | 'ellipse',
+                              shape: e.target.value as 'rect' | 'rounded-rect' | 'ellipse',
                             })
                           }
                           className="bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
