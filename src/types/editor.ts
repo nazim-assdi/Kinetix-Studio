@@ -175,7 +175,7 @@ export interface EffectItem {
 
 export interface LayerMask {
   enabled: boolean;
-  shape: 'rect' | 'ellipse';
+  shape: 'rect' | 'rounded-rect' | 'ellipse';
   x: number;
   y: number;
   width: number;
@@ -234,6 +234,11 @@ export interface TextLayerProps {
   letterSpacing: number;
   align: 'left' | 'center' | 'right';
   backgroundColor?: string;
+  /** Depth of the text extrusion in local layer pixels; used when the layer's 3D switch is enabled. */
+  extrusionDepth?: number;
+  extrusionColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
   animator?: TextAnimatorPreset;
 }
 
