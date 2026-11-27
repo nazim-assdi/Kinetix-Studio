@@ -461,10 +461,30 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
           c.id === selectedClipId &&
           tool === 'pin' &&
           Math.hypot(compX - cx, compY - cy) <= 16;
+        // Mask controls live in the layer's full-composition local plane. Convert
+        // their 0..100% center to the centered coordinates used by the hit-test.
+        let maskControlHit = false;
+        if (c.id === selectedClipId && c.mask?.enabled && (tool === 'select' || tool === 'pin' || tool === 'mask')) {
+          const mask = c.mask;
+          const mx = (mask.x / 100) * composition.width - composition.width / 2;
+          const my = (mask.y / 100) * composition.height - composition.height / 2;
+          const mw = (mask.width / 100) * composition.width;
+          const mh = (mask.height / 100) * composition.height;
+          const handleRadius = 18 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+          const maskHandles = [
+            { x: -1, y: -1 }, { x: 0, y: -1 }, { x: 1, y: -1 },
+            { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+            { x: -1, y: 1 }, { x: -1, y: 0 },
+          ];
+          maskControlHit = maskHandles.some((handle) =>
+            Math.hypot(localX - (mx + handle.x * mw / 2), localY - (my + handle.y * mh / 2)) <= handleRadius
+          ) || (Math.abs(localX - mx) <= mw / 2 && Math.abs(localY - my) <= mh / 2);
+        }
         let isInside =
           (Math.abs(localX) <= halfW + hitPadding && Math.abs(localY) <= halfH + hitPadding) ||
           rotationHandleHit ||
-          pivotHandleHit;
+          pivotHandleHit ||
+          maskControlHit;
 
         if (c.is3D) {
           const anchorX = world.anchorX ?? 0;
@@ -511,9 +531,73 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     onSelectClip(hitClip.id);
     const transform = evaluateClipTransform(hitClip, playheadTime);
 
+    // Select, Mask and Pin tools can all grab an enabled mask directly in the preview.
+    // Mask handles take priority over the pivot so a mask never becomes unreachable.
+    const canEditExistingMask = Boolean(
+      hitClip.mask?.enabled && (tool === 'select' || tool === 'pin' || tool === 'mask')
+    );
+    if (tool === 'mask' || canEditExistingMask) {
+      const originalMask: LayerMask = hitClip.mask ?? {
+        enabled: true, shape: 'rect', x: 50, y: 50, width: 65, height: 65,
+        feather: 0, inverted: false, opacity: 100,
+      };
+      const mask = { ...originalMask, enabled: true };
+      const mx = (mask.x / 100) * composition.width - composition.width / 2;
+      const my = (mask.y / 100) * composition.height - composition.height / 2;
+      const mw = (mask.width / 100) * composition.width;
+      const mh = (mask.height / 100) * composition.height;
+      const signs = [
+        { x: -1, y: -1 }, { x: 0, y: -1 }, { x: 1, y: -1 },
+        { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+        { x: -1, y: 1 }, { x: -1, y: 0 },
+      ];
+      const radius = 18 / Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
+      const handle = signs.find((sign) =>
+        Math.hypot(localX - (mx + sign.x * mw / 2), localY - (my + sign.y * mh / 2)) <= radius
+      );
+      const dxMask = Math.abs(localX - mx);
+      const dyMask = Math.abs(localY - my);
+      const inside = mask.shape === 'ellipse'
+        ? ((dxMask / Math.max(1, mw / 2)) ** 2 + (dyMask / Math.max(1, mh / 2)) ** 2) <= 1
+        : dxMask <= mw / 2 && dyMask <= mh / 2;
+      const shouldDrawNewMask = tool === 'mask' && !handle && !inside;
+      const shouldEditMask = Boolean(handle || inside || shouldDrawNewMask);
+
+      if (shouldEditMask) {
+        const mode: 'resize-mask' | 'move-mask' | 'draw-mask' =
+          handle ? 'resize-mask' : inside ? 'move-mask' : 'draw-mask';
+        const selectedMask: LayerMask = mode === 'draw-mask'
+          ? {
+              ...mask,
+              x: ((localX + composition.width / 2) / composition.width) * 100,
+              y: ((localY + composition.height / 2) / composition.height) * 100,
+              width: 1,
+              height: 1,
+            }
+          : mask;
+        if (mode === 'draw-mask' || !hitClip.mask?.enabled) {
+          onUpdateMaskCanvas(hitClip.id, selectedMask);
+        }
+        dragRef.current = {
+          mode,
+          clipId: hitClip.id,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          startLocalX: localX,
+          startLocalY: localY,
+          origMask: selectedMask,
+          ...(handle ? { signX: handle.x, signY: handle.y } : {}),
+          rotationRad,
+          scaleX: layerScaleX,
+          scaleY: layerScaleY,
+        };
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+
     if (tool === 'pin') {
-      // Drag the existing pivot marker, or click elsewhere on the artwork to
-      // move the pivot there. Both operations preserve the visible artwork.
+      // If the pointer is not on an enabled mask, retain normal pan-behind pivot editing.
       const draggingExistingPivot = Math.hypot(compX - centerX, compY - centerY) <= 16;
       const nextAnchorX = draggingExistingPivot
         ? (transform.anchorX ?? 0)
@@ -533,56 +617,6 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         scaleX: layerScaleX,
         scaleY: layerScaleY,
       };
-      canvas.setPointerCapture(e.pointerId);
-      return;
-    }
-
-    if (tool === 'mask') {
-      const originalMask: LayerMask = hitClip.mask ?? {
-        enabled: true, shape: 'rect', x: 0, y: 0, width: 65, height: 65,
-        feather: 0, inverted: false, opacity: 100,
-      };
-      const mask = { ...originalMask, enabled: true };
-      if (!hitClip.mask?.enabled) {
-        const fresh = { ...mask, x: (localX / composition.width) * 100, y: (localY / composition.height) * 100, width: 1, height: 1 };
-        onUpdateMaskCanvas(hitClip.id, fresh);
-        dragRef.current = {
-          mode: 'draw-mask', clipId: hitClip.id, startClientX: e.clientX, startClientY: e.clientY,
-          startLocalX: localX, startLocalY: localY, origMask: fresh, rotationRad, scaleX: layerScaleX, scaleY: layerScaleY,
-        };
-      } else {
-        const mx = (mask.x / 100) * composition.width;
-        const my = (mask.y / 100) * composition.height;
-        const mw = (mask.width / 100) * composition.width;
-        const mh = (mask.height / 100) * composition.height;
-        const signs = [
-          { x: -1, y: -1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: 1, y: 1 },
-        ];
-        const radius = 16 / Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
-        const corner = signs.find((sign) => Math.hypot(localX - (mx + sign.x * mw / 2), localY - (my + sign.y * mh / 2)) <= radius);
-        const dxMask = Math.abs(localX - mx);
-        const dyMask = Math.abs(localY - my);
-        const inside = mask.shape === 'ellipse'
-          ? ((dxMask / Math.max(1, mw / 2)) ** 2 + (dyMask / Math.max(1, mh / 2)) ** 2) <= 1
-          : mask.shape === 'rounded-rect'
-          ? dxMask <= mw / 2 && dyMask <= mh / 2 && (
-              dxMask <= mw / 2 - Math.min(mw, mh) * 0.14 ||
-              dyMask <= mh / 2 - Math.min(mw, mh) * 0.14 ||
-              Math.hypot(dxMask - (mw / 2 - Math.min(mw, mh) * 0.14), dyMask - (mh / 2 - Math.min(mw, mh) * 0.14)) <= Math.min(mw, mh) * 0.14
-            )
-          : dxMask <= mw / 2 && dyMask <= mh / 2;
-        const mode = corner ? 'resize-mask' : inside ? 'move-mask' : 'draw-mask';
-        const selectedMask = mode === 'draw-mask'
-          ? { ...mask, x: (localX / composition.width) * 100, y: (localY / composition.height) * 100, width: 1, height: 1 }
-          : mask;
-        if (mode === 'draw-mask') onUpdateMaskCanvas(hitClip.id, selectedMask);
-        dragRef.current = {
-          mode, clipId: hitClip.id, startClientX: e.clientX, startClientY: e.clientY,
-          startLocalX: localX, startLocalY: localY, origMask: selectedMask,
-          ...(corner ? { signX: corner.x, signY: corner.y } : {}),
-          rotationRad, scaleX: layerScaleX, scaleY: layerScaleY,
-        };
-      }
       canvas.setPointerCapture(e.pointerId);
       return;
     }
@@ -759,8 +793,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       const endY = drag.startLocalY + unscaledDy;
       nextMask = {
         ...original,
-        x: ((drag.startLocalX + endX) / 2 / composition.width) * 100,
-        y: ((drag.startLocalY + endY) / 2 / composition.height) * 100,
+        x: (((drag.startLocalX + endX) / 2 + composition.width / 2) / composition.width) * 100,
+        y: (((drag.startLocalY + endY) / 2 + composition.height / 2) / composition.height) * 100,
         width: Math.max(1, (Math.abs(endX - drag.startLocalX) / composition.width) * 100),
         height: Math.max(1, (Math.abs(endY - drag.startLocalY) / composition.height) * 100),
       };
