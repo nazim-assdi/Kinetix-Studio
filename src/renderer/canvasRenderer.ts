@@ -26,6 +26,7 @@ import {
 import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
 import { findAdjacentOutgoingClip, getTransitionProgress } from '../engine/transitions';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
+import { applyCubeLutToCanvas } from '../engine/lut';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -60,6 +61,8 @@ function getScratchCanvas(
   }
   const sctx = c.getContext('2d');
   if (sctx) {
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = 'high';
     sctx.setTransform(1, 0, 0, 1, 0, 0);
     sctx.clearRect(0, 0, tw, th);
   }
@@ -100,11 +103,26 @@ function drawTexturedTriangle(
     d3.y * (s1.x * s2.y - s2.x * s1.y)
   ) / denominator;
 
+  // Separate affine triangle clips otherwise leave hairline gaps along the
+  // perspective mesh diagonals. Expand the clip only (not the UV transform)
+  // by a sub-pixel overlap so neighbouring triangles meet cleanly.
+  const centerX = (d1.x + d2.x + d3.x) / 3;
+  const centerY = (d1.y + d2.y + d3.y) / 3;
+  const seamOverlap = 0.85;
+  const expand = (point: ScreenPoint2D): ScreenPoint2D => {
+    const dx = point.x - centerX;
+    const dy = point.y - centerY;
+    const length = Math.hypot(dx, dy) || 1;
+    return { x: point.x + (dx / length) * seamOverlap, y: point.y + (dy / length) * seamOverlap };
+  };
+  const c1 = expand(d1);
+  const c2 = expand(d2);
+  const c3 = expand(d3);
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(d1.x, d1.y);
-  ctx.lineTo(d2.x, d2.y);
-  ctx.lineTo(d3.x, d3.y);
+  ctx.moveTo(c1.x, c1.y);
+  ctx.lineTo(c2.x, c2.y);
+  ctx.lineTo(c3.x, c3.y);
   ctx.closePath();
   ctx.clip();
   ctx.transform(a, b, c, d, e, f);
@@ -129,7 +147,7 @@ function drawPerspectiveLayerPlane(
   cameraState: CameraViewState,
   planeDepth = 0
 ) {
-  const segments = 6;
+  const segments = 8;
   const left = width / 2 - layerWidth / 2 - anchorX;
   const top = height / 2 - layerHeight / 2 - anchorY;
   const cellW = layerWidth / segments;
@@ -1482,6 +1500,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   const { width, height } = composition;
   const requestedScale = Math.max(0.35, Math.min(1.5, renderScale));
@@ -1500,6 +1520,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
   }
   const scaleX = canvas.width / width;
   const scaleY = canvas.height / height;
+  // Canvas resizing resets drawing state, so set interpolation quality after sizing.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
@@ -2199,6 +2222,11 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     if (clip.colorGrade?.enabled) {
       applyDaVinciToneOverlay(renderCtx, clip.colorGrade, baseW, baseH);
     }
+    if (clip.colorGrade?.lutData) {
+      // Apply the imported LUT to the layer's own pixels before alpha masking
+      // and compositing, so it remains isolated to the selected clip.
+      applyCubeLutToCanvas(renderCtx.canvas, clip.colorGrade.lutData);
+    }
 
     if (shading.tintAlpha > 0.01) {
       renderCtx.globalCompositeOperation = 'overlay';
@@ -2317,6 +2345,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       }
       const mw = (clip.mask.width / 100) * width;
       const mh = (clip.mask.height / 100) * height;
+      // Mask x/y are signed offsets from the layer center, in composition-percent units.
       const mx = (clip.mask.x / 100) * width;
       const my = (clip.mask.y / 100) * height;
       targetCtx.strokeStyle = '#F59E0B';
@@ -2334,11 +2363,19 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       targetCtx.stroke();
       targetCtx.setLineDash([]);
       targetCtx.fillStyle = '#FFFFFF';
-      const maskHandle = 9 / Math.max(0.01, Math.abs(effScaleX));
-      for (const sx of [-1, 1]) {
-        for (const sy of [-1, 1]) {
-          targetCtx.fillRect(mx + sx * mw / 2 - maskHandle / 2, my + sy * mh / 2 - maskHandle / 2, maskHandle, maskHandle);
-        }
+      const maskHandle = 10 / Math.max(0.01, Math.min(Math.abs(effScaleX), Math.abs(effScaleY)));
+      const maskHandles = [
+        { x: -1, y: -1 }, { x: 0, y: -1 }, { x: 1, y: -1 },
+        { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+        { x: -1, y: 1 }, { x: -1, y: 0 },
+      ];
+      for (const handle of maskHandles) {
+        targetCtx.fillRect(
+          mx + handle.x * mw / 2 - maskHandle / 2,
+          my + handle.y * mh / 2 - maskHandle / 2,
+          maskHandle,
+          maskHandle
+        );
       }
       targetCtx.restore();
     }

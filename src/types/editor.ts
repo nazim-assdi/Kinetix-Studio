@@ -192,6 +192,15 @@ export interface ColorWheelChannel {
   luma: number; // -100..100
 }
 
+export interface CubeLut {
+  name: string;
+  size: number;
+  domainMin: [number, number, number];
+  domainMax: [number, number, number];
+  /** Red changes fastest, then green, then blue, as specified by .cube files. */
+  data: [number, number, number][];
+}
+
 export interface ColorWheelGrade {
   enabled: boolean;
   lift: ColorWheelChannel;
@@ -211,6 +220,8 @@ export interface ColorWheelGrade {
   shadows?: number; // -50..50
   highlights?: number; // -50..50
   lut: string;
+  /** Optional imported .cube 3D LUT. Omitted for built-in or neutral LUTs. */
+  lutData?: CubeLut;
 }
 
 export interface MotionTrackPoint {

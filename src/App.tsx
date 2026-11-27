@@ -33,7 +33,7 @@ import {
 } from './data/demoProject';
 import { applyMotionPresetToClip } from './data/motionPresets';
 import { applyCatalogMotionVariant, buildCatalogColorGrade } from './engine/catalogVariants';
-import { DAVINCI_LUTS } from './data/megaCatalog';
+import { DAVINCI_LUTS, DEFAULT_COLOR_GRADE } from './data/megaCatalog';
 import {
   evaluateClipTransform,
   moveKeyframe,
@@ -73,6 +73,7 @@ import { TimelinePanel } from './components/TimelinePanel';
 import { ExportModal } from './components/ExportModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { BezierGraphEditorModal } from './components/BezierGraphEditorModal';
+import { SequenceSetupModal } from './components/SequenceSetupModal';
 
 const AUTOSAVE_KEY = 'kinetix_studio_autosave_v1';
 
@@ -207,6 +208,16 @@ interface AiAction {
   exposure?: number;
   contrast?: number;
   saturation?: number;
+  temp?: number;
+  tint?: number;
+  maskShape?: 'rect' | 'rounded-rect' | 'ellipse';
+  maskX?: number;
+  maskY?: number;
+  maskWidth?: number;
+  maskHeight?: number;
+  maskFeather?: number;
+  maskInverted?: boolean;
+  transitionDirection?: 'left' | 'right' | 'up' | 'down';
 }
 
 export default function App() {
@@ -251,6 +262,7 @@ export default function App() {
     catch { return true; }
   });
   const [projectStorageReady, setProjectStorageReady] = useState(false);
+  const [sequenceSetupOpen, setSequenceSetupOpen] = useState(false);
   const [tool, setTool] = useState<ToolMode>('select');
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [loopEnabled, setLoopEnabled] = useState(true);
@@ -289,6 +301,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let restoredExistingProject = false;
     void loadProjectFromIndexedDb()
       .then((stored) => {
         if (
@@ -304,6 +317,7 @@ export default function App() {
         const localTime = Date.parse(initialSave?.savedAt || '');
         if (initialSave && Number.isFinite(localTime) && storedTime < localTime) return;
 
+        restoredExistingProject = true;
         const restored = restoreProjectMedia(stored);
         setComposition(restored.composition);
         setAssets(restored.assets ?? INITIAL_ASSETS);
@@ -317,7 +331,10 @@ export default function App() {
         console.warn('Kinetix Studio autosave could not be restored:', error);
       })
       .finally(() => {
-        if (!cancelled) setProjectStorageReady(true);
+        if (!cancelled) {
+          setProjectStorageReady(true);
+          if (!initialSave && !restoredExistingProject) setSequenceSetupOpen(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -343,7 +360,7 @@ export default function App() {
   // Debounced project autosave. Imported media is embedded once and cached so
   // repeated edits do not repeatedly decode large blob URLs.
   useEffect(() => {
-    if (!projectStorageReady || !autoSaveEnabled) return;
+    if (!projectStorageReady || !autoSaveEnabled || sequenceSetupOpen) return;
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -368,7 +385,7 @@ export default function App() {
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [
-    projectStorageReady, autoSaveEnabled, composition, tracks, clips, assets, markers, workArea,
+    projectStorageReady, autoSaveEnabled, sequenceSetupOpen, composition, tracks, clips, assets, markers, workArea,
     currentProjectId, currentProjectName, currentProjectFolder,
   ]);
 
@@ -2050,6 +2067,9 @@ export default function App() {
     }
 
     const actions: AiAction[] = Array.isArray(data.actions) ? data.actions : [];
+    if (actions.length === 0) {
+      throw new Error(data.summary || 'AI returned no timeline actions. Try describing one specific edit, effect, mask, transition or grade.');
+    }
     let nextClips = [...clips];
     let latestSelected = selectedClipId;
 
@@ -2219,6 +2239,68 @@ export default function App() {
             : c
         );
       }
+      else if (act.actionType === 'set_mask' && latestSelected) {
+        nextClips = nextClips.map((clip) => {
+          if (clip.id !== latestSelected) return clip;
+          const previous = clip.mask;
+          return {
+            ...clip,
+            mask: {
+              enabled: true,
+              shape: act.maskShape ?? previous?.shape ?? 'rect',
+              x: Math.max(-100, Math.min(100, act.maskX ?? previous?.x ?? 0)),
+              y: Math.max(-100, Math.min(100, act.maskY ?? previous?.y ?? 0)),
+              width: Math.max(1, Math.min(100, act.maskWidth ?? previous?.width ?? 70)),
+              height: Math.max(1, Math.min(100, act.maskHeight ?? previous?.height ?? 70)),
+              feather: Math.max(0, Math.min(100, act.maskFeather ?? previous?.feather ?? 0)),
+              inverted: act.maskInverted ?? previous?.inverted ?? false,
+              opacity: previous?.opacity ?? 100,
+            },
+          };
+        });
+      } else if (act.actionType === 'add_transition' && latestSelected) {
+        const anchor = nextClips.find((clip) => clip.id === latestSelected);
+        const pair = anchor ? resolveTransitionPairForClip(nextClips, anchor, composition.fps) : null;
+        if (pair) {
+          const item: MotionPresetItem = {
+            id: act.presetId || 'ai-cross-dissolve',
+            name: act.name || 'AI Cross Dissolve',
+            vendor: 'FX',
+            category: 'Transition',
+            description: 'AI-generated edit-point transition.',
+            accentColor: act.color || '#A78BFA',
+            motionVariant: {
+              direction: act.transitionDirection || 'left',
+              duration: act.duration ?? 0.75,
+              intensity: 1,
+            },
+          };
+          const transition = createTimelineTransition(item, composition.fps);
+          const duration = Math.min(transition.duration, pair.outgoing.duration, pair.incoming.duration);
+          if (duration >= 2 / Math.max(1, composition.fps) - 0.0001) {
+            nextClips = nextClips.map((clip) =>
+              clip.id === pair.incoming.id ? { ...clip, transitionIn: { ...transition, duration } } : clip
+            );
+          }
+        }
+      } else if (act.actionType === 'set_color_grade' && latestSelected) {
+        nextClips = nextClips.map((clip) => {
+          if (clip.id !== latestSelected) return clip;
+          const grade = clip.colorGrade ?? { ...DEFAULT_COLOR_GRADE, enabled: true };
+          return {
+            ...clip,
+            colorGrade: {
+              ...grade,
+              enabled: true,
+              exposureStops: Math.max(-5, Math.min(5, act.exposure ?? grade.exposureStops ?? 0)),
+              contrast: Math.max(50, Math.min(180, act.contrast ?? grade.contrast)),
+              saturation: Math.max(0, Math.min(200, act.saturation ?? grade.saturation)),
+              temp: Math.max(-100, Math.min(100, act.temp ?? grade.temp)),
+              tint: Math.max(-100, Math.min(100, act.tint ?? grade.tint)),
+            },
+          };
+        });
+      }
     }
 
     commitHistory(tracks, nextClips);
@@ -2316,7 +2398,23 @@ export default function App() {
         return;
       }
 
-      if (e.code === 'Space') {
+      const modifier = e.ctrlKey || e.metaKey;
+      if (modifier && e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setSequenceSetupOpen(true);
+      } else if (modifier && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setExportOpen(true);
+      } else if (modifier && e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void handleExportProjectFile();
+      } else if (modifier && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void handleSaveProject();
+      } else if (modifier && !e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        setProjectManagerOpen(true);
+      } else if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying((p) => !p);
       } else if (e.key === 'v' || e.key === 'V') {
@@ -2376,6 +2474,7 @@ export default function App() {
     handleQuickAddLayer,
     handleAddMarker,
     handleSetWorkArea,
+    handleSaveProject,
   ]);
 
   const handleUpdateFusionGraph = useCallback(
@@ -2392,6 +2491,26 @@ export default function App() {
     },
     [updateClipById]
   );
+
+  const handleCreateSequence = (settings: CompositionSettings) => {
+    setComposition(settings);
+    setAssets([]);
+    setTracks(INITIAL_TRACKS.map((track) => ({ ...track })));
+    setClips([]);
+    setMarkers([]);
+    setWorkArea({ enabled: false, inTime: 0, outTime: settings.duration });
+    setPlayheadTime(0);
+    setSelectedClipId(null);
+    setSelectedClipIds([]);
+    setCurrentProjectId(null);
+    setCurrentProjectName(settings.name);
+    setCurrentProjectFolder('My Projects');
+    try { window.localStorage.removeItem('kinetix_current_project_id_v1'); } catch { /* optional */ }
+    setProjectManagerOpen(false);
+    setSequenceSetupOpen(false);
+    setSaveBadgeText('Sequence Created');
+    window.setTimeout(() => setSaveBadgeText(null), 1800);
+  };
 
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
 
@@ -2415,6 +2534,7 @@ export default function App() {
         onQuickAddLayer={handleQuickAddLayer}
         onSaveProject={handleSaveProject}
         onOpenProjectManager={() => setProjectManagerOpen(true)}
+        onNewSequence={() => setSequenceSetupOpen(true)}
         onLoadProjectFile={handleLoadProjectFile}
         saveBadgeText={saveBadgeText}
         onOpenExport={() => {
@@ -2820,6 +2940,12 @@ export default function App() {
           )
         }
         panelHeight={timelineHeight}
+      />
+
+      <SequenceSetupModal
+        isOpen={sequenceSetupOpen}
+        initialValue={composition}
+        onCreate={handleCreateSequence}
       />
 
       <BezierGraphEditorModal

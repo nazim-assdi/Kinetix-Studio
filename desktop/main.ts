@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { config as loadEnv } from 'dotenv';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -8,10 +9,59 @@ import { startServer } from '../server';
 let localServer: Server | null = null;
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
+let envGeminiApiKey = '';
+
+const encryptedGeminiKeyPath = () => path.join(app.getPath('userData'), 'gemini-api-key.bin');
+
+ipcMain.handle('kinetix:has-gemini-key', async () => {
+  if (process.env.GEMINI_API_KEY?.trim()) return true;
+  try {
+    await readFile(encryptedGeminiKeyPath());
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle('kinetix:save-gemini-key', async (_event, value: unknown) => {
+  if (typeof value !== 'string' || value.trim().length < 10 || value.length > 512) {
+    throw new Error('Enter a valid Gemini API key.');
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Windows secure storage is unavailable. Restart the app and try again.');
+  }
+  const key = value.trim();
+  const filePath = encryptedGeminiKeyPath();
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, safeStorage.encryptString(key));
+  process.env.GEMINI_API_KEY = key;
+  return true;
+});
+
+ipcMain.handle('kinetix:remove-gemini-key', async () => {
+  try {
+    await unlink(encryptedGeminiKeyPath());
+  } catch {
+    // Removing an already absent local key is safe.
+  }
+  if (envGeminiApiKey) process.env.GEMINI_API_KEY = envGeminiApiKey;
+  else delete process.env.GEMINI_API_KEY;
+  return true;
+});
 
 async function createMainWindow(): Promise<void> {
   // Keep private API credentials in the per-user app data folder, not inside the installer.
   loadEnv({ path: path.join(app.getPath('userData'), '.env'), override: false });
+  envGeminiApiKey = process.env.GEMINI_API_KEY?.trim() ?? '';
+  if (safeStorage.isEncryptionAvailable()) {
+    try {
+      const encryptedKey = await readFile(encryptedGeminiKeyPath());
+      process.env.GEMINI_API_KEY = safeStorage.decryptString(encryptedKey);
+    } catch {
+      // No locally saved key yet (or an invalid encrypted file); use the .env key if present.
+      if (envGeminiApiKey) process.env.GEMINI_API_KEY = envGeminiApiKey;
+    }
+  }
 
   const rendererDirectory = app.isPackaged
     ? path.join(process.resourcesPath, 'dist')
@@ -43,6 +93,7 @@ async function createMainWindow(): Promise<void> {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      preload: path.join(app.getAppPath(), 'dist-electron', 'preload.cjs'),
     },
   });
 
