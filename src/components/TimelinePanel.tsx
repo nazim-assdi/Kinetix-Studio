@@ -28,6 +28,12 @@ import {
   WorkAreaRange,
 } from '../types/editor';
 import { findSnapTime, formatRulerTime, formatTimecode } from '../engine/timecode';
+import {
+  DEFAULT_TIMELINE_TRANSITION,
+  findAdjacentOutgoingClip,
+  findNearestTransitionPair,
+  resolveTransitionPairForClip,
+} from '../engine/transitions';
 import { VoiceoverRecorder } from './VoiceoverRecorder';
 
 interface TimelinePanelProps {
@@ -382,6 +388,14 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
 
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
 
+  const selectedTransitionPair = selectedClip
+    ? resolveTransitionPairForClip(clips, selectedClip, composition.fps)
+    : null;
+  const canAddDefaultTransition = Boolean(
+    selectedTransitionPair &&
+    !tracks.find((item) => item.id === selectedClip?.trackId)?.locked
+  );
+
   // Build tick marks every second
   const maxRulerSec = Math.ceil(totalWidth / pxPerSecond);
   const ticks: number[] = [];
@@ -475,6 +489,26 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
               >
                 <Scissors className="w-3 h-3" />
                 <span>Split</span>
+              </button>
+              <button
+                type="button"
+                disabled={!canAddDefaultTransition || !onDropTransitionAtEditPoint}
+                onClick={() => {
+                  if (selectedClip && canAddDefaultTransition) {
+                    onDropTransitionAtEditPoint?.(selectedClip.id, DEFAULT_TIMELINE_TRANSITION);
+                  }
+                }}
+                title={canAddDefaultTransition
+                  ? 'Add a Cross Dissolve to the nearest cut on this track'
+                  : 'Place this clip edge-to-edge with another visual clip to enable transitions'}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-medium transition-colors ${
+                  canAddDefaultTransition
+                    ? 'bg-[#33234F] border-[#8B5CF6]/50 text-[#DDD6FE] hover:bg-[#6D36B5] hover:text-white'
+                    : 'bg-[#232730] border-transparent text-[#737B89] cursor-not-allowed'
+                }`}
+              >
+                <ArrowLeftRight className="w-3 h-3" />
+                <span>Add Transition</span>
               </button>
               {onRippleDeleteClip && (
                 <button
@@ -776,10 +810,30 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                       e.preventDefault();
-                      const assetId = e.dataTransfer.getData('application/x-kinetix-asset');
-                      if (assetId) {
-                        onDropAssetOnTrack(assetId, track.id, timeFromClientX(e.clientX));
+                      const dropTime = timeFromClientX(e.clientX);
+                      const presetRaw = e.dataTransfer.getData('application/x-kinetix-preset');
+                      if (presetRaw) {
+                        try {
+                          const item = JSON.parse(presetRaw) as MotionPresetItem;
+                          if (item.category === 'Transition') {
+                            const pair = track.locked
+                              ? null
+                              : findNearestTransitionPair(
+                                  clips,
+                                  track.id,
+                                  dropTime,
+                                  composition.fps,
+                                  Math.max(0.4, 34 / pxPerSecond)
+                                );
+                            if (pair) onDropTransitionAtEditPoint?.(pair.incoming.id, item);
+                            return;
+                          }
+                        } catch {
+                          // Ignore malformed preset payloads and continue with asset handling.
+                        }
                       }
+                      const assetId = e.dataTransfer.getData('application/x-kinetix-asset');
+                      if (assetId) onDropAssetOnTrack(assetId, track.id, dropTime);
                     }}
                     className={`relative ${
                       track.locked ? 'opacity-60' : ''
@@ -963,13 +1017,9 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                       );
                     })}
                     {/* A dedicated edit-point target, like an NLE transition handle. */}
-                    {trackClips.slice(1).map((incoming, index) => {
-                      const outgoing = trackClips[index];
-                      const tolerance = 1.5 / Math.max(1, composition.fps);
-                      const isVisualPair = !['audio', 'camera', 'light', 'null', 'adjustment'].includes(outgoing.kind) &&
-                        !['audio', 'camera', 'light', 'null', 'adjustment'].includes(incoming.kind);
-                      const touches = Math.abs(outgoing.start + outgoing.duration - incoming.start) <= tolerance;
-                      if (!isVisualPair || !touches) return null;
+                    {trackClips.map((incoming) => {
+                      const outgoing = findAdjacentOutgoingClip(clips, incoming, composition.fps);
+                      if (!outgoing) return null;
                       const existing = incoming.transitionIn;
                       return (
                         <div
@@ -995,14 +1045,19 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                             } catch { /* ignore invalid drag payload */ }
                           }}
                           title={existing ? `${existing.name} · drop another transition to replace · ${existing.duration.toFixed(2)}s` : 'Drop a transition here between these two clips'}
+                          aria-label={existing
+                            ? `Replace ${existing.name} transition`
+                            : 'Drop a transition on this edit point'}
                           style={{
-                            left: incoming.start * pxPerSecond - 12,
+                            left: incoming.start * pxPerSecond - 27,
                             top: '50%',
                             transform: 'translateY(-50%)',
                           }}
-                          className={`absolute z-20 w-6 h-6 rounded-md border shadow-lg flex items-center justify-center cursor-copy transition-colors ${existing ? 'bg-[#7C3AED] border-[#C4B5FD] text-white' : 'bg-[#25203A] border-[#A78BFA]/80 text-[#DDD6FE] hover:bg-[#7C3AED] hover:text-white'} ${track.locked ? 'opacity-40 pointer-events-none' : ''}`}
+                          className={`absolute z-30 w-[54px] h-8 rounded-md border shadow-lg flex items-center justify-center gap-1 cursor-copy transition-colors ${existing ? 'bg-[#7C3AED] border-[#C4B5FD] text-white' : 'bg-[#25203A]/95 border-[#A78BFA]/80 text-[#DDD6FE] hover:bg-[#7C3AED] hover:text-white'} ${track.locked ? 'opacity-40 pointer-events-none' : ''}`}
+                          role="group"
                         >
                           <ArrowLeftRight className="w-3.5 h-3.5" />
+                          <span className="text-[8px] font-bold tracking-wide">{existing ? `${existing.duration.toFixed(1)}s` : 'DROP'}</span>
                         </div>
                       );
                     })}
