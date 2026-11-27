@@ -560,9 +560,17 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         ];
         const radius = 16 / Math.max(0.01, Math.min(Math.abs(layerScaleX), Math.abs(layerScaleY)));
         const corner = signs.find((sign) => Math.hypot(localX - (mx + sign.x * mw / 2), localY - (my + sign.y * mh / 2)) <= radius);
+        const dxMask = Math.abs(localX - mx);
+        const dyMask = Math.abs(localY - my);
         const inside = mask.shape === 'ellipse'
-          ? (((localX - mx) / Math.max(1, mw / 2)) ** 2 + ((localY - my) / Math.max(1, mh / 2)) ** 2) <= 1
-          : Math.abs(localX - mx) <= mw / 2 && Math.abs(localY - my) <= mh / 2;
+          ? ((dxMask / Math.max(1, mw / 2)) ** 2 + (dyMask / Math.max(1, mh / 2)) ** 2) <= 1
+          : mask.shape === 'rounded-rect'
+          ? dxMask <= mw / 2 && dyMask <= mh / 2 && (
+              dxMask <= mw / 2 - Math.min(mw, mh) * 0.14 ||
+              dyMask <= mh / 2 - Math.min(mw, mh) * 0.14 ||
+              Math.hypot(dxMask - (mw / 2 - Math.min(mw, mh) * 0.14), dyMask - (mh / 2 - Math.min(mw, mh) * 0.14)) <= Math.min(mw, mh) * 0.14
+            )
+          : dxMask <= mw / 2 && dyMask <= mh / 2;
         const mode = corner ? 'resize-mask' : inside ? 'move-mask' : 'draw-mask';
         const selectedMask = mode === 'draw-mask'
           ? { ...mask, x: (localX / composition.width) * 100, y: (localY / composition.height) * 100, width: 1, height: 1 }
