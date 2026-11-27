@@ -1616,6 +1616,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                           className="bg-[#111215] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
                         >
                           <option value="rect">Rectangle Mask</option>
+                          <option value="rounded-rect">Rounded Rectangle Mask</option>
                           <option value="ellipse">Ellipse Mask</option>
                         </select>
                         <label className="flex items-center gap-1.5 text-[11px] text-[#C8CDD6] cursor-pointer">
@@ -1680,6 +1681,18 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                         </div>
                         <div>
                           <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
+                            Offset Y ({mask.y}%)
+                          </label>
+                          <input
+                            type="number"
+                            aria-label="Mask Offset Y"
+                            value={mask.y}
+                            onChange={(e) => patchMask({ y: Number(e.target.value) })}
+                            className="w-full bg-[#0E1013] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
                             Feather ({mask.feather}px)
                           </label>
                           <input
@@ -1694,6 +1707,12 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                           />
                         </div>
                       </div>
+                      <label className="block text-[10px] text-[#9BA1AD]">
+                        Mask Opacity · {mask.opacity}%
+                        <input type="range" aria-label="Mask Opacity" min={0} max={100} value={mask.opacity}
+                          onChange={(event) => patchMask({ opacity: Number(event.target.value) })}
+                          className="mt-1 w-full studio-slider" />
+                      </label>
                     </div>
                   )}
                 </>
