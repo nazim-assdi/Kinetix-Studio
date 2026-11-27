@@ -1062,6 +1062,13 @@ export default function App() {
       const ids = new Set(clipIds);
       setClips((previous) => previous.map((clip) => {
         if (!ids.has(clip.id)) return clip;
+        const sourceTrack = tracks.find((track) => track.id === clip.trackId);
+        if (sourceTrack?.locked) return clip;
+        const destinationTrack = clip.id === primaryClipId && targetTrackId
+          ? tracks.find((track) => track.id === targetTrackId)
+          : sourceTrack;
+        if (destinationTrack?.locked) return clip;
+        if (destinationTrack && sourceTrack && destinationTrack.kind !== sourceTrack.kind) return clip;
         return {
           ...clip,
           start: Math.max(0, Number((clip.start + deltaTime).toFixed(4))),
