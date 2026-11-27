@@ -91,7 +91,8 @@ test('edit-point transitions resolve only adjacent clips on the same track', () 
   const wrongTrack = makeClip({ id: 'wrong-track', trackId: 'track_v2', start: 3, duration: 2 });
   assert.equal(findAdjacentOutgoingClip([outgoing, incoming, wrongTrack], incoming, 30)?.id, 'outgoing');
   assert.equal(resolveTransitionPairForClip([outgoing, incoming], outgoing, 30)?.incoming.id, 'incoming');
-  assert.equal(findAdjacentOutgoingClip([outgoing, { ...incoming, start: 3.2 }], incoming, 30), null);
+  const separatedIncoming = { ...incoming, start: 3.2 };
+  assert.equal(findAdjacentOutgoingClip([outgoing, separatedIncoming], separatedIncoming, 30), null);
 });
 
 test('transition preset maps to a real edit-point style and computes centered progress', () => {
@@ -107,7 +108,7 @@ test('transition preset maps to a real edit-point style and computes centered pr
   assert.equal(transition.style, 'wipe');
   assert.equal(transition.duration, 0.6);
   assert.equal(getTransitionProgress(transition, 5, 4.7), 0);
-  assert.equal(getTransitionProgress(transition, 5, 5), 0.5);
+  assert.ok(Math.abs(getTransitionProgress(transition, 5, 5) - 0.5) < 1e-9);
   assert.equal(getTransitionProgress(transition, 5, 5.3), 1);
 });
 
