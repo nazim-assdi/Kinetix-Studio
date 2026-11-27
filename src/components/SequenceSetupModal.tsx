@@ -106,13 +106,13 @@ export const SequenceSetupModal: React.FC<SequenceSetupModalProps> = ({
             <label className="block space-y-1">
               <span className="text-[11px] font-semibold text-[#C8CDD6]">Width (px)</span>
               <input type="number" min={320} max={8192} value={width}
-                onChange={(event) => { setWidth(Number(event.target.value)); setCustom(true); setPresetId('custom'); }}
+                onChange={(event) => { setWidth(Number(event.target.value)); setPresetId('custom'); }}
                 className="w-full rounded border border-[#343B49] bg-[#0E1013] px-3 py-2 text-sm text-white outline-none focus:border-[#60A5FA]" />
             </label>
             <label className="block space-y-1">
               <span className="text-[11px] font-semibold text-[#C8CDD6]">Height (px)</span>
               <input type="number" min={240} max={8192} value={height}
-                onChange={(event) => { setHeight(Number(event.target.value)); setCustom(true); setPresetId('custom'); }}
+                onChange={(event) => { setHeight(Number(event.target.value)); setPresetId('custom'); }}
                 className="w-full rounded border border-[#343B49] bg-[#0E1013] px-3 py-2 text-sm text-white outline-none focus:border-[#60A5FA]" />
             </label>
           </div>
