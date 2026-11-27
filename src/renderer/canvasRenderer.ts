@@ -201,7 +201,7 @@ function drawExtrudedShapeSides(
   depth: number
 ) {
   const props = clip.shapeProps;
-  if (!props || depth <= 0.01) return;
+  if (!props || Math.abs(depth) <= 0.01) return;
   const shapeTransform = evaluateClipTransform(clip, playheadTime);
   const shapeWidth = Math.max(1, shapeTransform.shapeWidth ?? props.width);
   const shapeHeight = Math.max(1, shapeTransform.shapeHeight ?? props.height);
@@ -2216,7 +2216,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           height,
           ax,
           ay,
-          shapeExtrusion
+          planeDepth
         );
       }
 
