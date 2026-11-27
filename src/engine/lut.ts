@@ -7,14 +7,14 @@ function clamp(value: number, min: number, max: number): number {
 export function parseCubeLut(source: string, fileName = 'Imported LUT'): CubeLut {
   const rows: [number, number, number][] = [];
   let size = 0;
-  let title = fileName.replace(/\\.cube$/i, '');
+  let title = fileName.replace(/\.cube$/i, '');
   let domainMin: [number, number, number] = [0, 0, 0];
   let domainMax: [number, number, number] = [1, 1, 1];
 
-  for (const rawLine of source.split(/\\r?\\n/)) {
+  for (const rawLine of source.split(/\r?\n/)) {
     const line = rawLine.replace(/#.*$/, '').trim();
     if (!line) continue;
-    const parts = line.split(/\\s+/);
+    const parts = line.split(/\s+/);
     const keyword = parts[0].toUpperCase();
     if (keyword === 'TITLE') {
       title = line.slice(5).trim().replace(/^['"]|['"]$/g, '') || title;
@@ -36,7 +36,7 @@ export function parseCubeLut(source: string, fileName = 'Imported LUT'): CubeLut
       else domainMax = values as [number, number, number];
       continue;
     }
-    if (/^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[+-]?\\d+)?$/i.test(parts[0])) {
+    if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(parts[0])) {
       const values = parts.slice(0, 3).map(Number);
       if (values.length !== 3 || values.some((value) => !Number.isFinite(value))) {
         throw new Error('Invalid RGB sample in LUT file.');
@@ -47,7 +47,7 @@ export function parseCubeLut(source: string, fileName = 'Imported LUT'): CubeLut
 
   if (!size) throw new Error('The .cube file is missing LUT_3D_SIZE.');
   if (rows.length !== size * size * size) {
-    throw new Error(`Expected ${size ** 3} LUT samples, found ${rows.length}.`);
+    throw new Error(\`Expected \${size ** 3} LUT samples, found \${rows.length}.\`);
   }
   if (domainMax.some((value, index) => value <= domainMin[index])) {
     throw new Error('LUT DOMAIN_MAX values must be greater than DOMAIN_MIN.');
