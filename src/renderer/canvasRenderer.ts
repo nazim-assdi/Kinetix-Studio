@@ -201,7 +201,7 @@ function drawExtrudedShapeSides(
   depth: number
 ) {
   const props = clip.shapeProps;
-  if (!props || depth <= 0.01) return;
+  if (!props || Math.abs(depth) <= 0.01) return;
   const shapeTransform = evaluateClipTransform(clip, playheadTime);
   const shapeWidth = Math.max(1, shapeTransform.shapeWidth ?? props.width);
   const shapeHeight = Math.max(1, shapeTransform.shapeHeight ?? props.height);
@@ -550,35 +550,67 @@ function buildFilterString(
   return filters.length > 0 ? filters.join(' ') : 'none';
 }
 
-function applyMaskClipPath(
-  ctx: CanvasRenderingContext2D,
-  mask: LayerMask,
-  layerW: number,
-  layerH: number
-) {
+function traceLayerMaskPath(ctx: CanvasRenderingContext2D, mask: LayerMask, layerW: number, layerH: number) {
   const mw = Math.max(12, (mask.width / 100) * layerW);
   const mh = Math.max(12, (mask.height / 100) * layerH);
   const mx = (mask.x / 100) * layerW;
   const my = (mask.y / 100) * layerH;
-
   ctx.beginPath();
-  if (mask.inverted) {
-    ctx.rect(-layerW * 2, -layerH * 2, layerW * 4, layerH * 4);
-  }
   if (mask.shape === 'ellipse') {
-    ctx.ellipse(mx, my, mw / 2, mh / 2, 0, 0, Math.PI * 2, mask.inverted);
+    ctx.ellipse(mx, my, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+  } else if (mask.shape === 'rounded-rect') {
+    const radius = Math.max(4, Math.min(mw, mh) * 0.14);
+    ctx.roundRect(mx - mw / 2, my - mh / 2, mw, mh, radius);
   } else {
-    if (mask.inverted) {
-      ctx.moveTo(mx - mw / 2, my - mh / 2);
-      ctx.lineTo(mx - mw / 2, my + mh / 2);
-      ctx.lineTo(mx + mw / 2, my + mh / 2);
-      ctx.lineTo(mx + mw / 2, my - mh / 2);
-      ctx.closePath();
-    } else {
-      ctx.rect(mx - mw / 2, my - mh / 2, mw, mh);
-    }
+    ctx.rect(mx - mw / 2, my - mh / 2, mw, mh);
   }
-  ctx.clip(mask.inverted ? 'evenodd' : 'nonzero');
+}
+
+/** Applies a real alpha mask to the isolated layer texture; feather softens only the mask boundary. */
+function applyFeatheredLayerMask(
+  layerCanvas: HTMLCanvasElement,
+  maskCanvas: HTMLCanvasElement,
+  mask: LayerMask,
+  layerW: number,
+  layerH: number,
+  maskTransform: DOMMatrix
+) {
+  const maskCtx = maskCanvas.getContext('2d');
+  const layerCtx = layerCanvas.getContext('2d');
+  if (!maskCtx || !layerCtx) return;
+
+  maskCtx.save();
+  maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+  maskCtx.globalCompositeOperation = 'source-over';
+  maskCtx.filter = 'none';
+  if (mask.inverted) {
+    maskCtx.fillStyle = '#FFFFFF';
+    maskCtx.fillRect(0, 0, layerW, layerH);
+  }
+  maskCtx.setTransform(maskTransform);
+  maskCtx.globalCompositeOperation = mask.inverted ? 'destination-out' : 'source-over';
+  const feather = Math.max(0, Math.min(120, mask.feather));
+  maskCtx.filter = feather > 0 ? `blur(${feather}px)` : 'none';
+  maskCtx.fillStyle = '#FFFFFF';
+  traceLayerMaskPath(maskCtx, mask, layerW, layerH);
+  maskCtx.fill();
+  maskCtx.restore();
+
+  if (mask.opacity < 100) {
+    maskCtx.save();
+    maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    maskCtx.globalCompositeOperation = 'destination-in';
+    maskCtx.globalAlpha = Math.max(0, Math.min(1, mask.opacity / 100));
+    maskCtx.fillStyle = '#FFFFFF';
+    maskCtx.fillRect(0, 0, layerW, layerH);
+    maskCtx.restore();
+  }
+
+  layerCtx.save();
+  layerCtx.setTransform(1, 0, 0, 1, 0, 0);
+  layerCtx.globalCompositeOperation = 'destination-in';
+  layerCtx.drawImage(maskCanvas, 0, 0);
+  layerCtx.restore();
 }
 
 function applyDaVinciToneOverlay(
@@ -1593,18 +1625,13 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
     const ax = world.anchorX ?? 0;
     const ay = world.anchorY ?? 0;
-    const layerTexture = clip.is3D
-      ? getScratchCanvas(mediaCache, `3d-layer-${clip.id}`, width, height)
-      : null;
-    const renderCtx = layerTexture?.getContext('2d') ?? targetCtx;
+    const layerTexture = getScratchCanvas(mediaCache, `layer-${clip.id}`, width, height);
+    const renderCtx = layerTexture.getContext('2d') ?? targetCtx;
 
     renderCtx.save();
     renderCtx.setTransform(1, 0, 0, 1, 0, 0);
-    if (clip.is3D) {
-      renderCtx.globalCompositeOperation = 'source-over';
-    } else if (!ignoreBlendMode) {
-      renderCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
-    }
+    // Each layer renders independently. Blend mode is applied once when it is composited.
+    renderCtx.globalCompositeOperation = 'source-over';
     renderCtx.globalAlpha = clip.is3D
       ? 1
       : Math.max(0, Math.min(1, world.opacity / 100));
@@ -1631,12 +1658,8 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           : `${baseFilter} blur(${defocus.toFixed(2)}px)`;
       }
     }
-    if (clip.mask?.enabled && clip.mask.feather > 0) {
-      const maskBlur = `blur(${(clip.mask.feather * 0.15).toFixed(1)}px)`;
-      renderCtx.filter = baseFilter === 'none' ? maskBlur : `${baseFilter} ${maskBlur}`;
-    } else {
-      renderCtx.filter = baseFilter;
-    }
+    // Mask feather is applied to a separate alpha surface below, never to the artwork itself.
+    renderCtx.filter = baseFilter;
 
     const glowFx = clip.effects.find((f) => f.enabled && f.type === 'glow');
     const shadowFx = clip.effects.find((f) => f.enabled && f.type === 'dropshadow');
@@ -1668,10 +1691,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       renderCtx.translate(-ax, -ay);
     }
 
-    if (clip.mask?.enabled) {
-      renderCtx.globalAlpha *= Math.max(0, Math.min(1, clip.mask.opacity / 100));
-      applyMaskClipPath(renderCtx, clip.mask, width, height);
-    }
+    const maskTransform = clip.mask?.enabled ? renderCtx.getTransform() : null;
 
     let baseW = width;
     let baseH = height;
@@ -1898,7 +1918,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         }
       }
 
-      renderCtx.font = `${tp.fontWeight} ${tp.fontSize}px "Plus Jakarta Sans", sans-serif`;
+      renderCtx.font = `${tp.fontWeight} ${tp.fontSize}px "${tp.fontFamily ?? 'Plus Jakarta Sans'}", sans-serif`;
       renderCtx.textAlign = tp.align;
       renderCtx.textBaseline = 'middle';
       if ('letterSpacing' in renderCtx) {
@@ -1920,6 +1940,25 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         renderCtx.beginPath();
         renderCtx.roundRect(rx, -baseH / 2, baseW, baseH, 6);
         renderCtx.fill();
+      }
+      // 3D text uses a controllable stacked extrusion on its local plane.
+      // The resulting text texture is then projected by the scene camera with the other 3D layers.
+      const extrusionDepth = clip.is3D ? Math.max(0, Math.min(120, tp.extrusionDepth ?? 24)) : 0;
+      if (extrusionDepth > 0) {
+        const steps = Math.min(48, Math.max(1, Math.ceil(extrusionDepth)));
+        const sideColor = tp.extrusionColor ?? '#334155';
+        renderCtx.fillStyle = sideColor;
+        for (let step = steps; step >= 1; step--) {
+          const amount = extrusionDepth * (step / steps);
+          renderCtx.fillText(renderText, amount * 0.34, amount * 0.58);
+        }
+      }
+      const outlineWidth = Math.max(0, Math.min(24, tp.strokeWidth ?? 0));
+      if (outlineWidth > 0) {
+        renderCtx.lineJoin = 'round';
+        renderCtx.lineWidth = outlineWidth;
+        renderCtx.strokeStyle = tp.strokeColor ?? '#0F172A';
+        renderCtx.strokeText(renderText, 0, 0);
       }
       renderCtx.fillStyle = tp.color;
       renderCtx.fillText(renderText, 0, 0);
@@ -2143,18 +2182,28 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       applyPostOverlays(renderCtx, width, height, clip.effects, playheadTime, mediaCache);
     }
 
-    if (layerTexture && clip.is3D) {
+    if (clip.mask?.enabled && maskTransform) {
+      const maskCanvas = getScratchCanvas(mediaCache, `mask-alpha-${clip.id}`, width, height);
+      applyFeatheredLayerMask(layerTexture, maskCanvas, clip.mask, width, height, maskTransform);
+    }
+
+    if (clip.is3D) {
       targetCtx.save();
       targetCtx.globalAlpha = Math.max(0, Math.min(1, world.opacity / 100));
       if (!ignoreBlendMode) {
         targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
       }
-      // Camera sits on negative Z and looks toward +Z; negative local depth
-      // extends a shape towards the camera, leaving the texture on its front face.
-      const shapeDepth = clip.kind === 'shape'
-        ? -Math.max(0, clip.shapeProps?.depth ?? 0)
+      // Camera sits on negative Z and looks toward +Z; negative local depth extends
+      // the front surface toward the camera. Side faces use a positive depth magnitude.
+      const shapeExtrusion = clip.kind === 'shape'
+        ? Math.max(0, Math.min(2000, clip.shapeProps?.depth ?? 0))
         : 0;
-      if (clip.kind === 'shape' && shapeDepth > 0) {
+      const textExtrusion = clip.kind === 'text'
+        ? Math.max(0, Math.min(120, clip.textProps?.extrusionDepth ?? 0))
+        : 0;
+      const planeDepth = -(shapeExtrusion || textExtrusion);
+
+      if (clip.kind === 'shape' && shapeExtrusion > 0) {
         drawExtrudedShapeSides(
           targetCtx,
           world,
@@ -2167,9 +2216,12 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
           height,
           ax,
           ay,
-          shapeDepth
+          planeDepth
         );
       }
+
+      // Text glyphs are kept as editable raster text on a perspective 3D plane.
+      // A small stack of depth slices gives the title a visible solid body instead of a flat card.
       drawPerspectiveLayerPlane(
         targetCtx,
         layerTexture,
@@ -2184,8 +2236,13 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
         ax,
         ay,
         activeCameraView,
-        shapeDepth
+        planeDepth
       );
+      targetCtx.restore();
+    } else {
+      targetCtx.save();
+      if (!ignoreBlendMode) targetCtx.globalCompositeOperation = toCompositeOp(clip.blendMode);
+      targetCtx.drawImage(layerTexture, 0, 0);
       targetCtx.restore();
     }
 
@@ -2221,6 +2278,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       targetCtx.beginPath();
       if (clip.mask.shape === 'ellipse') {
         targetCtx.ellipse(mx, my, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+      } else if (clip.mask.shape === 'rounded-rect') {
+        const radius = Math.max(4, Math.min(mw, mh) * 0.14);
+        targetCtx.roundRect(mx - mw / 2, my - mh / 2, mw, mh, radius);
       } else {
         targetCtx.rect(mx - mw / 2, my - mh / 2, mw, mh);
       }

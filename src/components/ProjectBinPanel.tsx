@@ -60,6 +60,7 @@ interface ProjectBinPanelProps {
   tracks: TimelineTrack[];
   allClips: TimelineClip[];
   selectedClip: TimelineClip | null;
+  selectedClipIds?: string[];
   playheadTime: number;
   fps: number;
   activeTab: LeftDockTab;
@@ -110,6 +111,7 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
   tracks,
   allClips,
   selectedClip,
+  selectedClipIds = [],
   playheadTime,
   fps,
   activeTab,
@@ -331,6 +333,11 @@ export const ProjectBinPanel: React.FC<ProjectBinPanelProps> = ({
             />
           </div>
 
+          {activeTab === 'transitions' && (
+            <div className="text-[10px] text-[#93C5FD]">
+              {selectedClipIds.length > 1 ? `Apply will target all ${selectedClipIds.length} selected timeline clips.` : 'Select one or more timeline clips, then Apply or drag a transition onto the timeline.'}
+            </div>
+          )}
           {activeTab === 'bin' && (
             <>
               <input

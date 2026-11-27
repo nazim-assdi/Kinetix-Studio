@@ -260,6 +260,11 @@ export default function App() {
     const list = initialSave?.clips ?? INITIAL_CLIPS;
     return list.find((c) => c.id === 'clip_v3_title')?.id ?? list[0]?.id ?? null;
   });
+  const [selectedClipIds, setSelectedClipIds] = useState<string[]>(() => {
+    const list = initialSave?.clips ?? INITIAL_CLIPS;
+    const selected = list.find((clip) => clip.id === 'clip_v3_title') ?? list[0];
+    return selected ? [selected.id] : [];
+  });
 
   const [exportOpen, setExportOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -1052,6 +1057,56 @@ export default function App() {
     []
   );
 
+  const handleMoveClips = useCallback(
+    (clipIds: string[], deltaTime: number, primaryClipId: string, targetTrackId?: string) => {
+      const ids = new Set(clipIds);
+      setClips((previous) => previous.map((clip) => {
+        if (!ids.has(clip.id)) return clip;
+        const sourceTrack = tracks.find((track) => track.id === clip.trackId);
+        if (sourceTrack?.locked) return clip;
+        const destinationTrack = clip.id === primaryClipId && targetTrackId
+          ? tracks.find((track) => track.id === targetTrackId)
+          : sourceTrack;
+        if (destinationTrack?.locked) return clip;
+        if (destinationTrack && sourceTrack && destinationTrack.kind !== sourceTrack.kind) return clip;
+        return {
+          ...clip,
+          start: Math.max(0, Number((clip.start + deltaTime).toFixed(4))),
+          trackId: clip.id === primaryClipId ? (targetTrackId ?? clip.trackId) : clip.trackId,
+        };
+      }));
+    },
+    [tracks]
+  );
+
+  const handleDeleteClips = useCallback(
+    (clipIds: string[]) => {
+      const ids = new Set(clipIds);
+      const deletableIds = new Set(clips
+        .filter((clip) => ids.has(clip.id) && !tracks.find((track) => track.id === clip.trackId)?.locked)
+        .map((clip) => clip.id));
+      const next = clips.filter((clip) => !deletableIds.has(clip.id));
+      if (next.length === clips.length) return;
+      commitHistory(tracks, next);
+      if (selectedClipId && deletableIds.has(selectedClipId)) setSelectedClipId(next[0]?.id ?? null);
+    },
+    [clips, tracks, selectedClipId, commitHistory]
+  );
+
+  const handleSetClipsSpeed = useCallback(
+    (clipIds: string[], speed: number) => {
+      const ids = new Set(clipIds);
+      const boundedSpeed = Math.max(0.1, Math.min(8, speed));
+      const next = clips.map((clip) => ids.has(clip.id) && !tracks.find((track) => track.id === clip.trackId)?.locked
+        ? { ...clip, speed: boundedSpeed }
+        : clip);
+      commitHistory(tracks, next);
+      setSaveBadgeText(`Speed set to ${boundedSpeed}×`);
+      window.setTimeout(() => setSaveBadgeText(null), 1600);
+    },
+    [clips, tracks, commitHistory]
+  );
+
   const handleTrimClip = useCallback(
     (clipId: string, edge: 'left' | 'right', newEdgeTime: number) => {
       setClips((prev) =>
@@ -1329,6 +1384,20 @@ export default function App() {
       },
       true
     );
+  };
+
+  const handleAddEffectToClips = (clipIds: string[], type: EffectType) => {
+    const ids = new Set(clipIds);
+    const template = createEffectInstance(type);
+    const next = clips.map((clip) => {
+      if (!ids.has(clip.id)) return clip;
+      const effects = dedupeEffectStack(clip.effects ?? []);
+      if (effects.some((effect) => effect.type === type)) return { ...clip, effects };
+      const fx = { ...template, id: `fx_${Date.now()}_${clip.id}`, params: { ...template.params } };
+      return { ...clip, effects: [...effects, fx] };
+    });
+    commitHistory(tracks, next);
+    setSelectedClipId(clipIds[0] ?? null);
   };
 
   // Apply Motion Bro / Mr Horse / AEJuice Preset
@@ -1670,6 +1739,99 @@ export default function App() {
     }
 
     handleApplyMotionPreset(item.basePresetId || item.id);
+  };
+
+  const handleApplyCatalogPresetToClips = (clipIds: string[], item: MotionPresetItem) => {
+    const targetIds = Array.from(new Set(clipIds)).filter((id) => clips.some((clip) => clip.id === id));
+    if (targetIds.length === 0) return;
+
+    // Complete multi-layer packs are intentionally inserted once rather than duplicated per selected target.
+    if (item.assetTemplate || item.assetTemplates?.length) {
+      handleApplyCatalogPreset(item, targetIds[0]);
+      return;
+    }
+
+    if (item.category === 'Effects' || (item.effectType && item.category !== 'Transition')) {
+      if (!item.effectType) return;
+      const next = clips.map((clip) => {
+        if (!targetIds.includes(clip.id)) return clip;
+        const effect = createEffectInstance(item.effectType!);
+        effect.name = item.name;
+        effect.params = { ...effect.params, ...(item.effectParams ?? {}) };
+        const existingIndex = clip.effects.findIndex((current) => current.type === item.effectType);
+        const effects = existingIndex >= 0
+          ? clip.effects.map((current, index) => index === existingIndex ? { ...effect, id: current.id } : current)
+          : [...clip.effects, effect];
+        return { ...clip, effects };
+      });
+      commitHistory(tracks, next);
+      setSelectedClipId(targetIds[0]);
+      return;
+    }
+
+    if (item.category === 'Color LUT' && item.lutName) {
+      const lut = DAVINCI_LUTS.find((candidate) => candidate.name === item.lutName);
+      if (!lut) return;
+      const grade = buildCatalogColorGrade(item, lut.grade);
+      commitHistory(tracks, clips.map((clip) => targetIds.includes(clip.id) ? { ...clip, colorGrade: grade } : clip));
+      setSelectedClipId(targetIds[0]);
+      return;
+    }
+
+    if (item.category === 'Transition') {
+      const baseId = item.basePresetId || item.id;
+      let changed = false;
+      const next = clips.map((clip) => {
+        if (!targetIds.includes(clip.id) || clip.appliedPresetIds?.includes(item.id)) return clip;
+        changed = true;
+        const animated = applyCatalogMotionVariant(applyMotionPresetToClip(clip, baseId), item.motionVariant);
+        return { ...animated, appliedPresetIds: [...(clip.appliedPresetIds ?? []), item.id] };
+      });
+      if (!changed) {
+        setSaveBadgeText('Transition already applied');
+        window.setTimeout(() => setSaveBadgeText(null), 1600);
+        return;
+      }
+
+      const newAssets: ProjectAsset[] = [];
+      const newSfxClips: TimelineClip[] = [];
+      if (item.sfxPreset) {
+        const audioTrack = tracks.find((track) => track.kind === 'audio');
+        for (const target of clips.filter((clip) => targetIds.includes(clip.id))) {
+          const exists = clips.some((clip) => clip.kind === 'audio' && clip.synthPreset === item.sfxPreset && Math.abs(clip.start - target.start) < 0.25);
+          if (exists) continue;
+          const asset: ProjectAsset = {
+            id: `asset_transition_sfx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: `${item.name} · SFX`,
+            kind: 'audio',
+            duration: 0.75,
+            synthPreset: item.sfxPreset,
+            waveform: generateWaveformPeaks(Math.random() * 9, 48),
+          };
+          const sfxClip = buildClipFromAsset(asset, audioTrack?.id, target.start);
+          if (sfxClip) {
+            newAssets.push(asset);
+            newSfxClips.push(sfxClip);
+          }
+        }
+      }
+      if (newAssets.length) setAssets((previous) => [...newAssets, ...previous]);
+      commitHistory(tracks, [...next, ...newSfxClips]);
+      setSelectedClipId(targetIds[0]);
+      return;
+    }
+
+    if (item.category === 'Animation') {
+      const baseId = item.basePresetId || item.id;
+      commitHistory(tracks, clips.map((clip) => targetIds.includes(clip.id)
+        ? applyCatalogMotionVariant(applyMotionPresetToClip(clip, baseId), item.motionVariant)
+        : clip));
+      setSelectedClipId(targetIds[0]);
+      return;
+    }
+
+    // Preserve existing single-target handling for remaining catalog item types.
+    handleApplyCatalogPreset(item, targetIds[0]);
   };
 
   // Project Save & Load: portable project files plus durable IndexedDB autosave.
@@ -2279,8 +2441,10 @@ export default function App() {
               onImportFiles={handleImportFiles}
               onAddAssetToTimeline={(asset) => insertAssetToTimeline(asset)}
               onApplyEffectToSelected={(fxType) => {
-                if (selectedClip) handleAddEffect(selectedClip.id, fxType);
+                const targets = selectedClipIds.length > 1 ? selectedClipIds : selectedClip ? [selectedClip.id] : [];
+                handleAddEffectToClips(targets, fxType);
               }}
+              selectedClipIds={selectedClipIds}
               onUpdateFusionGraph={handleUpdateFusionGraph}
               onAdd3DLayer={(kind) => handleQuickAddLayer(kind)}
               onToggleEffect={(clipId, effectId) =>
@@ -2353,7 +2517,11 @@ export default function App() {
               onToggle3D={(clipId) =>
                 updateClipById(clipId, (c) => ({ ...c, is3D: !c.is3D }), true)
               }
-              onApplyCatalogPreset={(item) => { setPreviewPreset(null); handleApplyCatalogPreset(item); }}
+              onApplyCatalogPreset={(item) => {
+                setPreviewPreset(null);
+                const targets = selectedClipIds.length > 1 ? selectedClipIds : selectedClip ? [selectedClip.id] : [];
+                handleApplyCatalogPresetToClips(targets, item);
+              }}
               onPreviewCatalogPreset={setPreviewPreset}
               onPreviewSfx={(preset) => audioEngine.previewSfx(preset)}
               onAddSfxToTimeline={handleAddSfxToTimeline}
@@ -2615,7 +2783,11 @@ export default function App() {
         }
         onSeek={handleSeek}
         onSelectClip={setSelectedClipId}
+        onSelectionChange={setSelectedClipIds}
         onMoveClip={handleMoveClip}
+        onMoveClips={handleMoveClips}
+        onDeleteClips={handleDeleteClips}
+        onSetClipSpeed={handleSetClipsSpeed}
         onTrimClip={handleTrimClip}
         onSplitClip={handleSplitClip}
         onRippleDeleteClip={handleRippleDeleteClip}
@@ -2626,7 +2798,9 @@ export default function App() {
           if (asset) insertAssetToTimeline(asset, trackId, time);
         }}
         onDropEffect={(clipId, effectType) => handleAddEffect(clipId, effectType)}
+        onDropEffectToSelection={handleAddEffectToClips}
         onDropPreset={(clipId, item) => handleApplyCatalogPreset(item, clipId)}
+        onDropPresetToSelection={handleApplyCatalogPresetToClips}
         onMoveKeyframe={handleMoveKeyframe}
         onDeleteKeyframe={handleDeleteKeyframe}
         onAddVoiceover={handleAddVoiceoverFile}
