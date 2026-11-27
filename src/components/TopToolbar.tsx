@@ -89,6 +89,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 }) => {
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
   const [selectedShapeType, setSelectedShapeType] = useState<ShapeLayerProps['shapeType']>('rect');
+  const [shapeMode, setShapeMode] = useState<'shape' | 'mask'>('shape');
   const [openMenu, setOpenMenu] = useState<'file' | 'effect' | 'view' | null>(null);
   const loadInputRef = React.useRef<HTMLInputElement>(null);
   const mediaInputRef = React.useRef<HTMLInputElement>(null);
@@ -149,10 +150,13 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
     },
     {
       id: 'shape',
-      label: 'Add Vector Shape Layer (R)',
+      label: shapeMode === 'mask' ? 'Draw Mask (R)' : 'Add Vector Shape Layer (R)',
       shortcut: 'R',
       icon: <Square className="w-3.5 h-3.5" />,
-      onClick: () => onQuickAddLayer('shape', selectedShapeType),
+      onClick: () => {
+        if (shapeMode === 'mask') onChangeTool('mask');
+        else onQuickAddLayer('shape', selectedShapeType);
+      },
     },
   ];
 
@@ -266,7 +270,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           className="flex items-center gap-1 bg-[#111215] p-0.5 rounded-md border border-[#262B34]"
         >
           {tools.map((t) => {
-            const active = tool === t.id;
+            const active = t.id === 'shape'
+              ? (shapeMode === 'mask' ? tool === 'mask' : tool === 'shape')
+              : tool === t.id;
             return (
               <button
                 key={t.id}
@@ -289,6 +295,20 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
               </button>
             );
           })}
+          <select
+            aria-label="Shape Tool Mode"
+            title="Choose whether the R tool creates a shape or draws a mask"
+            value={shapeMode}
+            onChange={(event) => {
+              const mode = event.target.value as 'shape' | 'mask';
+              setShapeMode(mode);
+              onChangeTool(mode === 'mask' ? 'mask' : 'shape');
+            }}
+            className="max-w-[74px] bg-[#111215] border border-[#2B303A] rounded px-1.5 py-1 text-[10px] text-[#C8CDD6] focus:outline-none"
+          >
+            <option value="shape">Shape</option>
+            <option value="mask">Mask</option>
+          </select>
           <select aria-label="New Shape Type" title="Choose the vector shape to add" value={selectedShapeType}
             onChange={(event) => setSelectedShapeType(event.target.value as ShapeLayerProps['shapeType'])}
             className="max-w-[118px] bg-[#111215] border border-[#2B303A] rounded px-1.5 py-1 text-[10px] text-[#C8CDD6] focus:outline-none">
