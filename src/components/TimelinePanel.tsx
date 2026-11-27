@@ -45,6 +45,7 @@ interface TimelinePanelProps {
   onToggleWorkArea?: () => void;
   onSeek: (time: number) => void;
   onSelectClip: (clipId: string | null) => void;
+  onSelectionChange?: (clipIds: string[]) => void;
   onMoveClip: (clipId: string, newStart: number, newTrackId?: string) => void;
   onTrimClip: (clipId: string, edge: 'left' | 'right', newEdgeTime: number) => void;
   onSplitClip: (clipId: string, splitTime: number) => void;
@@ -96,6 +97,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   onToggleWorkArea,
   onSeek,
   onSelectClip,
+  onSelectionChange,
   onMoveClip,
   onTrimClip,
   onSplitClip,
@@ -130,19 +132,21 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   const keyframeDragDidMoveRef = useRef(false);
   const selectionAnchorRef = useRef<string | null>(selectedClipId);
   const [selectedClipIds, setSelectedClipIds] = useState<string[]>(selectedClipId ? [selectedClipId] : []);
+  const updateSelection = (ids: string[]) => {
+    setSelectedClipIds(ids);
+    onSelectionChange?.(ids);
+  };
 
   useEffect(() => {
     if (selectedClipId && !selectedClipIds.includes(selectedClipId)) {
-      setSelectedClipIds([selectedClipId]);
+      updateSelection([selectedClipId]);
       selectionAnchorRef.current = selectedClipId;
     }
   }, [selectedClipId, selectedClipIds]);
 
   useEffect(() => {
-    setSelectedClipIds((previous) => {
-      const valid = previous.filter((id) => clips.some((clip) => clip.id === id));
-      return valid.length === previous.length ? previous : valid;
-    });
+    const valid = selectedClipIds.filter((id) => clips.some((clip) => clip.id === id));
+    if (valid.length !== selectedClipIds.length) updateSelection(valid);
   }, [clips]);
 
   const timelineEndTime = clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), composition.duration);
@@ -210,7 +214,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
       selectionAnchorRef.current = clip.id;
     }
 
-    setSelectedClipIds(nextSelection);
+    updateSelection(nextSelection);
     const primaryId = nextSelection.includes(clip.id) ? clip.id : (nextSelection[nextSelection.length - 1] ?? null);
     onSelectClip(primaryId);
 
@@ -449,7 +453,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
                   {onDeleteClips && (
                     <button type="button" onClick={() => {
                       onDeleteClips(selectedClipIds);
-                      setSelectedClipIds([]);
+                      updateSelection([]);
                     }} title="Delete all selected clips" className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#3A2024] hover:bg-[#EF4444] text-[10px] font-medium text-[#FCA5A5] hover:text-white">
                       <Trash2 className="w-3 h-3" /><span>Delete Selected</span>
                     </button>
