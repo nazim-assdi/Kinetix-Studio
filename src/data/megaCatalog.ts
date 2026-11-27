@@ -589,8 +589,21 @@ function buildCreativeAssetLibrary(): MotionPresetItem[] {
   return items;
 }
 
-export const MEGA_CATALOG: MotionPresetItem[] = [
+const rawMegaCatalog: MotionPresetItem[] = [
   ...buildMegaCatalog(),
   ...buildCreativeAssetLibrary(),
   ...EXTENDED_LIBRARY,
 ];
+
+/** Remove duplicate shader presets while retaining genuinely different parameter variants. */
+export const MEGA_CATALOG: MotionPresetItem[] = (() => {
+  const seen = new Set<string>();
+  return rawMegaCatalog.filter((item) => {
+    if (!item.effectType) return true;
+    const params = Object.entries(item.effectParams ?? {}).sort(([a], [b]) => a.localeCompare(b));
+    const signature = `effect:${item.effectType}:${JSON.stringify(params)}`;
+    if (seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+})();
