@@ -34,6 +34,12 @@ const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
   shapeWidth: 'Shape Width',
   shapeHeight: 'Shape Height',
   volume: 'Audio Volume',
+  maskX: 'Mask Offset X',
+  maskY: 'Mask Offset Y',
+  maskWidth: 'Mask Width',
+  maskHeight: 'Mask Height',
+  maskFeather: 'Mask Feather',
+  maskOpacity: 'Mask Opacity',
 };
 
 const DEFAULT_CURVE: [number, number, number, number] = [0.16, 1, 0.3, 1];
