@@ -164,6 +164,50 @@ export function createEffectInstance(type: EffectType): EffectItem {
   };
 }
 
+/** Creates an independent audio companion for a video timeline clip. */
+export function createCompanionAudioClip(
+  videoClip: TimelineClip,
+  audioTrackId: string,
+  waveform: number[] = []
+): TimelineClip {
+  return {
+    ...videoClip,
+    id: `${videoClip.id}_audio`,
+    trackId: audioTrackId,
+    name: `${videoClip.name} · Audio`,
+    kind: 'audio',
+    is3D: false,
+    parentId: null,
+    blendMode: 'normal',
+    transform: {
+      x: 0, y: 0, z: 0, scale: 100, rotation: 0,
+      rotationX: 0, rotationY: 0, opacity: 100,
+    },
+    keyframes: {},
+    expressions: undefined,
+    effects: [],
+    fusionGraph: undefined,
+    mask: undefined,
+    colorGrade: undefined,
+    volume: 100,
+    fadeIn: 0,
+    fadeOut: 0,
+    textProps: undefined,
+    shapeProps: undefined,
+    pathProps: undefined,
+    solidProps: undefined,
+    cameraProps: undefined,
+    lightProps: undefined,
+    particleProps: undefined,
+    visualizerProps: undefined,
+    captionProps: undefined,
+    waveform: [...waveform],
+    synthPreset: undefined,
+    transitionIn: undefined,
+    colorLabel: '#14B8A6',
+  };
+}
+
 export function splitClipAtTime(
   clip: TimelineClip,
   splitTime: number,
