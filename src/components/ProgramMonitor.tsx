@@ -1161,7 +1161,6 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             aria-label="Monitor Zoom"
             value={zoomMode}
             onChange={(e) => setZoomMode(e.target.value as typeof zoomMode)}
-            onFocus={() => setActiveZoomAngle(activeZoomAngle)}
             className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[11px] text-[#C8CDD6] focus:outline-none"
           >
             <option value="fit">Fit</option><option value="50">50%</option><option value="75">75%</option>
@@ -1323,15 +1322,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                 viewLayout === '1-view' && zoomMode === 'fit'
                   ? {
                       aspectRatio: `${composition.width} / ${composition.height}`,
-                      width:
-                        composition.width >= composition.height ? '100%' : 'auto',
-                      height:
-                        composition.height > composition.width ? '100%' : 'auto',
-                    }
-                  : viewLayout === '1-view' && zoomMode !== 'fit'
-                  ? {
-                      width: composition.width,
-                      height: composition.height,
+                      width: composition.width >= composition.height ? '100%' : 'auto',
+                      height: composition.height > composition.width ? '100%' : 'auto',
                     }
                   : undefined
               }
