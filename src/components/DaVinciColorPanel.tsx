@@ -208,7 +208,16 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
   };
 
   const secondary = grade.hslSecondary ?? { enabled: false, hueCenter: 45, hueWidth: 45, hueShift: 0, saturation: 0, luminance: 0, softness: 35 };
-  const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.offset?.luma ?? 0}_${grade.exposureStops ?? 0}_${grade.hue ?? 0}_${grade.vibrance ?? 0}_${grade.colorBoost ?? 0}_${grade.midtoneDetail ?? 0}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.blacks ?? 0}_${grade.whites ?? 0}_${grade.dehaze ?? 0}_${grade.clarity ?? 0}_${grade.sharpenAmount ?? 0}_${grade.curveBlacks ?? 0}_${grade.curveMidtones ?? 0}_${grade.curveWhites ?? 0}_${grade.vignetteAmount ?? 0}_${secondary.enabled}_${secondary.hueCenter}_${secondary.hueWidth}_${secondary.hueShift}_${secondary.saturation}_${secondary.luminance}_${grade.lut}`;
+  const rgbCurves = grade.rgbCurves ?? {
+    master: { shadows: 0, midtones: 0, highlights: 0 },
+    red: { shadows: 0, midtones: 0, highlights: 0 },
+    green: { shadows: 0, midtones: 0, highlights: 0 },
+    blue: { shadows: 0, midtones: 0, highlights: 0 },
+  };
+  const curveSignature = (['master', 'red', 'green', 'blue'] as const)
+    .map((channel) => `${rgbCurves[channel].shadows},${rgbCurves[channel].midtones},${rgbCurves[channel].highlights}`)
+    .join('_');
+  const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.offset?.luma ?? 0}_${grade.exposureStops ?? 0}_${grade.hue ?? 0}_${grade.vibrance ?? 0}_${grade.colorBoost ?? 0}_${grade.midtoneDetail ?? 0}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.blacks ?? 0}_${grade.whites ?? 0}_${grade.dehaze ?? 0}_${grade.clarity ?? 0}_${grade.sharpenAmount ?? 0}_${grade.curveBlacks ?? 0}_${grade.curveMidtones ?? 0}_${grade.curveWhites ?? 0}_${grade.vignetteAmount ?? 0}_${secondary.enabled}_${secondary.hueCenter}_${secondary.hueWidth}_${secondary.hueShift}_${secondary.saturation}_${secondary.luminance}_${curveSignature}_${grade.lut}`;
   const importCubeLut = async (file: File) => {
     try {
       const parsed = parseCubeLut(await file.text(), file.name);
@@ -390,6 +399,46 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
               />
               <span className="block text-center font-mono-tabular text-[#C8CDD6]">{grade[key] ?? 0}</span>
             </label>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2 border-t border-[#272E39] p-2.5">
+          {([
+            ['Master', 'master'],
+            ['Red', 'red'],
+            ['Green', 'green'],
+            ['Blue', 'blue'],
+          ] as const).map(([label, channel]) => (
+            <details key={channel} className="rounded border border-[#2B303A] bg-[#0E1013]">
+              <summary className="cursor-pointer select-none px-2 py-1.5 text-[10px] font-semibold text-[#C8CDD6]">{label}</summary>
+              <div className="space-y-2 px-2 pb-2 pt-1">
+                {([
+                  ['Shadows', 'shadows'],
+                  ['Midtones', 'midtones'],
+                  ['Highlights', 'highlights'],
+                ] as const).map(([tone, key]) => (
+                  <label key={key} className="block text-[9px] text-[#8D95A5]">
+                    <span className="mb-0.5 flex justify-between">
+                      <span>{tone}</span>
+                      <span className="font-mono-tabular text-[#E6E8EC]">{rgbCurves[channel][key]}</span>
+                    </span>
+                    <input
+                      type="range"
+                      aria-label={`${label} curve ${tone}`}
+                      min={-100}
+                      max={100}
+                      value={rgbCurves[channel][key]}
+                      onChange={(event) => patchGrade({
+                        rgbCurves: {
+                          ...rgbCurves,
+                          [channel]: { ...rgbCurves[channel], [key]: Number(event.target.value) },
+                        },
+                      })}
+                      className="w-full studio-slider"
+                    />
+                  </label>
+                ))}
+              </div>
+            </details>
           ))}
         </div>
       </details>
