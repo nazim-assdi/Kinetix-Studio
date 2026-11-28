@@ -1,4 +1,4 @@
-import type { HslSecondaryGrade } from '../types/editor';
+import type { HslSecondaryGrade, LumetriRgbCurves } from '../types/editor';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -77,5 +77,51 @@ export function applyHslSecondaryToPixels(
     pixels[index] = clamp(Math.round(mapped[0]), 0, 255);
     pixels[index + 1] = clamp(Math.round(mapped[1]), 0, 255);
     pixels[index + 2] = clamp(Math.round(mapped[2]), 0, 255);
+  }
+}
+
+function toneCurveWeight(luma: number, channel: 'shadows' | 'midtones' | 'highlights'): number {
+  if (channel === 'shadows') return 1 - smoothstep(0.08, 0.62, luma);
+  if (channel === 'highlights') return smoothstep(0.38, 0.94, luma);
+  return clamp(1 - Math.abs(luma - 0.5) / 0.48, 0, 1);
+}
+
+/** Applies Master + Red + Green + Blue Lumetri-style tonal curves in-place. */
+export function applyLumetriRgbCurvesToPixels(
+  pixels: Uint8ClampedArray,
+  curves: LumetriRgbCurves
+): void {
+  const allValues = [
+    curves.master.shadows, curves.master.midtones, curves.master.highlights,
+    curves.red.shadows, curves.red.midtones, curves.red.highlights,
+    curves.green.shadows, curves.green.midtones, curves.green.highlights,
+    curves.blue.shadows, curves.blue.midtones, curves.blue.highlights,
+  ];
+  if (allValues.every((value) => Math.abs(value) < 0.01)) return;
+
+  for (let index = 0; index < pixels.length; index += 4) {
+    if (pixels[index + 3] === 0) continue;
+    const red = pixels[index] / 255;
+    const green = pixels[index + 1] / 255;
+    const blue = pixels[index + 2] / 255;
+    const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    const shadowWeight = toneCurveWeight(luma, 'shadows');
+    const midtoneWeight = toneCurveWeight(luma, 'midtones');
+    const highlightWeight = toneCurveWeight(luma, 'highlights');
+    const master = (
+      curves.master.shadows * shadowWeight +
+      curves.master.midtones * midtoneWeight +
+      curves.master.highlights * highlightWeight
+    ) * 0.0024;
+
+    const channelDelta = (channel: 'red' | 'green' | 'blue') => (
+      curves[channel].shadows * shadowWeight +
+      curves[channel].midtones * midtoneWeight +
+      curves[channel].highlights * highlightWeight
+    ) * 0.0024;
+
+    pixels[index] = clamp(Math.round((red + master + channelDelta('red')) * 255), 0, 255);
+    pixels[index + 1] = clamp(Math.round((green + master + channelDelta('green')) * 255), 0, 255);
+    pixels[index + 2] = clamp(Math.round((blue + master + channelDelta('blue')) * 255), 0, 255);
   }
 }
