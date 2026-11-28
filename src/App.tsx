@@ -1291,7 +1291,7 @@ export default function App() {
   );
 
   const handleUpdateClipTransform = useCallback(
-    (clipId: string, patch: { scale?: number; rotation?: number }) => {
+    (clipId: string, patch: { scale?: number; rotation?: number; rotationX?: number; rotationY?: number }) => {
       updateClipById(clipId, (clip) => {
         const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
         let next = clip;
@@ -1303,6 +1303,12 @@ export default function App() {
         if (patch.rotation !== undefined) {
           if ((clip.keyframes.rotation?.length ?? 0) > 0) next = upsertKeyframe(next, 'rotation', localTime, patch.rotation);
           else next = { ...next, transform: { ...next.transform, rotation: patch.rotation } };
+        }
+        for (const axis of ['rotationX', 'rotationY'] as const) {
+          const value = patch[axis];
+          if (value === undefined) continue;
+          if ((clip.keyframes[axis]?.length ?? 0) > 0) next = upsertKeyframe(next, axis, localTime, value);
+          else next = { ...next, transform: { ...next.transform, [axis]: value } };
         }
         return next;
       });
