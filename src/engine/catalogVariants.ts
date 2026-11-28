@@ -1,4 +1,5 @@
 import { AnimatableProperty, ColorWheelGrade, MotionPresetItem, TimelineClip } from '../types/editor';
+import { evaluateAnimatableValue } from './keyframes';
 
 export function applyCatalogMotionVariant(
   clip: TimelineClip,
@@ -27,7 +28,7 @@ export function applyCatalogMotionVariant(
     if (!list?.length || property === 'x' || property === 'y') return;
     const sorted = [...list].sort((a, b) => a.time - b.time);
     const lastTime = Math.max(0.001, sorted[sorted.length - 1].time);
-    const neutral = property === 'scale' ? 100 : Number(clip.transform[property] ?? 0);
+    const neutral = property === 'scale' ? 100 : evaluateAnimatableValue(clip, property, clip.start);
     keyframes[property] = sorted.map((frame, index) => {
       let value = frame.value;
       if (property === 'scale' || property === 'rotation' || property === 'rotationX' || property === 'rotationY') {
