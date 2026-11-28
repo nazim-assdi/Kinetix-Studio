@@ -1,6 +1,16 @@
 import { SfxPresetName, SynthPreset, TimelineClip, TimelineTrack } from '../types/editor';
 import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
 
+/** Returns cached audio IDs whose source clips were removed or no longer contain playable media. */
+export function findStaleAudioClipIds(existingClipIds: Iterable<string>, clips: TimelineClip[]): string[] {
+  const liveIds = new Set(
+    clips
+      .filter((clip) => (clip.kind === 'audio' || clip.kind === 'video') && Boolean(clip.src))
+      .map((clip) => clip.id)
+  );
+  return Array.from(new Set(existingClipIds)).filter((id) => !liveIds.has(id));
+}
+
 export function dbToGain(db: number): number {
   if (db <= -36) return 0;
   return Math.pow(10, db / 20);
@@ -31,6 +41,37 @@ class StudioAudioEngine {
     }
   >();
   private triggeredSfxClips = new Set<string>();
+
+  private disposeClipAudio(clipId: string) {
+    const element = this.audioElements.get(clipId);
+    if (element) {
+      try {
+        element.pause();
+        element.removeAttribute('src');
+        element.load();
+      } catch {
+        // The media element may already be detached or in an error state.
+      }
+      this.audioElements.delete(clipId);
+    }
+
+    const chain = this.mediaSources.get(clipId);
+    if (chain) {
+      const nodes: AudioNode[] = [
+        chain.source, chain.rumbleCut, chain.noiseAnalyser, chain.noiseGate,
+        chain.low, chain.mid, chain.high, chain.compressor, chain.pan, chain.gain,
+      ];
+      nodes.forEach((node) => {
+        try { node.disconnect(); } catch { /* Already disconnected. */ }
+      });
+      this.mediaSources.delete(clipId);
+    }
+  }
+
+  private pruneRemovedAudio(clips: TimelineClip[]) {
+    const knownIds = new Set([...this.audioElements.keys(), ...this.mediaSources.keys()]);
+    findStaleAudioClipIds(knownIds, clips).forEach((clipId) => this.disposeClipAudio(clipId));
+  }
 
   private ensureContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -72,6 +113,7 @@ class StudioAudioEngine {
       const t = getPlayhead();
       const clips = getClips();
       const tracks = getTracks();
+      this.pruneRemovedAudio(clips);
 
       const hasSolo = tracks.some((tr) => tr.solo);
       const activeVoiceovers = clips.filter((voice) =>
