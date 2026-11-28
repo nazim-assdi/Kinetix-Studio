@@ -421,7 +421,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       activeCamera,
       clips,
       playheadTime,
-      composition.width
+      composition.width,
+      composition.height
     );
 
     let hitInfo: {
