@@ -201,6 +201,16 @@ export interface CubeLut {
   data: [number, number, number][];
 }
 
+export interface HslSecondaryGrade {
+  enabled: boolean;
+  hueCenter: number;
+  hueWidth: number;
+  hueShift: number;
+  saturation: number;
+  luminance: number;
+  softness: number;
+}
+
 export interface ColorWheelGrade {
   enabled: boolean;
   lift: ColorWheelChannel;
@@ -220,6 +230,19 @@ export interface ColorWheelGrade {
   shadows?: number; // -50..50
   highlights?: number; // -50..50
   lut: string;
+  blacks?: number;
+  whites?: number;
+  dehaze?: number;
+  clarity?: number;
+  sharpenAmount?: number;
+  curveBlacks?: number;
+  curveMidtones?: number;
+  curveWhites?: number;
+  vignetteAmount?: number;
+  vignetteMidpoint?: number;
+  vignetteFeather?: number;
+  vignetteRoundness?: number;
+  hslSecondary?: HslSecondaryGrade;
   /** Optional imported .cube 3D LUT. Omitted for built-in or neutral LUTs. */
   lutData?: CubeLut;
 }
