@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
 import { resolveGeminiApiKey } from './aiConfig';
 import { applyCubeLutToCanvas, parseCubeLut, sampleCubeLut } from './lut';
+import { applyHslSecondaryToPixels } from './lumetri';
 import { DEFAULT_TIMELINE_TRANSITION, createTimelineTransition, findAdjacentOutgoingClip, findNearestTransitionPair, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
@@ -182,6 +183,25 @@ test('video audio companion stays independently editable on a dedicated audio tr
   assert.equal(split[1].kind, 'audio');
   assert.equal(split[0].trackId, 'track_audio_1');
   assert.equal(split[1].trackId, 'track_audio_1');
+});
+
+test('Lumetri HSL secondary shifts only the selected feathered hue range', () => {
+  const pixels = new Uint8ClampedArray([
+    255, 0, 0, 255,     // red: selected
+    0, 255, 0, 255,     // green: outside the red range
+  ]);
+  applyHslSecondaryToPixels(pixels, {
+    enabled: true,
+    hueCenter: 0,
+    hueWidth: 40,
+    hueShift: 90,
+    saturation: 0,
+    luminance: 0,
+    softness: 15,
+  });
+  assert.ok(pixels[0] < 20, 'red channel should fall after red rotates toward cyan');
+  assert.ok(pixels[2] > 220, 'blue channel should rise after red rotates toward cyan');
+  assert.ok(pixels[4] < 10 && pixels[5] > 245 && pixels[6] < 10, 'green pixels outside the selected hue should remain unchanged');
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {
