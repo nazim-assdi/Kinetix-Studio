@@ -184,8 +184,13 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       {/* Left: Brand & Workspaces */}
       <div className="flex items-center gap-2 min-w-0">
         <div className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
-          <div className="w-6 h-6 rounded bg-[#3B82F6] flex items-center justify-center text-white">
-            <Film className="w-3.5 h-3.5" />
+          <div className="w-7 h-7 rounded-md overflow-hidden border border-[#34415B] shadow-[0_0_12px_rgba(59,130,246,0.22)] shrink-0">
+            <img
+              src="/kinetix-icon.png"
+              alt=""
+              draggable={false}
+              className="h-full w-full object-cover"
+            />
           </div>
           <span className="text-xs font-semibold tracking-tight text-[#E6E8EC]">
             Kinetix Studio
