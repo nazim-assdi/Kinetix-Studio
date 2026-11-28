@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
 import { resolveGeminiApiKey } from './aiConfig';
 import { applyCubeLutToCanvas, parseCubeLut, sampleCubeLut } from './lut';
-import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels } from './lumetri';
+import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels, applyLumetriSharpenToPixels } from './lumetri';
 import { DEFAULT_TIMELINE_TRANSITION, createTimelineTransition, findAdjacentOutgoingClip, findNearestTransitionPair, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
@@ -215,6 +215,21 @@ test('Lumetri Master and RGB curves alter only enabled tonal channels', () => {
   assert.ok(pixels[0] > 120, 'red midtone curve should lift the red channel');
   assert.equal(pixels[1], 120, 'green channel should remain unchanged');
   assert.equal(pixels[2], 120, 'blue channel should remain unchanged');
+});
+
+test('Lumetri sharpen increases local edge contrast while retaining image boundaries', () => {
+  const width = 3, height = 3;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 100; pixels[i + 1] = 100; pixels[i + 2] = 100; pixels[i + 3] = 255;
+  }
+  const center = (width + 1) * 4;
+  pixels[center] = 180;
+  pixels[center + 1] = 180;
+  pixels[center + 2] = 180;
+  applyLumetriSharpenToPixels(pixels, width, height, 100);
+  assert.ok(pixels[center] > 180);
+  assert.equal(pixels[0], 100, 'outer border remains unchanged');
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {
