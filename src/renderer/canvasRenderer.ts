@@ -27,6 +27,7 @@ import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from
 import { findAdjacentOutgoingClip, getTransitionProgress } from '../engine/transitions';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
 import { applyCubeLutToCanvas } from '../engine/lut';
+import { applyHslSecondaryToPixels } from '../engine/lumetri';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -534,17 +535,28 @@ function buildFilterString(
       colorGrade.gamma.luma * 0.35 +
       colorGrade.gain.luma * 0.4 +
       (colorGrade.highlights ?? 0) * 0.25 +
-      (colorGrade.shadows ?? 0) * 0.2;
+      (colorGrade.shadows ?? 0) * 0.2 +
+      (colorGrade.whites ?? 0) * 0.3 +
+      (colorGrade.blacks ?? 0) * 0.18 +
+      (colorGrade.curveWhites ?? 0) * 0.18 +
+      (colorGrade.curveBlacks ?? 0) * 0.12;
+    const clarity = colorGrade.clarity ?? 0;
+    const dehaze = colorGrade.dehaze ?? 0;
     const curveContrast =
-      colorGrade.contrast + ((colorGrade.highlights ?? 0) - (colorGrade.shadows ?? 0)) * 0.35;
+      colorGrade.contrast +
+      ((colorGrade.highlights ?? 0) - (colorGrade.shadows ?? 0)) * 0.35 +
+      clarity * 0.48 +
+      dehaze * 0.62 +
+      (colorGrade.curveMidtones ?? 0) * 0.45;
     const exposureMultiplier = Math.pow(2, Math.max(-5, Math.min(5, colorGrade.exposureStops ?? 0)));
-    const saturation = Math.max(0, Math.min(300, colorGrade.saturation + (colorGrade.vibrance ?? 0) * 0.55 + (colorGrade.colorBoost ?? 0) * 0.35));
+    const saturation = Math.max(0, Math.min(300, colorGrade.saturation + (colorGrade.vibrance ?? 0) * 0.55 + (colorGrade.colorBoost ?? 0) * 0.35 + dehaze * 0.12));
+    const sharpen = Math.max(0, Math.min(100, colorGrade.sharpenAmount ?? 0));
     const tempShift = (colorGrade.temp ?? 0) * 0.035;
     const tintShift = (colorGrade.tint ?? 0) * -0.025;
     const pivot = Math.max(0.1, Math.min(0.9, colorGrade.pivot ?? 0.5));
     const pivotContrast = 100 + (0.5 - pivot) * 22;
     filters.push(
-      `brightness(${Math.max(8, Math.min(800, Math.round(lumaShift * exposureMultiplier)))}%) contrast(${Math.max(40, Math.round(curveContrast + pivotContrast - 100))}%) saturate(${Math.round(saturation)}%) hue-rotate(${Math.round((colorGrade.hue ?? 0) + tempShift + tintShift)}deg)`
+      `brightness(${Math.max(8, Math.min(800, Math.round(lumaShift * exposureMultiplier)))}%) contrast(${Math.max(40, Math.round(curveContrast + pivotContrast - 100 + sharpen * 0.12))}%) saturate(${Math.round(saturation)}%) hue-rotate(${Math.round((colorGrade.hue ?? 0) + tempShift + tintShift)}deg)`
     );
   }
 
@@ -725,6 +737,31 @@ function applyDaVinciToneOverlay(
     ctx.globalAlpha = Math.abs(detail) / 700;
     ctx.fillStyle = detail > 0 ? '#FFFFFF' : '#808080';
     ctx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
+    ctx.restore();
+  }
+
+  // Lumetri-style optical vignette with independent midpoint, feather and roundness.
+  const vignetteAmount = Math.max(-100, Math.min(100, grade.vignetteAmount ?? 0));
+  if (Math.abs(vignetteAmount) > 0.5) {
+    const midpoint = Math.max(0.05, Math.min(0.95, (grade.vignetteMidpoint ?? 50) / 100));
+    const feather = Math.max(0.05, Math.min(1, (grade.vignetteFeather ?? 70) / 100));
+    const roundness = Math.max(0.45, Math.min(1.8, 1 + (grade.vignetteRoundness ?? 0) / 125));
+    const outerRadius = Math.hypot(baseW / (2 * roundness), baseH / 2) * 1.12;
+    const innerRadius = outerRadius * Math.max(0.05, Math.min(0.92, midpoint - (feather * 0.12)));
+    ctx.save();
+    ctx.scale(roundness, 1);
+    const vignette = ctx.createRadialGradient(0, 0, innerRadius, 0, 0, outerRadius);
+    if (vignetteAmount > 0) {
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, `rgba(0,0,0,${Math.abs(vignetteAmount) / 100 * 0.92})`);
+      ctx.globalCompositeOperation = 'multiply';
+    } else {
+      vignette.addColorStop(0, 'rgba(255,255,255,0)');
+      vignette.addColorStop(1, `rgba(255,255,255,${Math.abs(vignetteAmount) / 100 * 0.72})`);
+      ctx.globalCompositeOperation = 'screen';
+    }
+    ctx.fillStyle = vignette;
+    ctx.fillRect(-baseW / 2 / roundness, -baseH / 2, baseW / roundness, baseH);
     ctx.restore();
   }
 }
@@ -2226,6 +2263,14 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       // Apply the imported LUT to the layer's own pixels before alpha masking
       // and compositing, so it remains isolated to the selected clip.
       applyCubeLutToCanvas(renderCtx.canvas, clip.colorGrade.lutData);
+    }
+
+    if (clip.colorGrade?.hslSecondary?.enabled) {
+      // Secondary selection is isolated to this layer and only processes pixels
+      // when the user explicitly enables the HSL qualifier.
+      const image = renderCtx.getImageData(0, 0, renderCtx.canvas.width, renderCtx.canvas.height);
+      applyHslSecondaryToPixels(image.data, clip.colorGrade.hslSecondary);
+      renderCtx.putImageData(image, 0, 0);
     }
 
     if (shading.tintAlpha > 0.01) {
