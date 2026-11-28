@@ -59,9 +59,14 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "public/kinetix-icon.png",
+        "to": "kinetix-icon.png"
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
