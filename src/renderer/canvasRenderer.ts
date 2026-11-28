@@ -27,7 +27,7 @@ import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from
 import { findAdjacentOutgoingClip, getTransitionProgress } from '../engine/transitions';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
 import { applyCubeLutToCanvas } from '../engine/lut';
-import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels } from '../engine/lumetri';
+import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels, applyLumetriSharpenToPixels } from '../engine/lumetri';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -550,13 +550,12 @@ function buildFilterString(
       (colorGrade.curveMidtones ?? 0) * 0.45;
     const exposureMultiplier = Math.pow(2, Math.max(-5, Math.min(5, colorGrade.exposureStops ?? 0)));
     const saturation = Math.max(0, Math.min(300, colorGrade.saturation + (colorGrade.vibrance ?? 0) * 0.55 + (colorGrade.colorBoost ?? 0) * 0.35 + dehaze * 0.12));
-    const sharpen = Math.max(0, Math.min(100, colorGrade.sharpenAmount ?? 0));
     const tempShift = (colorGrade.temp ?? 0) * 0.035;
     const tintShift = (colorGrade.tint ?? 0) * -0.025;
     const pivot = Math.max(0.1, Math.min(0.9, colorGrade.pivot ?? 0.5));
     const pivotContrast = 100 + (0.5 - pivot) * 22;
     filters.push(
-      `brightness(${Math.max(8, Math.min(800, Math.round(lumaShift * exposureMultiplier)))}%) contrast(${Math.max(40, Math.round(curveContrast + pivotContrast - 100 + sharpen * 0.12))}%) saturate(${Math.round(saturation)}%) hue-rotate(${Math.round((colorGrade.hue ?? 0) + tempShift + tintShift)}deg)`
+      `brightness(${Math.max(8, Math.min(800, Math.round(lumaShift * exposureMultiplier)))}%) contrast(${Math.max(40, Math.round(curveContrast + pivotContrast - 100))}%) saturate(${Math.round(saturation)}%) hue-rotate(${Math.round((colorGrade.hue ?? 0) + tempShift + tintShift)}deg)`
     );
   }
 
@@ -2267,11 +2266,20 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
 
     const hslSecondary = clip.colorGrade?.hslSecondary;
     const rgbCurves = clip.colorGrade?.rgbCurves;
-    if (hslSecondary?.enabled || rgbCurves) {
-      // Master/R/G/B curves and the HSL qualifier share one pixel pass.
+    const curveValues = rgbCurves ? [
+      rgbCurves.master.shadows, rgbCurves.master.midtones, rgbCurves.master.highlights,
+      rgbCurves.red.shadows, rgbCurves.red.midtones, rgbCurves.red.highlights,
+      rgbCurves.green.shadows, rgbCurves.green.midtones, rgbCurves.green.highlights,
+      rgbCurves.blue.shadows, rgbCurves.blue.midtones, rgbCurves.blue.highlights,
+    ] : [];
+    const hasRgbCurves = curveValues.some((value) => Math.abs(value) > 0.01);
+    const sharpenAmount = clip.colorGrade?.sharpenAmount ?? 0;
+    if (hslSecondary?.enabled || hasRgbCurves || sharpenAmount > 0.1) {
+      // The pixel buffer is read once for curves, HSL secondary and sharpening.
       const image = renderCtx.getImageData(0, 0, renderCtx.canvas.width, renderCtx.canvas.height);
-      if (rgbCurves) applyLumetriRgbCurvesToPixels(image.data, rgbCurves);
+      if (rgbCurves && hasRgbCurves) applyLumetriRgbCurvesToPixels(image.data, rgbCurves);
       if (hslSecondary?.enabled) applyHslSecondaryToPixels(image.data, hslSecondary);
+      if (sharpenAmount > 0.1) applyLumetriSharpenToPixels(image.data, image.width, image.height, sharpenAmount);
       renderCtx.putImageData(image, 0, 0);
     }
 
