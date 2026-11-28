@@ -194,7 +194,7 @@ test('Lumetri HSL secondary shifts only the selected feathered hue range', () =>
     enabled: true,
     hueCenter: 0,
     hueWidth: 40,
-    hueShift: 90,
+    hueShift: 180,
     saturation: 0,
     luminance: 0,
     softness: 15,
