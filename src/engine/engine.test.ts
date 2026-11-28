@@ -403,6 +403,11 @@ test('physical camera lens, near/far clipping, roll and target aim affect projec
   assert.ok(Math.abs(base.screenX - 640) < 0.001);
   assert.ok(Math.abs(base.screenY - 360) < 0.001);
 
+  const shiftedCamera = makeCamera({ lensShiftX: 10, lensShiftY: -5 });
+  const shifted = projectLayerThroughCamera(world, shiftedCamera, [shiftedCamera], 2, 1280, 720);
+  assert.ok(Math.abs(shifted.screenX - 768) < 0.001, '10% horizontal lens shift should offset the optical center by 128px');
+  assert.ok(Math.abs(shifted.screenY - 324) < 0.001, '-5% vertical lens shift should offset the optical center by -36px');
+
   const telephoto = makeCamera({ focalLength: 100 });
   const tele = projectLayerThroughCamera(world, telephoto, [telephoto], 2, 1280, 720);
   assert.ok(tele.perspectiveScale > base.perspectiveScale, 'longer focal length must magnify');
