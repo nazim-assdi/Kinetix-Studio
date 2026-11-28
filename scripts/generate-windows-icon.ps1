@@ -17,13 +17,13 @@ $entries = @()
 
 try {
   foreach ($size in @(256, 128, 64, 48, 32, 16)) {
-    $bitmap = New-Object System.Drawing.Bitmap(
+    $bitmap = [System.Drawing.Bitmap]::new(
       $size,
       $size,
       [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
     )
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $memory = New-Object System.IO.MemoryStream
+    $memory = [System.IO.MemoryStream]::new()
 
     try {
       $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
@@ -47,8 +47,8 @@ finally {
   $source.Dispose()
 }
 
-$icoStream = New-Object System.IO.MemoryStream
-$writer = New-Object System.IO.BinaryWriter($icoStream)
+$icoStream = [System.IO.MemoryStream]::new()
+$writer = [System.IO.BinaryWriter]::new($icoStream)
 
 try {
   $writer.Write([UInt16]0)
