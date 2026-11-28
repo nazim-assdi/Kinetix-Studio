@@ -66,6 +66,9 @@ async function createMainWindow(): Promise<void> {
   const rendererDirectory = app.isPackaged
     ? path.join(process.resourcesPath, 'dist')
     : path.resolve(process.cwd(), 'dist');
+  const desktopIconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'kinetix-icon.png')
+    : path.resolve(process.cwd(), 'public', 'kinetix-icon.png');
 
   localServer = await startServer({
     port: 0,
@@ -87,6 +90,7 @@ async function createMainWindow(): Promise<void> {
     minHeight: 700,
     show: false,
     backgroundColor: '#111215',
+    icon: desktopIconPath,
     autoHideMenuBar: false,
     webPreferences: {
       contextIsolation: true,
