@@ -217,8 +217,13 @@ const ViewportCanvasSlot: React.FC<ViewportSlotProps> = ({
       onPointerMove={(e) => canvasRef.current && onPointerMove?.(e, canvasRef.current, angle)}
       onPointerUp={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current, angle)}
       onPointerCancel={(e) => canvasRef.current && onPointerUp?.(e, canvasRef.current, angle)}
-      style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
-      className={`w-full h-full object-contain block ${angle === 'orbit' || tool === 'hand' ? 'cursor-grab' : tool === 'pen' || tool === 'pin' || tool === 'mask' ? 'cursor-crosshair' : 'cursor-default'}`}
+      style={{
+        width: `${Math.min(100, zoomLevel)}%`,
+        height: `${Math.min(100, zoomLevel)}%`,
+        flex: 'none',
+        objectFit: 'contain',
+      }}
+      className={`object-contain block max-w-none max-h-none ${angle === 'orbit' || tool === 'hand' ? 'cursor-grab' : tool === 'pen' || tool === 'pin' || tool === 'mask' ? 'cursor-crosshair' : 'cursor-default'}`}
     />
   );
 };
@@ -249,9 +254,21 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   onCreatePathClip,
   onUpdateComposition,
 }) => {
-  const [zoomMode, setZoomMode] = useState<'fit' | '50' | '75' | '100' | '125' | '150' | '200' | '250'>('fit');
-  const zoomLevel = zoomMode === 'fit' ? 100 : Number(zoomMode);
-  const adjustZoom = (direction: -1 | 1) => setZoomMode(String(Math.min(250, Math.max(50, zoomLevel + direction * 25))) as typeof zoomMode);
+  const [viewportZooms, setViewportZooms] = useState<Record<ViewportCameraAngle, number>>({
+    active: 100, top: 100, front: 100, right: 100, orbit: 100,
+  });
+  const [activeZoomAngle, setActiveZoomAngle] = useState<ViewportCameraAngle>('active');
+  const zoomLevel = viewportZooms[activeZoomAngle];
+  const zoomMode = (zoomLevel === 100 ? 'fit' : String(zoomLevel)) as 'fit' | '50' | '75' | '100' | '125' | '150' | '200' | '250';
+  const setZoomMode = (mode: 'fit' | '50' | '75' | '100' | '125' | '150' | '200' | '250') => {
+    setViewportZooms((current) => ({ ...current, [activeZoomAngle]: mode === 'fit' ? 100 : Number(mode) }));
+  };
+  const adjustZoom = (direction: -1 | 1) => {
+    setViewportZooms((current) => ({
+      ...current,
+      [activeZoomAngle]: Math.min(250, Math.max(50, current[activeZoomAngle] + direction * 25)),
+    }));
+  };
   const [previewQuality, setPreviewQuality] = useState<'auto' | 'draft' | 'balanced' | 'high' | 'ultra'>('auto');
   const [orbitView, setOrbitView] = useState<ViewportOrbitState>(DEFAULT_ORBIT_VIEW);
   const previewRenderScale = previewQuality === 'draft' ? 0.5
@@ -260,15 +277,21 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     : previewQuality === 'ultra' ? 1.25
     : viewLayout === '4-views' ? 0.5
     : isPlaying ? 0.65 : 1;
-  const handlePreviewWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+  const handlePreviewWheel = (event: React.WheelEvent<HTMLDivElement>, angle: ViewportCameraAngle) => {
+    // Alt + wheel remains native panel scrolling. Normal wheel zooms only the
+    // hovered view, so all four cameras can be framed independently.
+    if (event.altKey || event.shiftKey) return;
     event.preventDefault();
-    const viewport = (event.target as HTMLElement).closest<HTMLElement>('[data-view-angle]');
-    if (viewport?.dataset.viewAngle === 'orbit') {
+    if (angle === 'orbit') {
       const factor = event.deltaY < 0 ? 1.1 : 0.9;
       setOrbitView((current) => ({ ...current, zoom: Math.max(0.2, Math.min(5, current.zoom * factor)) }));
       return;
     }
-    adjustZoom(event.deltaY < 0 ? 1 : -1);
+    setViewportZooms((current) => ({
+      ...current,
+      [angle]: Math.min(250, Math.max(50, current[angle] + (event.deltaY < 0 ? 25 : -25))),
+    }));
+    setActiveZoomAngle(angle);
   };
   const [singleAngle, setSingleAngle] = useState<ViewportCameraAngle>('active');
   const [showSafeMargins, setShowSafeMargins] = useState(false);
@@ -303,7 +326,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
 
   type CanvasDrag =
     | { mode: 'orbit'; startClientX: number; startClientY: number; origYaw: number; origPitch: number; origPanX: number; origPanY: number; panMode: boolean }
-    | { mode: 'move-camera'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number; origZ: number; angle: Exclude<ViewportCameraAngle, 'active'> }
+    | { mode: 'move-camera' | 'move-ortho-object'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number; origZ: number; angle: Exclude<ViewportCameraAngle, 'active' | 'orbit'> }
     | { mode: 'move'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number }
     | { mode: 'resize-shape'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
     | { mode: 'resize-text'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; origScale: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
@@ -330,12 +353,27 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       return;
     }
     if (angle !== 'active') {
-      const cameraClip = clips.find((clip) => clip.id === selectedClipId && clip.kind === 'camera' && playheadTime >= clip.start && playheadTime <= clip.start + clip.duration);
-      if (!cameraClip) return;
-      const cameraTransform = evaluateClipTransform(cameraClip, playheadTime);
-      dragRef.current = { mode: 'move-camera', clipId: cameraClip.id, startClientX: e.clientX, startClientY: e.clientY,
-        origX: cameraTransform.x, origY: cameraTransform.y, origZ: cameraTransform.z, angle };
-      canvas.setPointerCapture(e.pointerId); e.stopPropagation(); return;
+      const selected = clips.find((clip) =>
+        clip.id === selectedClipId &&
+        playheadTime >= clip.start &&
+        playheadTime <= clip.start + clip.duration
+      );
+      const selectedTrack = selected ? tracks.find((track) => track.id === selected.trackId) : null;
+      if (!selected || !selected.is3D || selectedTrack?.locked) return;
+      const transform = evaluateClipTransform(selected, playheadTime);
+      dragRef.current = {
+        mode: selected.kind === 'camera' ? 'move-camera' : 'move-ortho-object',
+        clipId: selected.id,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        origX: transform.x,
+        origY: transform.y,
+        origZ: transform.z,
+        angle,
+      };
+      canvas.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+      return;
     }
     const scaleX = geometry.scaleX;
     const scaleY = geometry.scaleY;
@@ -734,13 +772,15 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       }));
       return;
     }
-    if (drag.mode === 'move-camera') {
-      const dx = (e.clientX - drag.startClientX) * scaleX;
-      const dy = (e.clientY - drag.startClientY) * scaleY;
+    if (drag.mode === 'move-camera' || drag.mode === 'move-ortho-object') {
+      // Ortho preview uses 0.42 screen pixels per 3D scene unit.
+      const worldPerPixel = 1 / 0.42;
+      const dx = (e.clientX - drag.startClientX) * scaleX * worldPerPixel;
+      const dy = (e.clientY - drag.startClientY) * scaleY * worldPerPixel;
       let x = drag.origX, y = drag.origY, z = drag.origZ;
-      if (drag.angle === 'top') { x += dx; z -= dy; }
-      else if (drag.angle === 'front') { x += dx; y -= dy; }
-      else { z += dx; y -= dy; }
+      if (drag.angle === 'top') { x += dx; z += dy; }
+      else if (drag.angle === 'front') { x += dx; y += dy; }
+      else { z += dx; y += dy; }
       onMoveClipCanvas(drag.clipId, Math.round(x), Math.round(y), Math.round(z));
       return;
     }
@@ -1087,6 +1127,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             aria-label="Monitor Zoom"
             value={zoomMode}
             onChange={(e) => setZoomMode(e.target.value as typeof zoomMode)}
+            onFocus={() => setActiveZoomAngle(activeZoomAngle)}
             className="bg-[#111215] border border-[#2B303A] rounded px-1.5 py-0.5 text-[11px] text-[#C8CDD6] focus:outline-none"
           >
             <option value="fit">Fit</option><option value="50">50%</option><option value="75">75%</option>
@@ -1216,7 +1257,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       )}
 
       {/* Viewport Grid (1 / 2H / 2V / 4 Quad) */}
-      <div className="flex-1 min-h-0 p-3 overflow-hidden bg-[#0D0E11] flex items-center justify-center" onWheel={handlePreviewWheel}>
+      <div className="flex-1 min-h-0 p-3 overflow-hidden bg-[#0D0E11] flex items-center justify-center">
         <div
           data-testid="viewport-grid"
           data-layout={viewLayout}
@@ -1234,7 +1275,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
             <div
               key={angle}
               data-view-angle={angle}
-              className={`relative border border-[#2B303A] overflow-hidden flex items-center justify-center ${
+              onMouseEnter={() => setActiveZoomAngle(angle)}
+              className={`relative border border-[#2B303A] overflow-hidden ${
                 angle === 'active' && showTransparencyGrid
                   ? 'checkerboard-bg'
                   : 'bg-black'
@@ -1265,6 +1307,19 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                   {angle === 'active' ? 'Active Camera' : `${angle} · Ortho`}
                 </div>
               )}
+              <div
+                className="absolute inset-0 overflow-auto"
+                data-testid={`viewport-scroll-${angle}`}
+                onWheel={(event) => handlePreviewWheel(event, angle)}
+                onMouseEnter={() => setActiveZoomAngle(angle)}
+              >
+                <div
+                  className="min-w-full min-h-full flex items-center justify-center"
+                  style={{
+                    width: `${Math.max(100, viewportZooms[angle])}%`,
+                    height: `${Math.max(100, viewportZooms[angle])}%`,
+                  }}
+                >
               <ViewportCanvasSlot
                 angle={angle}
                 tool={tool}
@@ -1288,6 +1343,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                 onPointerMove={handleCanvasPointerMove}
                 onPointerUp={handleCanvasPointerUp}
               />
+                </div>
+              </div>
             </div>
           ))}
         </div>
