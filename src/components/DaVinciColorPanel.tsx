@@ -207,7 +207,8 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
     });
   };
 
-  const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.offset?.luma ?? 0}_${grade.exposureStops ?? 0}_${grade.hue ?? 0}_${grade.vibrance ?? 0}_${grade.colorBoost ?? 0}_${grade.midtoneDetail ?? 0}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.lut}`;
+  const secondary = grade.hslSecondary ?? { enabled: false, hueCenter: 45, hueWidth: 45, hueShift: 0, saturation: 0, luminance: 0, softness: 35 };
+  const gradeSig = `${selectedClip.id}_${grade.contrast}_${grade.saturation}_${grade.temp}_${grade.tint}_${grade.lift.luma}_${grade.gamma.luma}_${grade.gain.luma}_${grade.offset?.luma ?? 0}_${grade.exposureStops ?? 0}_${grade.hue ?? 0}_${grade.vibrance ?? 0}_${grade.colorBoost ?? 0}_${grade.midtoneDetail ?? 0}_${grade.shadows ?? 0}_${grade.highlights ?? 0}_${grade.blacks ?? 0}_${grade.whites ?? 0}_${grade.dehaze ?? 0}_${grade.clarity ?? 0}_${grade.sharpenAmount ?? 0}_${grade.curveBlacks ?? 0}_${grade.curveMidtones ?? 0}_${grade.curveWhites ?? 0}_${grade.vignetteAmount ?? 0}_${secondary.enabled}_${secondary.hueCenter}_${secondary.hueWidth}_${secondary.hueShift}_${secondary.saturation}_${secondary.luminance}_${grade.lut}`;
   const importCubeLut = async (file: File) => {
     try {
       const parsed = parseCubeLut(await file.text(), file.name);
@@ -333,6 +334,143 @@ export const DaVinciColorPanel: React.FC<DaVinciColorPanelProps> = ({
           onChange={(offset) => patchGrade({ offset })}
         />
       </div>
+
+      <details open className="rounded border border-[#303744] bg-[#12151A]">
+        <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-[#D6D9E0]">
+          Lumetri · Basic Correction
+        </summary>
+        <div className="grid grid-cols-2 gap-3 border-t border-[#272E39] p-2.5">
+          {([
+            ['Blacks', 'blacks', -100, 100, 1],
+            ['Whites', 'whites', -100, 100, 1],
+            ['Dehaze', 'dehaze', -100, 100, 1],
+            ['Clarity', 'clarity', -100, 100, 1],
+            ['Sharpen', 'sharpenAmount', 0, 100, 1],
+          ] as const).map(([label, key, min, max, step]) => (
+            <label key={key} className="block text-[10px] text-[#9BA1AD]">
+              <span className="mb-1 flex justify-between gap-2">
+                <span>{label}</span>
+                <span className="font-mono-tabular text-[#E6E8EC]">{Number(grade[key] ?? 0).toFixed(0)}</span>
+              </span>
+              <input
+                type="range"
+                aria-label={`Lumetri ${label}`}
+                min={min}
+                max={max}
+                step={step}
+                value={grade[key] ?? 0}
+                onChange={(event) => patchGrade({ [key]: Number(event.target.value) })}
+                className="w-full studio-slider"
+              />
+            </label>
+          ))}
+        </div>
+      </details>
+
+      <details className="rounded border border-[#303744] bg-[#12151A]">
+        <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-[#D6D9E0]">
+          RGB Curves · Shadows / Midtones / Highlights
+        </summary>
+        <div className="grid grid-cols-3 gap-2 border-t border-[#272E39] p-2.5">
+          {([
+            ['Shadows', 'curveBlacks'],
+            ['Midtones', 'curveMidtones'],
+            ['Highlights', 'curveWhites'],
+          ] as const).map(([label, key]) => (
+            <label key={key} className="block min-w-0 text-[9px] text-[#9BA1AD]">
+              <span className="mb-1 block text-center">{label}</span>
+              <input
+                type="range"
+                aria-label={`RGB Curve ${label}`}
+                min={-100}
+                max={100}
+                value={grade[key] ?? 0}
+                onChange={(event) => patchGrade({ [key]: Number(event.target.value) })}
+                className="w-full studio-slider"
+              />
+              <span className="block text-center font-mono-tabular text-[#C8CDD6]">{grade[key] ?? 0}</span>
+            </label>
+          ))}
+        </div>
+      </details>
+
+      <details className="rounded border border-[#303744] bg-[#12151A]">
+        <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-[#D6D9E0]">
+          HSL Secondary · Qualifier
+        </summary>
+        <div className="space-y-3 border-t border-[#272E39] p-2.5">
+          <label className="flex items-center justify-between text-[10px] text-[#C8CDD6]">
+            <span>Enable HSL Secondary</span>
+            <input
+              type="checkbox"
+              aria-label="Enable HSL Secondary"
+              checked={secondary.enabled}
+              onChange={(event) => patchGrade({ hslSecondary: { ...secondary, enabled: event.target.checked } })}
+              className="accent-[#60A5FA]"
+            />
+          </label>
+          <div className="h-2 overflow-hidden rounded-full bg-gradient-to-r from-red-500 via-yellow-400 via-green-500 via-cyan-400 via-blue-500 via-purple-500 to-red-500" />
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              ['Hue Center', 'hueCenter', 0, 360],
+              ['Hue Width', 'hueWidth', 5, 180],
+              ['Hue Shift', 'hueShift', -180, 180],
+              ['Saturation', 'saturation', -100, 100],
+              ['Luminance', 'luminance', -100, 100],
+              ['Softness', 'softness', 0, 100],
+            ] as const).map(([label, key, min, max]) => (
+              <label key={key} className="block text-[9px] text-[#9BA1AD]">
+                <span className="mb-1 flex justify-between gap-1">
+                  <span>{label}</span>
+                  <span className="font-mono-tabular text-[#E6E8EC]">{secondary[key]}</span>
+                </span>
+                <input
+                  type="range"
+                  aria-label={`HSL Secondary ${label}`}
+                  min={min}
+                  max={max}
+                  step={1}
+                  disabled={!secondary.enabled}
+                  value={secondary[key]}
+                  onChange={(event) => patchGrade({ hslSecondary: { ...secondary, [key]: Number(event.target.value) } })}
+                  className="w-full studio-slider disabled:opacity-40"
+                />
+              </label>
+            ))}
+          </div>
+          <p className="text-[9px] leading-snug text-[#7F8795]">Feathered hue selection changes only matching colors; tune hue width and softness to avoid hard edges</p>
+        </div>
+      </details>
+
+      <details className="rounded border border-[#303744] bg-[#12151A]">
+        <summary className="cursor-pointer select-none px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-[#D6D9E0]">
+          Lumetri · Vignette
+        </summary>
+        <div className="grid grid-cols-2 gap-3 border-t border-[#272E39] p-2.5">
+          {([
+            ['Amount', 'vignetteAmount', -100, 100],
+            ['Midpoint', 'vignetteMidpoint', 0, 100],
+            ['Feather', 'vignetteFeather', 0, 100],
+            ['Roundness', 'vignetteRoundness', -100, 100],
+          ] as const).map(([label, key, min, max]) => (
+            <label key={key} className="block text-[10px] text-[#9BA1AD]">
+              <span className="mb-1 flex justify-between">
+                <span>{label}</span>
+                <span className="font-mono-tabular text-[#E6E8EC]">{grade[key] ?? 0}</span>
+              </span>
+              <input
+                type="range"
+                aria-label={`Lumetri Vignette ${label}`}
+                min={min}
+                max={max}
+                value={grade[key] ?? (key === 'vignetteMidpoint' ? 50 : key === 'vignetteFeather' ? 70 : 0)}
+                onChange={(event) => patchGrade({ [key]: Number(event.target.value) })}
+                className="w-full studio-slider"
+              />
+            </label>
+          ))}
+        </div>
+      </details>
 
       {/* Primary / Log controls */}
       <div className="bg-[#14161A] border border-[#262B34] rounded p-2.5 space-y-3">
