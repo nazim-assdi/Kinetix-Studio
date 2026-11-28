@@ -13,7 +13,7 @@
     "test": "tsx --test src/engine/engine.test.ts",
     "desktop:build": "node scripts/build-desktop.mjs",
     "desktop:dev": "npm run desktop:build && electron .",
-    "dist:win": "npm run build && npm run desktop:build && electron-builder --win nsis --x64 --publish never"
+    "dist:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-windows-icon.ps1 && npm run build && npm run desktop:build && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",
