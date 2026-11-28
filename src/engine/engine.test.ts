@@ -394,6 +394,19 @@ test('mask edits without an enabled stopwatch remain static', () => {
   assert.equal(updated.keyframes.maskWidth, undefined);
 });
 
+test('changing mask shape does not create unrelated numeric keyframes', () => {
+  const mask = {
+    enabled: true, shape: 'rect' as const, x: 0, y: 0, width: 60, height: 60,
+    feather: 0, inverted: false, opacity: 100,
+  };
+  let clip = makeClip({ mask });
+  clip = togglePropertyKeyframing(clip, 'maskX', 0);
+  const moved = updateMaskAtTime(clip, { ...mask, shape: 'ellipse' }, clip.start + 2);
+  assert.equal(moved.mask?.shape, 'ellipse');
+  assert.equal(moved.keyframes.maskX?.length, 1, 'changing mask type must not insert an accidental position key');
+  assert.equal(moved.keyframes.maskX?.[0].time, 0);
+});
+
 test('splitClipAtTime splits clip and preserves 3D keyframes', () => {
   let clip = makeClip({ start: 1, duration: 4, is3D: true });
   clip = upsertKeyframe(clip, 'rotationY', 0, 0, 'linear');
