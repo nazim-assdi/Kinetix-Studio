@@ -26,7 +26,7 @@ import {
   TrackMatteMode,
   SpeedRampPoint,
 } from '../types/editor';
-import { evaluateClipTransform } from '../engine/keyframes';
+import { evaluateClipMask, evaluateClipTransform } from '../engine/keyframes';
 import { EFFECT_LIBRARY } from '../engine/timelineOps';
 import { EXPRESSION_TEMPLATES } from '../engine/expressions';
 import { TEXT_ANIMATORS } from '../data/textAnimators';
@@ -1592,7 +1592,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
         {isVisual && selectedClip.kind !== 'null' && selectedClip.kind !== 'adjustment' && (
           <div className="p-3 space-y-2.5">
             {(() => {
-              const mask: LayerMask = selectedClip.mask ?? {
+              const mask: LayerMask = evaluateClipMask(selectedClip, playheadTime) ?? selectedClip.mask ?? {
                 enabled: false,
                 shape: 'rect',
                 x: 0,
@@ -1605,6 +1605,60 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
               };
               const patchMask = (patch: Partial<LayerMask>) =>
                 onUpdateMask(selectedClip.id, { ...mask, ...patch });
+              const renderMaskField = (
+                label: string,
+                field: 'x' | 'y' | 'width' | 'height' | 'feather' | 'opacity',
+                prop: AnimatableProperty,
+                min: number,
+                max: number,
+                step = 1
+              ) => {
+                const value = mask[field];
+                const keyframes = selectedClip.keyframes[prop] ?? [];
+                const keyframingActive = keyframes.length > 0;
+                const hasKeyframeHere = keyframes.some((key) => Math.abs(key.time - localTime) <= 0.0005);
+                return (
+                  <div key={prop} className="min-w-0">
+                    <div className="mb-1 flex items-center justify-between gap-1">
+                      <label className="truncate text-[10px] text-[#9BA1AD]">
+                        {label} ({Number(value.toFixed(1))}{field === 'width' || field === 'height' || field === 'x' || field === 'y' || field === 'opacity' ? '%' : 'px'})
+                      </label>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onToggleStopwatch(selectedClip.id, prop)}
+                          title={`Toggle ${label} keyframing`}
+                          aria-label={`Toggle ${label} keyframing`}
+                          aria-pressed={keyframingActive}
+                          className={`rounded p-0.5 transition-colors ${keyframingActive ? 'bg-[#3B82F6]/15 text-[#60A5FA]' : 'text-[#6E7685] hover:text-[#C8CDD6]'}`}
+                        >
+                          <Clock className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onToggleKeyframeAtPlayhead(selectedClip.id, prop)}
+                          title={hasKeyframeHere ? `Remove ${label} keyframe` : `Add ${label} keyframe at playhead`}
+                          aria-label={`${hasKeyframeHere ? 'Remove' : 'Add'} ${label} keyframe at playhead`}
+                          aria-pressed={hasKeyframeHere}
+                          className={`rounded p-0.5 transition-colors ${hasKeyframeHere ? 'text-[#F59E0B]' : 'text-[#6E7685] hover:text-[#FBBF24]'}`}
+                        >
+                          <Diamond className={`h-3 w-3 ${hasKeyframeHere ? 'fill-current' : ''}`} />
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      type={field === 'opacity' ? 'range' : 'number'}
+                      aria-label={label}
+                      min={min}
+                      max={max}
+                      step={step}
+                      value={value}
+                      onChange={(event) => patchMask({ [field]: Number(event.target.value) } as Partial<LayerMask>)}
+                      className="w-full studio-slider"
+                    />
+                  </div>
+                );
+              };
 
               return (
                 <>
@@ -1656,87 +1710,14 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                         </label>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
-                            Width ({mask.width}%)
-                          </label>
-                          <input
-                            type="number"
-                            aria-label="Mask Width"
-                            min={1}
-                            value={mask.width}
-                            onChange={(e) =>
-                              patchMask({ width: Number(e.target.value) })
-                            }
-                            className="w-full bg-[#0E1013] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
-                            Height ({mask.height}%)
-                          </label>
-                          <input
-                            type="number"
-                            aria-label="Mask Height"
-                            min={10}
-                            max={100}
-                            value={mask.height}
-                            onChange={(e) =>
-                              patchMask({ height: Number(e.target.value) })
-                            }
-                            className="w-full studio-slider"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
-                            Offset X ({mask.x}%)
-                          </label>
-                          <input
-                            type="number"
-                            aria-label="Mask Offset X"
-                            
-                            value={mask.x}
-                            onChange={(e) =>
-                              patchMask({ x: Number(e.target.value) })
-                            }
-                            className="w-full studio-slider"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
-                            Offset Y ({mask.y}%)
-                          </label>
-                          <input
-                            type="number"
-                            aria-label="Mask Offset Y"
-                            value={mask.y}
-                            onChange={(e) => patchMask({ y: Number(e.target.value) })}
-                            className="w-full bg-[#0E1013] border border-[#2B303A] rounded px-2 py-1 text-xs text-[#E6E8EC]"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-[#9BA1AD] block mb-0.5">
-                            Feather ({mask.feather}px)
-                          </label>
-                          <input
-                            type="number"
-                            aria-label="Mask Feather"
-                            min={0}
-                            value={mask.feather}
-                            onChange={(e) =>
-                              patchMask({ feather: Number(e.target.value) })
-                            }
-                            className="w-full studio-slider"
-                          />
-                        </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {renderMaskField('Width', 'width', 'maskWidth', 1, 400, 0.1)}
+                        {renderMaskField('Height', 'height', 'maskHeight', 1, 400, 0.1)}
+                        {renderMaskField('Offset X', 'x', 'maskX', -200, 200, 0.1)}
+                        {renderMaskField('Offset Y', 'y', 'maskY', -200, 200, 0.1)}
+                        {renderMaskField('Feather', 'feather', 'maskFeather', 0, 120, 0.1)}
+                        {renderMaskField('Opacity', 'opacity', 'maskOpacity', 0, 100, 1)}
                       </div>
-                      <label className="block text-[10px] text-[#9BA1AD]">
-                        Mask Opacity · {mask.opacity}%
-                        <input type="range" aria-label="Mask Opacity" min={0} max={100} value={mask.opacity}
-                          onChange={(event) => patchMask({ opacity: Number(event.target.value) })}
-                          className="mt-1 w-full studio-slider" />
-                      </label>
                     </div>
                   )}
                 </>
