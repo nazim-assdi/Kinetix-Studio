@@ -125,3 +125,28 @@ export function applyLumetriRgbCurvesToPixels(
     pixels[index + 2] = clamp(Math.round((blue + master + channelDelta('blue')) * 255), 0, 255);
   }
 }
+
+/** Lightweight unsharp-mask pass for an explicitly enabled Lumetri sharpen control. */
+export function applyLumetriSharpenToPixels(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  amount: number
+): void {
+  const strength = clamp(amount, 0, 100) / 100 * 1.15;
+  if (strength <= 0.001 || width < 3 || height < 3) return;
+  const source = new Uint8ClampedArray(pixels);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const index = (y * width + x) * 4;
+      const up = index - width * 4;
+      const down = index + width * 4;
+      const left = index - 4;
+      const right = index + 4;
+      for (let channel = 0; channel < 3; channel++) {
+        const blur = (source[up + channel] + source[down + channel] + source[left + channel] + source[right + channel]) * 0.25;
+        pixels[index + channel] = clamp(Math.round(source[index + channel] + (source[index + channel] - blur) * strength), 0, 255);
+      }
+    }
+  }
+}
