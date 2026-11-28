@@ -211,6 +211,19 @@ export interface HslSecondaryGrade {
   softness: number;
 }
 
+export interface LumetriCurveChannel {
+  shadows: number;
+  midtones: number;
+  highlights: number;
+}
+
+export interface LumetriRgbCurves {
+  master: LumetriCurveChannel;
+  red: LumetriCurveChannel;
+  green: LumetriCurveChannel;
+  blue: LumetriCurveChannel;
+}
+
 export interface ColorWheelGrade {
   enabled: boolean;
   lift: ColorWheelChannel;
@@ -243,6 +256,7 @@ export interface ColorWheelGrade {
   vignetteFeather?: number;
   vignetteRoundness?: number;
   hslSecondary?: HslSecondaryGrade;
+  rgbCurves?: LumetriRgbCurves;
   /** Optional imported .cube 3D LUT. Omitted for built-in or neutral LUTs. */
   lutData?: CubeLut;
 }
