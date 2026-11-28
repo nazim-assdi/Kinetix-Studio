@@ -833,6 +833,8 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       onMoveClipCanvas(drag.clipId, Math.round(drag.origX + dx), Math.round(drag.origY + dy));
       return;
     }
+    // Only layer-shape and mask drags carry these local-plane transform values.
+    if (!('rotationRad' in drag) || !('scaleX' in drag) || !('scaleY' in drag)) return;
     const localDx = dx * Math.cos(drag.rotationRad) + dy * Math.sin(drag.rotationRad);
     const localDy = -dx * Math.sin(drag.rotationRad) + dy * Math.cos(drag.rotationRad);
     const unscaledDx = localDx / (Math.abs(drag.scaleX) || 1);
@@ -854,6 +856,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       onTransformClipCanvas(drag.clipId, { scale: Math.max(1, drag.origScale * ratio) });
       return;
     }
+    if (!('origMask' in drag)) return;
     const original = drag.origMask;
     let nextMask: LayerMask;
     if (drag.mode === 'move-mask') {
