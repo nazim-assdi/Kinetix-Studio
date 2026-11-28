@@ -324,6 +324,8 @@ export interface SolidLayerProps {
 
 export interface CameraLayerProps {
   fov: number; // horizontal field of view in degrees
+  lensShiftX?: number; // -20..20 percentage of the frame
+  lensShiftY?: number; // -20..20 percentage of the frame
   focalLength: number; // physical lens focal length in mm
   sensorWidth?: number; // sensor gate width in mm (36 = full frame)
   lookAtX: number;
