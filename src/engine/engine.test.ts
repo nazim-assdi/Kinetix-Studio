@@ -17,6 +17,7 @@ import {
 } from './keyframes';
 import {
   splitClipAtTime,
+  createCompanionAudioClip,
   trimClipEdge,
   createEffectInstance,
   dedupeEffectStack,
@@ -161,6 +162,26 @@ test('CUBE LUT parser validates sample count and trilinear sampler preserves ide
   assert.ok(Math.abs(midpoint[1] - 0.5) < 1e-9);
   assert.ok(Math.abs(midpoint[2] - 0.75) < 1e-9);
   assert.throws(() => parseCubeLut('LUT_3D_SIZE 3\n0 0 0'), /Expected 27 LUT samples/);
+});
+
+test('video audio companion stays independently editable on a dedicated audio track', () => {
+  const video = makeClip({ kind: 'video', id: 'clip_camera_take', assetId: 'asset_camera_take', volume: 0 });
+  const audio = createCompanionAudioClip(video, 'track_audio_1', [0.2, 0.8, 0.4]);
+  assert.equal(audio.kind, 'audio');
+  assert.equal(audio.trackId, 'track_audio_1');
+  assert.equal(audio.src, video.src);
+  assert.equal(audio.start, video.start);
+  assert.equal(audio.duration, video.duration);
+  assert.equal(audio.volume, 100);
+  assert.deepEqual(audio.waveform, [0.2, 0.8, 0.4]);
+  assert.equal(audio.id, 'clip_camera_take_audio');
+  assert.deepEqual(audio.effects, []);
+  const split = splitClipAtTime(audio, audio.start + audio.duration / 2);
+  assert.ok(split);
+  assert.equal(split[0].kind, 'audio');
+  assert.equal(split[1].kind, 'audio');
+  assert.equal(split[0].trackId, 'track_audio_1');
+  assert.equal(split[1].trackId, 'track_audio_1');
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {
