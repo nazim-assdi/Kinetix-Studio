@@ -52,6 +52,7 @@ import {
   freezeFrameClip,
   rippleDeleteClip,
   splitClipAtTime,
+  splitClipsAtTime,
   trimClipEdge,
 } from './engine/timelineOps';
 import {
@@ -301,6 +302,8 @@ export default function App() {
 
   const mediaCache = useMemo(() => createMediaCache(), []);
   const portableMediaCacheRef = useRef(new Map<string, string>());
+  const autosaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const autosaveRevisionRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -364,27 +367,37 @@ export default function App() {
   // repeated edits do not repeatedly decode large blob URLs.
   useEffect(() => {
     if (!projectStorageReady || !autoSaveEnabled || sequenceSetupOpen) return;
+    // Invalidate any older snapshot immediately. Writes are serialized so a
+    // slower previous media-packaging job cannot finish after and overwrite a
+    // newer edit.
+    const revision = ++autosaveRevisionRef.current;
     const timer = window.setTimeout(() => {
-      void (async () => {
+      const saveTask = autosaveQueueRef.current.catch(() => undefined).then(async () => {
+        if (revision !== autosaveRevisionRef.current) return;
         try {
           const payload = await createPortableProjectPayload({
             composition, tracks, clips, assets, markers, workArea,
           }, portableMediaCacheRef.current);
+          if (revision !== autosaveRevisionRef.current) return;
           await saveProjectToIndexedDb(payload);
           if (currentProjectId) {
             await saveNamedProject(payload, { id: currentProjectId, name: currentProjectName || composition.name, folder: currentProjectFolder });
           }
+          if (revision !== autosaveRevisionRef.current) return;
           try {
             window.localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(createCompactAutosave(payload)));
           } catch {
             // IndexedDB keeps the full project and media when localStorage is small.
           }
-          setSaveBadgeText('Auto Saved');
+          if (revision === autosaveRevisionRef.current) setSaveBadgeText('Auto Saved');
         } catch (error) {
-          console.warn('Automatic project save failed:', error);
-          setSaveBadgeText('Auto Save Failed');
+          if (revision === autosaveRevisionRef.current) {
+            console.warn('Automatic project save failed:', error);
+            setSaveBadgeText('Auto Save Failed');
+          }
         }
-      })();
+      });
+      autosaveQueueRef.current = saveTask;
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [
@@ -1188,17 +1201,12 @@ export default function App() {
   );
 
   const handleSplitClip = useCallback(
-    (clipId: string, splitTime: number) => {
-      const target = clips.find((c) => c.id === clipId);
-      if (!target) return;
-      const splitResult = splitClipAtTime(target, splitTime);
-      if (!splitResult) return;
-      const [left, right] = splitResult;
-      const nextClips = clips.flatMap((c) =>
-        c.id === clipId ? [left, right] : [c]
-      );
-      commitHistory(tracks, nextClips);
-      setSelectedClipId(right.id);
+    (clipIds: string[], splitTime: number) => {
+      const result = splitClipsAtTime(clips, clipIds, splitTime);
+      if (result.splitCount === 0) return;
+      commitHistory(tracks, result.clips);
+      setSelectedClipIds(result.rightClipIds);
+      setSelectedClipId(result.rightClipIds[0] ?? null);
     },
     [clips, tracks, commitHistory]
   );
