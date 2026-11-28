@@ -40,7 +40,13 @@ export type AnimatableProperty =
   | 'anchorY'
   | 'shapeWidth'
   | 'shapeHeight'
-  | 'volume';
+  | 'volume'
+  | 'maskX'
+  | 'maskY'
+  | 'maskWidth'
+  | 'maskHeight'
+  | 'maskFeather'
+  | 'maskOpacity';
 
 export type ToolMode = 'select' | 'razor' | 'pen' | 'pin' | 'mask' | 'text' | 'shape' | 'hand';
 
