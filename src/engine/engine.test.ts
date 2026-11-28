@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
 import { resolveGeminiApiKey } from './aiConfig';
 import { applyCubeLutToCanvas, parseCubeLut, sampleCubeLut } from './lut';
-import { applyHslSecondaryToPixels } from './lumetri';
+import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels } from './lumetri';
 import { DEFAULT_TIMELINE_TRANSITION, createTimelineTransition, findAdjacentOutgoingClip, findNearestTransitionPair, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
@@ -202,6 +202,19 @@ test('Lumetri HSL secondary shifts only the selected feathered hue range', () =>
   assert.ok(pixels[0] < 20, 'red channel should fall after red rotates toward cyan');
   assert.ok(pixels[2] > 220, 'blue channel should rise after red rotates toward cyan');
   assert.ok(pixels[4] < 10 && pixels[5] > 245 && pixels[6] < 10, 'green pixels outside the selected hue should remain unchanged');
+});
+
+test('Lumetri Master and RGB curves alter only enabled tonal channels', () => {
+  const pixels = new Uint8ClampedArray([120, 120, 120, 255]);
+  applyLumetriRgbCurvesToPixels(pixels, {
+    master: { shadows: 0, midtones: 0, highlights: 0 },
+    red: { shadows: 0, midtones: 90, highlights: 0 },
+    green: { shadows: 0, midtones: 0, highlights: 0 },
+    blue: { shadows: 0, midtones: 0, highlights: 0 },
+  });
+  assert.ok(pixels[0] > 120, 'red midtone curve should lift the red channel');
+  assert.equal(pixels[1], 120, 'green channel should remain unchanged');
+  assert.equal(pixels[2], 120, 'blue channel should remain unchanged');
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {
