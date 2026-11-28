@@ -369,11 +369,10 @@ test('mask geometry, feather and opacity can be keyframed, edited and evaluated 
   clip = updateMaskAtTime(clip, { ...middle, x: 120, width: 130, feather: 30, opacity: 25 }, clip.start + 3);
   assert.equal(clip.mask?.x, 0, 'editing an animated mask must not overwrite its base value');
   assert.equal(clip.mask?.width, 60);
-  assert.equal(clip.keyframes.maskX?.at(-1)?.time, 3);
-  assert.equal(clip.keyframes.maskX?.at(-1)?.value, 120);
-  assert.equal(clip.keyframes.maskWidth?.at(-1)?.value, 130);
-  assert.equal(clip.keyframes.maskFeather?.at(-1)?.value, 30);
-  assert.equal(clip.keyframes.maskOpacity?.at(-1)?.value, 25);
+  assert.equal(clip.keyframes.maskX?.find((key) => key.time === 3)?.value, 120);
+  assert.equal(clip.keyframes.maskWidth?.find((key) => key.time === 3)?.value, 130);
+  assert.equal(clip.keyframes.maskFeather?.find((key) => key.time === 3)?.value, 30);
+  assert.equal(clip.keyframes.maskOpacity?.find((key) => key.time === 3)?.value, 25);
 
   clip = togglePropertyKeyframing(clip, 'maskWidth', 3);
   assert.equal(clip.keyframes.maskWidth, undefined);
