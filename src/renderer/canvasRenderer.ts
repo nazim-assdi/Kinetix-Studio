@@ -27,7 +27,7 @@ import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from
 import { findAdjacentOutgoingClip, getTransitionProgress } from '../engine/transitions';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
 import { applyCubeLutToCanvas } from '../engine/lut';
-import { applyHslSecondaryToPixels } from '../engine/lumetri';
+import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels } from '../engine/lumetri';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -2265,11 +2265,13 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       applyCubeLutToCanvas(renderCtx.canvas, clip.colorGrade.lutData);
     }
 
-    if (clip.colorGrade?.hslSecondary?.enabled) {
-      // Secondary selection is isolated to this layer and only processes pixels
-      // when the user explicitly enables the HSL qualifier.
+    const hslSecondary = clip.colorGrade?.hslSecondary;
+    const rgbCurves = clip.colorGrade?.rgbCurves;
+    if (hslSecondary?.enabled || rgbCurves) {
+      // Master/R/G/B curves and the HSL qualifier share one pixel pass.
       const image = renderCtx.getImageData(0, 0, renderCtx.canvas.width, renderCtx.canvas.height);
-      applyHslSecondaryToPixels(image.data, clip.colorGrade.hslSecondary);
+      if (rgbCurves) applyLumetriRgbCurvesToPixels(image.data, rgbCurves);
+      if (hslSecondary?.enabled) applyHslSecondaryToPixels(image.data, hslSecondary);
       renderCtx.putImageData(image, 0, 0);
     }
 
