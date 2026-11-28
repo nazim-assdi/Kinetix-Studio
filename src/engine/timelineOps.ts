@@ -306,6 +306,27 @@ export function splitClipAtTime(
   return [leftClip, rightClip];
 }
 
+/** Splits every selected clip that crosses the same playhead time. Clips outside the edit point are left untouched. */
+export function splitClipsAtTime(
+  clips: TimelineClip[],
+  clipIds: string[],
+  splitTime: number,
+  minDuration: number = 0.1
+): { clips: TimelineClip[]; rightClipIds: string[]; splitCount: number } {
+  const selectedIds = new Set(clipIds);
+  const rightClipIds: string[] = [];
+  let splitCount = 0;
+  const nextClips = clips.flatMap((clip) => {
+    if (!selectedIds.has(clip.id)) return [clip];
+    const split = splitClipAtTime(clip, splitTime, minDuration);
+    if (!split) return [clip];
+    splitCount += 1;
+    rightClipIds.push(split[1].id);
+    return split;
+  });
+  return { clips: nextClips, rightClipIds, splitCount };
+}
+
 export function trimClipEdge(
   clip: TimelineClip,
   edge: 'left' | 'right',
