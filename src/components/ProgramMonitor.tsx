@@ -30,7 +30,7 @@ import {
   ViewportOrbitState,
 } from '../types/editor';
 import { formatTimecode } from '../engine/timecode';
-import { evaluateClipTransform } from '../engine/keyframes';
+import { evaluateClipMask, evaluateClipTransform } from '../engine/keyframes';
 import { applyMotionPresetToClip } from '../data/motionPresets';
 import { applyCatalogMotionVariant, buildCatalogColorGrade } from '../engine/catalogVariants';
 import { DAVINCI_LUTS } from '../data/megaCatalog';
@@ -513,8 +513,9 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
         // Mask controls live in the layer's full-composition local plane. Convert
         // their 0..100% center to the centered coordinates used by the hit-test.
         let maskControlHit = false;
-        if (c.id === selectedClipId && c.mask?.enabled && (tool === 'select' || tool === 'pin' || tool === 'mask')) {
-          const mask = c.mask;
+        const evaluatedMask = evaluateClipMask(c, playheadTime);
+        if (c.id === selectedClipId && evaluatedMask?.enabled && (tool === 'select' || tool === 'pin' || tool === 'mask')) {
+          const mask = evaluatedMask;
           const maskLocalX = localX / (effScaleX || 1);
           const maskLocalY = localY / (effScaleY || 1);
           const mx = (mask.x / 100) * composition.width;
@@ -586,11 +587,12 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
 
     // Select, Mask and Pin tools can all grab an enabled mask directly in the preview.
     // Mask handles take priority over the pivot so a mask never becomes unreachable.
+    const evaluatedMask = evaluateClipMask(hitClip, playheadTime);
     const canEditExistingMask = Boolean(
-      hitClip.mask?.enabled && (tool === 'select' || tool === 'pin' || tool === 'mask')
+      evaluatedMask?.enabled && (tool === 'select' || tool === 'pin' || tool === 'mask')
     );
     if (tool === 'mask' || canEditExistingMask) {
-      const originalMask: LayerMask = hitClip.mask ?? {
+      const originalMask: LayerMask = evaluatedMask ?? {
         enabled: true, shape: 'rect', x: 0, y: 0, width: 65, height: 65,
         feather: 0, inverted: false, opacity: 100,
       };

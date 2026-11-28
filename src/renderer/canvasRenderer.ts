@@ -23,7 +23,7 @@ import {
   resolveWorldTransform,
   rotateVector3,
 } from '../engine/math3d';
-import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
+import { evaluateClipMask, evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from '../engine/keyframes';
 import { findAdjacentOutgoingClip, getTransitionProgress } from '../engine/transitions';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
 import { applyCubeLutToCanvas } from '../engine/lut';
@@ -1679,6 +1679,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     ignoreBlendMode: boolean = false,
     transitionAlpha: number = 1
   ): BoundingBox | null => {
+    const evaluatedMask = evaluateClipMask(clip, playheadTime);
     const world = resolveWorldTransform(clip, clips, playheadTime);
     let cx = width / 2 + world.x;
     let cy = height / 2 + world.y;
@@ -1797,7 +1798,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       renderCtx.translate(-ax, -ay);
     }
 
-    const maskTransform = clip.mask?.enabled ? renderCtx.getTransform() : null;
+    const maskTransform = evaluatedMask?.enabled ? renderCtx.getTransform() : null;
 
     let baseW = width;
     let baseH = height;
@@ -2312,9 +2313,9 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       applyPostOverlays(renderCtx, width, height, clip.effects, playheadTime, mediaCache);
     }
 
-    if (clip.mask?.enabled && maskTransform) {
+    if (evaluatedMask?.enabled && maskTransform) {
       const maskCanvas = getScratchCanvas(mediaCache, `mask-alpha-${clip.id}`, width, height);
-      applyFeatheredLayerMask(layerTexture, maskCanvas, clip.mask, width, height, maskTransform);
+      applyFeatheredLayerMask(layerTexture, maskCanvas, evaluatedMask, width, height, maskTransform);
     }
 
     if (clip.is3D) {
@@ -2387,7 +2388,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       skewX
     );
 
-    if (drawGizmo && clip.id === selectedClipId && clip.mask?.enabled && world.opacity > 0.01) {
+    if (drawGizmo && clip.id === selectedClipId && evaluatedMask?.enabled && world.opacity > 0.01) {
       targetCtx.save();
       targetCtx.translate(cx, cy);
       targetCtx.rotate(rotRad);
@@ -2398,18 +2399,18 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       if (ax !== 0 || ay !== 0) {
         targetCtx.translate(-ax, -ay);
       }
-      const mw = (clip.mask.width / 100) * width;
-      const mh = (clip.mask.height / 100) * height;
+      const mw = (evaluatedMask.width / 100) * width;
+      const mh = (evaluatedMask.height / 100) * height;
       // Mask x/y are signed offsets from the layer center, in composition-percent units.
-      const mx = (clip.mask.x / 100) * width;
-      const my = (clip.mask.y / 100) * height;
+      const mx = (evaluatedMask.x / 100) * width;
+      const my = (evaluatedMask.y / 100) * height;
       targetCtx.strokeStyle = '#F59E0B';
       targetCtx.lineWidth = 2;
       targetCtx.setLineDash([6, 4]);
       targetCtx.beginPath();
-      if (clip.mask.shape === 'ellipse') {
+      if (evaluatedMask.shape === 'ellipse') {
         targetCtx.ellipse(mx, my, mw / 2, mh / 2, 0, 0, Math.PI * 2);
-      } else if (clip.mask.shape === 'rounded-rect') {
+      } else if (evaluatedMask.shape === 'rounded-rect') {
         const radius = Math.max(4, Math.min(mw, mh) * 0.14);
         targetCtx.roundRect(mx - mw / 2, my - mh / 2, mw, mh, radius);
       } else {

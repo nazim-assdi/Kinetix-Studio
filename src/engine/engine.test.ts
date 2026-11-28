@@ -7,6 +7,8 @@ import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels, applyLumetriS
 import { DEFAULT_TIMELINE_TRANSITION, createTimelineTransition, findAdjacentOutgoingClip, findNearestTransitionPair, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
+  evaluateAnimatableValue,
+  evaluateClipMask,
   evaluateClipTransform,
   moveKeyframe,
   upsertKeyframe,
@@ -15,6 +17,7 @@ import {
   getClipLocalTime,
   getClipSpeedAtLocalTime,
   getClipSourceElapsedTime,
+  updateMaskAtTime,
 } from './keyframes';
 import {
   splitClipAtTime,
@@ -325,6 +328,82 @@ test('adjacent-frame keyframes are preserved and shape dimensions can be animate
   clip = togglePropertyKeyframing(clip, 'shapeWidth', 1);
   assert.equal(clip.keyframes.shapeWidth, undefined);
   assert.ok(Math.abs((clip.shapeProps?.width ?? 0) - 200) < 0.01, 'stopping size keyframing must freeze the evaluated width into the shape');
+});
+
+test('mask geometry, feather and opacity can be keyframed, edited and evaluated at playhead', () => {
+  const initialMask = {
+    enabled: true,
+    shape: 'rect' as const,
+    x: 0,
+    y: 10,
+    width: 60,
+    height: 50,
+    feather: 4,
+    inverted: false,
+    opacity: 100,
+  };
+  let clip = makeClip({ mask: initialMask });
+
+  clip = togglePropertyKeyframing(clip, 'maskX', 0);
+  clip = togglePropertyKeyframing(clip, 'maskWidth', 0);
+  clip = togglePropertyKeyframing(clip, 'maskFeather', 0);
+  clip = togglePropertyKeyframing(clip, 'maskOpacity', 0);
+  assert.equal(clip.keyframes.maskX?.[0].value, 0);
+  assert.equal(clip.keyframes.maskWidth?.[0].value, 60);
+  assert.equal(clip.keyframes.maskFeather?.[0].value, 4);
+  assert.equal(clip.keyframes.maskOpacity?.[0].value, 100);
+
+  clip = upsertKeyframe(clip, 'maskX', 4, 80, 'linear');
+  clip = upsertKeyframe(clip, 'maskWidth', 4, 100, 'linear');
+  clip = upsertKeyframe(clip, 'maskFeather', 4, 20, 'linear');
+  clip = upsertKeyframe(clip, 'maskOpacity', 4, 40, 'linear');
+
+  const middle = evaluateClipMask(clip, clip.start + 2);
+  assert.ok(middle);
+  assert.equal(middle.x, 40);
+  assert.equal(middle.width, 80);
+  assert.equal(middle.feather, 12);
+  assert.equal(middle.opacity, 70);
+  assert.equal(evaluateAnimatableValue(clip, 'maskWidth', clip.start + 2), 80);
+
+  clip = updateMaskAtTime(clip, { ...middle, x: 120, width: 130, feather: 30, opacity: 25 }, clip.start + 3);
+  assert.equal(clip.mask?.x, 0, 'editing an animated mask must not overwrite its base value');
+  assert.equal(clip.mask?.width, 60);
+  assert.equal(clip.keyframes.maskX?.find((key) => key.time === 3)?.value, 120);
+  assert.equal(clip.keyframes.maskWidth?.find((key) => key.time === 3)?.value, 130);
+  assert.equal(clip.keyframes.maskFeather?.find((key) => key.time === 3)?.value, 30);
+  assert.equal(clip.keyframes.maskOpacity?.find((key) => key.time === 3)?.value, 25);
+
+  clip = togglePropertyKeyframing(clip, 'maskWidth', 3);
+  assert.equal(clip.keyframes.maskWidth, undefined);
+  assert.equal(clip.mask?.width, 130, 'stopping mask keyframing freezes the evaluated value');
+});
+
+test('mask edits without an enabled stopwatch remain static', () => {
+  const clip = makeClip({
+    mask: {
+      enabled: true, shape: 'ellipse', x: 0, y: 0, width: 50, height: 50,
+      feather: 0, inverted: false, opacity: 100,
+    },
+  });
+  const updated = updateMaskAtTime(clip, { ...clip.mask!, x: 35, width: 75 }, clip.start + 2);
+  assert.equal(updated.mask?.x, 35);
+  assert.equal(updated.mask?.width, 75);
+  assert.equal(updated.keyframes.maskX, undefined);
+  assert.equal(updated.keyframes.maskWidth, undefined);
+});
+
+test('changing mask shape does not create unrelated numeric keyframes', () => {
+  const mask = {
+    enabled: true, shape: 'rect' as const, x: 0, y: 0, width: 60, height: 60,
+    feather: 0, inverted: false, opacity: 100,
+  };
+  let clip = makeClip({ mask });
+  clip = togglePropertyKeyframing(clip, 'maskX', 0);
+  const moved = updateMaskAtTime(clip, { ...mask, shape: 'ellipse' }, clip.start + 2);
+  assert.equal(moved.mask?.shape, 'ellipse');
+  assert.equal(moved.keyframes.maskX?.length, 1, 'changing mask type must not insert an accidental position key');
+  assert.equal(moved.keyframes.maskX?.[0].time, 0);
 });
 
 test('splitClipAtTime splits clip and preserves 3D keyframes', () => {

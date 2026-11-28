@@ -2,6 +2,7 @@ import {
   AnimatableProperty,
   EasingType,
   Keyframe,
+  LayerMask,
   TimelineClip,
   TransformState,
 } from '../types/editor';
@@ -238,11 +239,123 @@ export function evaluateClipTransform(
   };
 }
 
-function getAnimatableBaseValue(clip: TimelineClip, prop: AnimatableProperty): number {
+const DEFAULT_ANIMATABLE_MASK: LayerMask = {
+  enabled: false,
+  shape: 'rect',
+  x: 0,
+  y: 0,
+  width: 65,
+  height: 65,
+  feather: 0,
+  inverted: false,
+  opacity: 100,
+};
+
+const MASK_ANIMATABLE_FIELDS: Partial<Record<AnimatableProperty, keyof LayerMask>> = {
+  maskX: 'x',
+  maskY: 'y',
+  maskWidth: 'width',
+  maskHeight: 'height',
+  maskFeather: 'feather',
+  maskOpacity: 'opacity',
+};
+
+export function getAnimatableBaseValue(clip: TimelineClip, prop: AnimatableProperty): number {
   if (prop === 'shapeWidth') return clip.shapeProps?.width ?? 0;
   if (prop === 'shapeHeight') return clip.shapeProps?.height ?? 0;
   if (prop === 'volume') return clip.volume;
-  return clip.transform[prop] ?? 0;
+  const maskField = MASK_ANIMATABLE_FIELDS[prop];
+  if (maskField) {
+    const value = clip.mask?.[maskField];
+    return typeof value === 'number' ? value : DEFAULT_ANIMATABLE_MASK[maskField] as number;
+  }
+  return (clip.transform as unknown as Partial<Record<AnimatableProperty, number>>)[prop] ?? 0;
+}
+
+/** Returns the mask geometry and appearance evaluated at the current sequence time. */
+export function evaluateClipMask(
+  clip: TimelineClip,
+  globalTime: number
+): LayerMask | undefined {
+  if (!clip.mask) return undefined;
+  const localTime = getClipTimelineTime(clip, globalTime);
+  return {
+    ...clip.mask,
+    x: interpolateKeyframes(clip.keyframes.maskX, localTime, clip.mask.x),
+    y: interpolateKeyframes(clip.keyframes.maskY, localTime, clip.mask.y),
+    width: Math.max(1, interpolateKeyframes(clip.keyframes.maskWidth, localTime, clip.mask.width)),
+    height: Math.max(1, interpolateKeyframes(clip.keyframes.maskHeight, localTime, clip.mask.height)),
+    feather: Math.max(0, interpolateKeyframes(clip.keyframes.maskFeather, localTime, clip.mask.feather)),
+    opacity: clamp(interpolateKeyframes(clip.keyframes.maskOpacity, localTime, clip.mask.opacity), 0, 100),
+  };
+}
+
+/** Reads any animatable numeric property, including mask properties, at sequence time. */
+export function evaluateAnimatableValue(
+  clip: TimelineClip,
+  prop: AnimatableProperty,
+  globalTime: number
+): number {
+  const mask = evaluateClipMask(clip, globalTime);
+  switch (prop) {
+    case 'maskX': return mask?.x ?? getAnimatableBaseValue(clip, prop);
+    case 'maskY': return mask?.y ?? getAnimatableBaseValue(clip, prop);
+    case 'maskWidth': return mask?.width ?? getAnimatableBaseValue(clip, prop);
+    case 'maskHeight': return mask?.height ?? getAnimatableBaseValue(clip, prop);
+    case 'maskFeather': return mask?.feather ?? getAnimatableBaseValue(clip, prop);
+    case 'maskOpacity': return mask?.opacity ?? getAnimatableBaseValue(clip, prop);
+    default: {
+      const transform = evaluateClipTransform(clip, globalTime);
+      return (transform as unknown as Partial<Record<AnimatableProperty, number>>)[prop]
+        ?? getAnimatableBaseValue(clip, prop);
+    }
+  }
+}
+
+/**
+ * Applies a full mask edit at sequence time. Numeric mask properties that have
+ * an active stopwatch update a keyframe; non-animated properties remain static.
+ */
+export function updateMaskAtTime(
+  clip: TimelineClip,
+  nextMask: LayerMask,
+  globalTime: number
+): TimelineClip {
+  const localTime = getClipTimelineTime(clip, globalTime);
+  const currentMask = clip.mask ?? DEFAULT_ANIMATABLE_MASK;
+  const evaluatedMask = evaluateClipMask(clip, globalTime) ?? currentMask;
+  let updated: TimelineClip = {
+    ...clip,
+    mask: {
+      ...currentMask,
+      enabled: nextMask.enabled,
+      shape: nextMask.shape,
+      inverted: nextMask.inverted,
+    },
+  };
+
+  const animatedFields = [
+    ['maskX', 'x'],
+    ['maskY', 'y'],
+    ['maskWidth', 'width'],
+    ['maskHeight', 'height'],
+    ['maskFeather', 'feather'],
+    ['maskOpacity', 'opacity'],
+  ] as const;
+
+  for (const [prop, field] of animatedFields) {
+    const changed = Math.abs(nextMask[field] - evaluatedMask[field]) > 0.000001;
+    if (!changed) continue;
+    if ((updated.keyframes[prop]?.length ?? 0) > 0) {
+      updated = upsertKeyframe(updated, prop, localTime, nextMask[field]);
+    } else {
+      updated = {
+        ...updated,
+        mask: { ...(updated.mask ?? currentMask), [field]: nextMask[field] },
+      };
+    }
+  }
+  return updated;
 }
 
 export function upsertKeyframe(
@@ -338,6 +451,15 @@ export function togglePropertyKeyframing(
     }
     if (prop === 'volume') {
       return { ...clip, volume: Number(frozenValue.toFixed(2)), keyframes: nextKeyframes };
+    }
+    const maskField = MASK_ANIMATABLE_FIELDS[prop];
+    if (maskField) {
+      const mask = clip.mask ?? DEFAULT_ANIMATABLE_MASK;
+      return {
+        ...clip,
+        mask: { ...mask, [maskField]: Number(frozenValue.toFixed(2)) },
+        keyframes: nextKeyframes,
+      };
     }
     return {
       ...clip,

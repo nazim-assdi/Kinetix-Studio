@@ -7,7 +7,7 @@ import {
   TimelineClip,
 } from '../types/editor';
 import { clamp } from './timecode';
-import { interpolateKeyframes } from './keyframes';
+import { getAnimatableBaseValue, interpolateKeyframes } from './keyframes';
 
 export const EFFECT_LIBRARY: EffectDefinition[] = [
   {
@@ -233,6 +233,12 @@ export function splitClipAtTime(
     'rotationX',
     'rotationY',
     'opacity',
+    'maskX',
+    'maskY',
+    'maskWidth',
+    'maskHeight',
+    'maskFeather',
+    'maskOpacity',
   ];
 
   for (const prop of props) {
@@ -240,7 +246,7 @@ export function splitClipAtTime(
     if (!kfs || kfs.length === 0) continue;
 
     const splitVal = Number(
-      interpolateKeyframes(kfs, leftDuration, clip.transform[prop] ?? 0).toFixed(2)
+      interpolateKeyframes(kfs, leftDuration, getAnimatableBaseValue(clip, prop)).toFixed(2)
     );
 
     const leftList = kfs
