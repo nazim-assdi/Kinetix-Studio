@@ -110,7 +110,7 @@ interface ProgramMonitorProps {
   onSelectClip: (clipId: string | null) => void;
   onMoveClipCanvas: (clipId: string, x: number, y: number, z?: number) => void;
   onSetAnchorCanvas: (clipId: string, anchorX: number, anchorY: number) => void;
-  onTransformClipCanvas: (clipId: string, patch: { scale?: number; rotation?: number }) => void;
+  onTransformClipCanvas: (clipId: string, patch: { scale?: number; rotation?: number; rotationX?: number; rotationY?: number }) => void;
   onResizeShapeCanvas: (clipId: string, width: number, height: number) => void;
   onUpdateMaskCanvas: (clipId: string, mask: LayerMask) => void;
   onCreatePathClip: (points: PathPoint[], closed: boolean) => void;
@@ -327,6 +327,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
   type CanvasDrag =
     | { mode: 'orbit'; startClientX: number; startClientY: number; origYaw: number; origPitch: number; origPanX: number; origPanY: number; panMode: boolean }
     | { mode: 'move-camera' | 'move-ortho-object'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number; origZ: number; angle: Exclude<ViewportCameraAngle, 'active' | 'orbit'> }
+    | { mode: 'rotate-ortho-object'; clipId: string; startClientX: number; startClientY: number; origRotation: number; origRotationX: number; origRotationY: number; angle: Exclude<ViewportCameraAngle, 'active' | 'orbit'> }
     | { mode: 'move'; clipId: string; startClientX: number; startClientY: number; origX: number; origY: number }
     | { mode: 'resize-shape'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
     | { mode: 'resize-text'; clipId: string; startClientX: number; startClientY: number; origWidth: number; origHeight: number; origScale: number; signX: number; signY: number; rotationRad: number; scaleX: number; scaleY: number }
@@ -361,7 +362,16 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       const selectedTrack = selected ? tracks.find((track) => track.id === selected.trackId) : null;
       if (!selected || !selected.is3D || selectedTrack?.locked) return;
       const transform = evaluateClipTransform(selected, playheadTime);
-      dragRef.current = {
+      dragRef.current = e.altKey ? {
+        mode: 'rotate-ortho-object',
+        clipId: selected.id,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        origRotation: transform.rotation,
+        origRotationX: transform.rotationX,
+        origRotationY: transform.rotationY,
+        angle,
+      } : {
         mode: selected.kind === 'camera' ? 'move-camera' : 'move-ortho-object',
         clipId: selected.id,
         startClientX: e.clientX,
@@ -782,6 +792,29 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
       else if (drag.angle === 'front') { x += dx; y += dy; }
       else { z += dx; y += dy; }
       onMoveClipCanvas(drag.clipId, Math.round(x), Math.round(y), Math.round(z));
+      return;
+    }
+    if (drag.mode === 'rotate-ortho-object') {
+      const dx = (e.clientX - drag.startClientX) * scaleX;
+      const dy = (e.clientY - drag.startClientY) * scaleY;
+      const amountX = dx * 0.35;
+      const amountY = dy * 0.35;
+      if (drag.angle === 'top') {
+        onTransformClipCanvas(drag.clipId, {
+          rotationY: drag.origRotationY + amountX,
+          rotation: drag.origRotation + amountY,
+        });
+      } else if (drag.angle === 'front') {
+        onTransformClipCanvas(drag.clipId, {
+          rotation: drag.origRotation + amountX,
+          rotationX: drag.origRotationX + amountY,
+        });
+      } else {
+        onTransformClipCanvas(drag.clipId, {
+          rotationY: drag.origRotationY + amountX,
+          rotationX: drag.origRotationX + amountY,
+        });
+      }
       return;
     }
     if (drag.mode === 'rotate') {
@@ -1307,6 +1340,11 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                   {angle === 'active' ? 'Active Camera' : `${angle} · Ortho`}
                 </div>
               )}
+              {selectedClipId && angle !== 'active' && angle !== 'orbit' && (
+                <div className="pointer-events-none absolute bottom-2 right-2 z-20 rounded bg-[#111215]/85 border border-[#303744] px-2 py-1 text-[9px] text-[#9BA1AD]">
+                  Drag: Move · Alt + Drag: Rotate
+                </div>
+              )}
               <div
                 className="absolute inset-0 overflow-auto"
                 data-testid={`viewport-scroll-${angle}`}
@@ -1336,7 +1374,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                 mediaCache={mediaCache}
                 renderTick={renderTick}
                 onMediaLoaded={() => setRenderTick((v) => v + 1)}
-                zoomLevel={zoomLevel}
+                zoomLevel={viewportZooms[angle]}
                 renderScale={previewRenderScale}
                 viewportOrbit={orbitView}
                 onPointerDown={handleCanvasPointerDown}
