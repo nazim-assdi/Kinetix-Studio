@@ -21,6 +21,7 @@ import {
 } from './keyframes';
 import {
   splitClipAtTime,
+  splitClipsAtTime,
   createCompanionAudioClip,
   trimClipEdge,
   createEffectInstance,
@@ -42,6 +43,7 @@ import {
   rotateVector3,
 } from './math3d';
 import { applyMotionPresetToClip } from '../data/motionPresets';
+import { findStaleAudioClipIds } from '../audio/audioEngine';
 import { applyCatalogMotionVariant, buildCatalogColorGrade } from './catalogVariants';
 import { MEGA_CATALOG, DAVINCI_LUTS } from '../data/megaCatalog';
 import { SFX_LIBRARY } from '../data/sfxLibrary';
@@ -186,6 +188,16 @@ test('video audio companion stays independently editable on a dedicated audio tr
   assert.equal(split[1].kind, 'audio');
   assert.equal(split[0].trackId, 'track_audio_1');
   assert.equal(split[1].trackId, 'track_audio_1');
+});
+
+test('removed audio clips are identified for playback-node cleanup', () => {
+  const audio = makeClip({ id: 'old-audio', kind: 'audio', src: 'blob:old-audio' });
+  const video = makeClip({ id: 'kept-video', kind: 'video', src: 'blob:kept-video' });
+  assert.deepEqual(
+    findStaleAudioClipIds(['old-audio', 'kept-video', 'already-gone'], [video]),
+    ['old-audio', 'already-gone']
+  );
+  assert.deepEqual(findStaleAudioClipIds(['still-live'], [makeClip({ id: 'still-live', kind: 'audio', src: 'blob:audio' })]), []);
 });
 
 test('Lumetri HSL secondary shifts only the selected feathered hue range', () => {
@@ -416,6 +428,21 @@ test('splitClipAtTime splits clip and preserves 3D keyframes', () => {
   const [left, right] = result;
   assert.equal(evaluateClipTransform(left, 3).rotationY, 45);
   assert.equal(evaluateClipTransform(right, 3).rotationY, 45);
+});
+
+test('splitClipsAtTime splits multiple selected video and audio clips at one playhead and leaves invalid selections untouched', () => {
+  const video = makeClip({ id: 'linked-video', kind: 'video', trackId: 'track_v1', start: 0, duration: 6 });
+  const audio = createCompanionAudioClip(video, 'track_a1');
+  const outside = makeClip({ id: 'outside', kind: 'video', trackId: 'track_v1', start: 8, duration: 2 });
+  const result = splitClipsAtTime([video, audio, outside], [video.id, audio.id, outside.id], 3);
+
+  assert.equal(result.splitCount, 2);
+  assert.equal(result.clips.length, 5);
+  assert.equal(result.rightClipIds.length, 2);
+  assert.deepEqual(result.clips.map((clip) => clip.id).filter((id) => id.startsWith('outside')), ['outside']);
+  const rightSegments = result.clips.filter((clip) => result.rightClipIds.includes(clip.id));
+  assert.deepEqual(rightSegments.map((clip) => clip.kind).sort(), ['audio', 'video']);
+  assert.ok(rightSegments.every((clip) => clip.start === 3 && clip.duration === 3));
 });
 
 test('splitting a clip keeps its incoming transition only on the original left segment', () => {
