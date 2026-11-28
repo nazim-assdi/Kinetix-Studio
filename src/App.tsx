@@ -35,12 +35,14 @@ import { applyMotionPresetToClip } from './data/motionPresets';
 import { applyCatalogMotionVariant, buildCatalogColorGrade } from './engine/catalogVariants';
 import { DAVINCI_LUTS, DEFAULT_COLOR_GRADE } from './data/megaCatalog';
 import {
+  evaluateAnimatableValue,
   evaluateClipTransform,
   moveKeyframe,
   removeKeyframeAtTime,
   togglePropertyKeyframing,
   updateKeyframeEasing,
   upsertKeyframe,
+  updateMaskAtTime,
 } from './engine/keyframes';
 import {
   createEffectInstance,
@@ -1333,7 +1335,8 @@ export default function App() {
   );
 
   const handleUpdateMaskCanvas = useCallback(
-    (clipId: string, mask: LayerMask) => updateClipById(clipId, (clip) => ({ ...clip, mask })),
+    (clipId: string, mask: LayerMask) =>
+      updateClipById(clipId, (clip) => updateMaskAtTime(clip, mask, playheadRef.current)),
     [updateClipById]
   );
 
@@ -1419,7 +1422,7 @@ export default function App() {
         if (near) {
           return removeKeyframeAtTime(clip, prop, near.id);
         }
-        const currentVal = evaluateClipTransform(clip, playheadTime)[prop] ?? 0;
+        const currentVal = evaluateAnimatableValue(clip, prop, playheadTime);
         return upsertKeyframe(clip, prop, localTime, Number(currentVal.toFixed(1)));
       },
       true
@@ -2874,9 +2877,7 @@ export default function App() {
                   true
                 )
               }
-              onUpdateMask={(clipId, mask: LayerMask) =>
-                updateClipById(clipId, (c) => ({ ...c, mask }))
-              }
+              onUpdateMask={handleUpdateMaskCanvas}
               onOpenGraphEditor={() => setGraphEditorOpen(true)}
               onDeleteClip={handleDeleteClip}
               panelWidth={panelsSwapped ? leftWidth : rightWidth}
