@@ -1601,7 +1601,7 @@ export default function App() {
       clipId,
       (clip) => {
         let list = [...(clip.keyframes[prop] ?? [])].sort((a, b) => a.time - b.time);
-        const currentValue = evaluateClipTransform(clip, playheadRef.current)[prop] ?? 0;
+        const currentValue = evaluateAnimatableValue(clip, prop, playheadRef.current);
         if (list.length < 2) {
           const idBase = `kf_graph_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
           if (list.length === 0) {
