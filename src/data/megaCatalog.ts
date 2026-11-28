@@ -55,6 +55,12 @@ export const DEFAULT_COLOR_GRADE: ColorWheelGrade = {
     luminance: 0,
     softness: 35,
   },
+  rgbCurves: {
+    master: { shadows: 0, midtones: 0, highlights: 0 },
+    red: { shadows: 0, midtones: 0, highlights: 0 },
+    green: { shadows: 0, midtones: 0, highlights: 0 },
+    blue: { shadows: 0, midtones: 0, highlights: 0 },
+  },
   lut: 'Rec.709 Neutral',
 };
 
