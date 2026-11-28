@@ -260,7 +260,7 @@ const MASK_ANIMATABLE_FIELDS: Partial<Record<AnimatableProperty, keyof LayerMask
   maskOpacity: 'opacity',
 };
 
-function getAnimatableBaseValue(clip: TimelineClip, prop: AnimatableProperty): number {
+export function getAnimatableBaseValue(clip: TimelineClip, prop: AnimatableProperty): number {
   if (prop === 'shapeWidth') return clip.shapeProps?.width ?? 0;
   if (prop === 'shapeHeight') return clip.shapeProps?.height ?? 0;
   if (prop === 'volume') return clip.volume;
@@ -269,7 +269,7 @@ function getAnimatableBaseValue(clip: TimelineClip, prop: AnimatableProperty): n
     const value = clip.mask?.[maskField];
     return typeof value === 'number' ? value : DEFAULT_ANIMATABLE_MASK[maskField] as number;
   }
-  return clip.transform[prop] ?? 0;
+  return (clip.transform as unknown as Partial<Record<AnimatableProperty, number>>)[prop] ?? 0;
 }
 
 /** Returns the mask geometry and appearance evaluated at the current sequence time. */
