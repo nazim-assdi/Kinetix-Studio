@@ -44,6 +44,7 @@ import {
 } from './engine/keyframes';
 import {
   createEffectInstance,
+  createCompanionAudioClip,
   dedupeEffectStack,
   duplicateClip,
   freezeFrameClip,
@@ -608,10 +609,33 @@ export default function App() {
 
   const insertAssetToTimeline = useCallback(
     (asset: ProjectAsset, targetTrackId?: string, startTime?: number) => {
-      const newClip = buildClipFromAsset(asset, targetTrackId, startTime);
-      if (!newClip) return;
+      const targetTrack = targetTrackId ? tracks.find((track) => track.id === targetTrackId) : undefined;
+
+      // Dropping a video asset onto an audio lane extracts only its audio edit.
+      if (asset.kind === 'video' && targetTrack?.kind === 'audio') {
+        const audioAsset: ProjectAsset = { ...asset, kind: 'audio' };
+        const audioClip = buildClipFromAsset(audioAsset, targetTrack.id, startTime);
+        if (!audioClip) return;
+        const seed = asset.name.split('').reduce((sum, character) => sum + character.charCodeAt(0), 0);
+        const audioOnlyClip = {
+          ...audioClip,
+          name: `${asset.name} · Audio`,
+          waveform: asset.waveform ?? generateWaveformPeaks(seed, 120),
+        };
+        const audioEnd = audioOnlyClip.start + audioOnlyClip.duration;
+        if (audioEnd > composition.duration) setComposition((current) => ({ ...current, duration: Math.ceil(audioEnd) }));
+        commitHistory(tracks, [...clips, audioOnlyClip]);
+        setSelectedClipId(audioOnlyClip.id);
+        setTool('select');
+        return;
+      }
+
+      const builtClip = buildClipFromAsset(asset, targetTrackId, startTime);
+      if (!builtClip) return;
+      let newClip = builtClip;
 
       let nextTracks = tracks;
+      const companionAudio: TimelineClip[] = [];
       if (!targetTrackId) {
         const clipStart = newClip.start;
         const clipEnd = newClip.start + newClip.duration;
@@ -686,12 +710,39 @@ export default function App() {
         }
       }
 
+      if (asset.kind === 'video') {
+        // The video picture and its source audio are separate editable timeline clips.
+        // Mute the embedded video audio so the extracted audio clip is not doubled.
+        newClip = { ...newClip, volume: 0 };
+        let audioTrack = nextTracks.find((track) => track.kind === 'audio' && !track.locked);
+        if (!audioTrack) {
+          const count = nextTracks.filter((track) => track.kind === 'audio').length + 1;
+          audioTrack = {
+            id: `track_a${count}_${Date.now()}`,
+            name: `A${count} · ${asset.name}`,
+            kind: 'audio',
+            muted: false,
+            solo: false,
+            locked: false,
+            visible: true,
+            height: 54,
+          };
+          nextTracks = [...nextTracks, audioTrack];
+        }
+        const seed = asset.name.split('').reduce((sum, character) => sum + character.charCodeAt(0), 0);
+        companionAudio.push(createCompanionAudioClip(
+          newClip,
+          audioTrack.id,
+          asset.waveform ?? generateWaveformPeaks(seed, 120)
+        ));
+      }
+
       const clipEnd = newClip.start + newClip.duration;
       if (clipEnd > composition.duration) {
         setComposition((c) => ({ ...c, duration: Math.ceil(clipEnd) }));
       }
 
-      commitHistory(nextTracks, [...clips, newClip]);
+      commitHistory(nextTracks, [...clips, newClip, ...companionAudio]);
       setSelectedClipId(newClip.id);
       setTool('select');
     },
@@ -1240,7 +1291,7 @@ export default function App() {
   );
 
   const handleUpdateClipTransform = useCallback(
-    (clipId: string, patch: { scale?: number; rotation?: number }) => {
+    (clipId: string, patch: { scale?: number; rotation?: number; rotationX?: number; rotationY?: number }) => {
       updateClipById(clipId, (clip) => {
         const localTime = clamp(playheadRef.current - clip.start, 0, clip.duration);
         let next = clip;
@@ -1252,6 +1303,12 @@ export default function App() {
         if (patch.rotation !== undefined) {
           if ((clip.keyframes.rotation?.length ?? 0) > 0) next = upsertKeyframe(next, 'rotation', localTime, patch.rotation);
           else next = { ...next, transform: { ...next.transform, rotation: patch.rotation } };
+        }
+        for (const axis of ['rotationX', 'rotationY'] as const) {
+          const value = patch[axis];
+          if (value === undefined) continue;
+          if ((clip.keyframes[axis]?.length ?? 0) > 0) next = upsertKeyframe(next, axis, localTime, value);
+          else next = { ...next, transform: { ...next.transform, [axis]: value } };
         }
         return next;
       });

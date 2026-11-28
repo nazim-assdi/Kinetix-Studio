@@ -157,6 +157,8 @@ export interface CameraViewState {
   focalPixels: number;
   nearClip: number;
   farClip: number;
+  lensShiftPixelsX: number;
+  lensShiftPixelsY: number;
 }
 
 /** Resolves the active camera's world pose and physical lens parameters once per frame. */
@@ -164,7 +166,8 @@ export function resolveCameraViewState(
   cameraClip: TimelineClip | null,
   allClips: TimelineClip[],
   globalTime: number,
-  compWidth: number
+  compWidth: number,
+  compHeight: number = compWidth
 ): CameraViewState {
   let position: Vector3 = { x: 0, y: 0, z: -900 };
   let orientation = IDENTITY_QUATERNION;
@@ -172,6 +175,8 @@ export function resolveCameraViewState(
   let sensorWidth = 36;
   let nearClip = 10;
   let farClip = 100000;
+  let lensShiftX = 0;
+  let lensShiftY = 0;
 
   if (cameraClip?.cameraProps) {
     const props = cameraClip.cameraProps;
@@ -181,6 +186,8 @@ export function resolveCameraViewState(
     sensorWidth = clamp(props.sensorWidth ?? 36, 18, 70);
     nearClip = clamp(props.nearClip ?? 10, 0.1, 1000);
     farClip = Math.max(nearClip + 1, props.farClip ?? 100000);
+    lensShiftX = clamp(props.lensShiftX ?? 0, -20, 20) / 100 * compWidth;
+    lensShiftY = clamp(props.lensShiftY ?? 0, -20, 20) / 100 * compHeight;
 
     if (props.useTarget) {
       const direction = {
@@ -212,6 +219,8 @@ export function resolveCameraViewState(
     focalPixels: (compWidth * focalLength) / sensorWidth,
     nearClip,
     farClip,
+    lensShiftPixelsX: lensShiftX,
+    lensShiftPixelsY: lensShiftY,
   };
 }
 
@@ -228,7 +237,7 @@ export function projectLayerPointThroughCamera(
   localZ = 0,
   cameraState?: CameraViewState
 ): { x: number; y: number; depth: number; visible: boolean } {
-  const camera = cameraState ?? resolveCameraViewState(cameraClip, allClips, globalTime, compWidth);
+  const camera = cameraState ?? resolveCameraViewState(cameraClip, allClips, globalTime, compWidth, compHeight);
   const localOffset = rotateVector3(
     {
       x: localX * world.scale / 100,
@@ -253,8 +262,8 @@ export function projectLayerPointThroughCamera(
   const visible = view.z >= camera.nearClip && view.z <= camera.farClip;
   if (!visible) return { x: 0, y: 0, depth: view.z, visible: false };
   return {
-    x: compWidth / 2 + camera.focalPixels * view.x / view.z,
-    y: compHeight / 2 + camera.focalPixels * view.y / view.z,
+    x: compWidth / 2 + camera.lensShiftPixelsX + camera.focalPixels * view.x / view.z,
+    y: compHeight / 2 + camera.lensShiftPixelsY + camera.focalPixels * view.y / view.z,
     depth: view.z,
     visible: true,
   };
@@ -286,7 +295,7 @@ export function projectLayerThroughCamera(
   compWidth: number,
   compHeight: number
 ): CameraProjectionResult {
-  const camera = resolveCameraViewState(cameraClip, allClips, globalTime, compWidth);
+  const camera = resolveCameraViewState(cameraClip, allClips, globalTime, compWidth, compHeight);
   const cameraPosition = camera.position;
   const cameraInverse = camera.inverseOrientation;
   const focalPx = camera.focalPixels;
@@ -328,8 +337,8 @@ export function projectLayerThroughCamera(
   const scaleYActual = -sinRotation * c + cosRotation * d;
 
   return {
-    screenX: compWidth / 2 + viewCenter.x * perspectiveScale,
-    screenY: compHeight / 2 + viewCenter.y * perspectiveScale,
+    screenX: compWidth / 2 + camera.lensShiftPixelsX + viewCenter.x * perspectiveScale,
+    screenY: compHeight / 2 + camera.lensShiftPixelsY + viewCenter.y * perspectiveScale,
     perspectiveScale,
     scaleX: scaleXActual / Math.max(0.0001, perspectiveScale),
     scaleY: scaleYActual / Math.max(0.0001, perspectiveScale),

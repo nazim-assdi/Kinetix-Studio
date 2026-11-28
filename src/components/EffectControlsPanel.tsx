@@ -791,6 +791,30 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-2 border-t border-[#2B303A] pt-2">
+              {([
+                ['Lens Shift X', 'lensShiftX'],
+                ['Lens Shift Y', 'lensShiftY'],
+              ] as const).map(([label, key]) => (
+                <label key={key} className="block text-[10px] text-[#9BA1AD]">
+                  <span className="mb-1 flex justify-between gap-1">
+                    <span>{label}</span>
+                    <span className="font-mono-tabular text-[#FBBF24]">{(selectedClip.cameraProps?.[key] ?? 0).toFixed(1)}%</span>
+                  </span>
+                  <input
+                    type="range"
+                    aria-label={label}
+                    min={-20}
+                    max={20}
+                    step={0.1}
+                    value={selectedClip.cameraProps?.[key] ?? 0}
+                    onChange={(event) => onUpdateCameraProps(selectedClip.id, { [key]: Number(event.target.value) })}
+                    className="w-full studio-slider"
+                  />
+                </label>
+              ))}
+            </div>
+
             <div className="border-t border-[#2B303A] pt-2 space-y-2">
               <label className="flex items-center justify-between text-[11px] text-[#C8CDD6]">
                 <span>Aim at Target</span>

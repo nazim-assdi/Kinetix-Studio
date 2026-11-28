@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { formatTimecode, snapToFrame, findSnapTime } from './timecode';
 import { resolveGeminiApiKey } from './aiConfig';
 import { applyCubeLutToCanvas, parseCubeLut, sampleCubeLut } from './lut';
+import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels, applyLumetriSharpenToPixels } from './lumetri';
 import { DEFAULT_TIMELINE_TRANSITION, createTimelineTransition, findAdjacentOutgoingClip, findNearestTransitionPair, resolveTransitionPairForClip, getTransitionProgress } from './transitions';
 import {
   interpolateKeyframes,
@@ -17,6 +18,7 @@ import {
 } from './keyframes';
 import {
   splitClipAtTime,
+  createCompanionAudioClip,
   trimClipEdge,
   createEffectInstance,
   dedupeEffectStack,
@@ -161,6 +163,73 @@ test('CUBE LUT parser validates sample count and trilinear sampler preserves ide
   assert.ok(Math.abs(midpoint[1] - 0.5) < 1e-9);
   assert.ok(Math.abs(midpoint[2] - 0.75) < 1e-9);
   assert.throws(() => parseCubeLut('LUT_3D_SIZE 3\n0 0 0'), /Expected 27 LUT samples/);
+});
+
+test('video audio companion stays independently editable on a dedicated audio track', () => {
+  const video = makeClip({ kind: 'video', id: 'clip_camera_take', assetId: 'asset_camera_take', volume: 0 });
+  const audio = createCompanionAudioClip(video, 'track_audio_1', [0.2, 0.8, 0.4]);
+  assert.equal(audio.kind, 'audio');
+  assert.equal(audio.trackId, 'track_audio_1');
+  assert.equal(audio.src, video.src);
+  assert.equal(audio.start, video.start);
+  assert.equal(audio.duration, video.duration);
+  assert.equal(audio.volume, 100);
+  assert.deepEqual(audio.waveform, [0.2, 0.8, 0.4]);
+  assert.equal(audio.id, 'clip_camera_take_audio');
+  assert.deepEqual(audio.effects, []);
+  const split = splitClipAtTime(audio, audio.start + audio.duration / 2);
+  assert.ok(split);
+  assert.equal(split[0].kind, 'audio');
+  assert.equal(split[1].kind, 'audio');
+  assert.equal(split[0].trackId, 'track_audio_1');
+  assert.equal(split[1].trackId, 'track_audio_1');
+});
+
+test('Lumetri HSL secondary shifts only the selected feathered hue range', () => {
+  const pixels = new Uint8ClampedArray([
+    255, 0, 0, 255,     // red: selected
+    0, 255, 0, 255,     // green: outside the red range
+  ]);
+  applyHslSecondaryToPixels(pixels, {
+    enabled: true,
+    hueCenter: 0,
+    hueWidth: 40,
+    hueShift: 180,
+    saturation: 0,
+    luminance: 0,
+    softness: 15,
+  });
+  assert.ok(pixels[0] < 20, 'red channel should fall after red rotates toward cyan');
+  assert.ok(pixels[2] > 220, 'blue channel should rise after red rotates toward cyan');
+  assert.ok(pixels[4] < 10 && pixels[5] > 245 && pixels[6] < 10, 'green pixels outside the selected hue should remain unchanged');
+});
+
+test('Lumetri Master and RGB curves alter only enabled tonal channels', () => {
+  const pixels = new Uint8ClampedArray([120, 120, 120, 255]);
+  applyLumetriRgbCurvesToPixels(pixels, {
+    master: { shadows: 0, midtones: 0, highlights: 0 },
+    red: { shadows: 0, midtones: 90, highlights: 0 },
+    green: { shadows: 0, midtones: 0, highlights: 0 },
+    blue: { shadows: 0, midtones: 0, highlights: 0 },
+  });
+  assert.ok(pixels[0] > 120, 'red midtone curve should lift the red channel');
+  assert.equal(pixels[1], 120, 'green channel should remain unchanged');
+  assert.equal(pixels[2], 120, 'blue channel should remain unchanged');
+});
+
+test('Lumetri sharpen increases local edge contrast while retaining image boundaries', () => {
+  const width = 3, height = 3;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 100; pixels[i + 1] = 100; pixels[i + 2] = 100; pixels[i + 3] = 255;
+  }
+  const center = (width + 1) * 4;
+  pixels[center] = 180;
+  pixels[center + 1] = 180;
+  pixels[center + 2] = 180;
+  applyLumetriSharpenToPixels(pixels, width, height, 100);
+  assert.ok(pixels[center] > 180);
+  assert.equal(pixels[0], 100, 'outer border remains unchanged');
 });
 
 test('SMPTE timecode formats 30fps accurately', () => {
@@ -361,6 +430,11 @@ test('physical camera lens, near/far clipping, roll and target aim affect projec
   assert.equal(base.visible, true);
   assert.ok(Math.abs(base.screenX - 640) < 0.001);
   assert.ok(Math.abs(base.screenY - 360) < 0.001);
+
+  const shiftedCamera = makeCamera({ lensShiftX: 10, lensShiftY: -5 });
+  const shifted = projectLayerThroughCamera(world, shiftedCamera, [shiftedCamera], 2, 1280, 720);
+  assert.ok(Math.abs(shifted.screenX - 768) < 0.001, '10% horizontal lens shift should offset the optical center by 128px');
+  assert.ok(Math.abs(shifted.screenY - 324) < 0.001, '-5% vertical lens shift should offset the optical center by -36px');
 
   const telephoto = makeCamera({ focalLength: 100 });
   const tele = projectLayerThroughCamera(world, telephoto, [telephoto], 2, 1280, 720);

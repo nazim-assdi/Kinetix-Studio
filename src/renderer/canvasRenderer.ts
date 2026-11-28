@@ -27,6 +27,7 @@ import { evaluateClipTransform, getClipLocalTime, getClipSpeedAtLocalTime } from
 import { findAdjacentOutgoingClip, getTransitionProgress } from '../engine/transitions';
 import { getTextAnimatorDefinition } from '../data/textAnimators';
 import { applyCubeLutToCanvas } from '../engine/lut';
+import { applyHslSecondaryToPixels, applyLumetriRgbCurvesToPixels, applyLumetriSharpenToPixels } from '../engine/lumetri';
 
 export interface MediaCache {
   images: Map<string, HTMLImageElement>;
@@ -534,11 +535,21 @@ function buildFilterString(
       colorGrade.gamma.luma * 0.35 +
       colorGrade.gain.luma * 0.4 +
       (colorGrade.highlights ?? 0) * 0.25 +
-      (colorGrade.shadows ?? 0) * 0.2;
+      (colorGrade.shadows ?? 0) * 0.2 +
+      (colorGrade.whites ?? 0) * 0.3 +
+      (colorGrade.blacks ?? 0) * 0.18 +
+      (colorGrade.curveWhites ?? 0) * 0.18 +
+      (colorGrade.curveBlacks ?? 0) * 0.12;
+    const clarity = colorGrade.clarity ?? 0;
+    const dehaze = colorGrade.dehaze ?? 0;
     const curveContrast =
-      colorGrade.contrast + ((colorGrade.highlights ?? 0) - (colorGrade.shadows ?? 0)) * 0.35;
+      colorGrade.contrast +
+      ((colorGrade.highlights ?? 0) - (colorGrade.shadows ?? 0)) * 0.35 +
+      clarity * 0.48 +
+      dehaze * 0.62 +
+      (colorGrade.curveMidtones ?? 0) * 0.45;
     const exposureMultiplier = Math.pow(2, Math.max(-5, Math.min(5, colorGrade.exposureStops ?? 0)));
-    const saturation = Math.max(0, Math.min(300, colorGrade.saturation + (colorGrade.vibrance ?? 0) * 0.55 + (colorGrade.colorBoost ?? 0) * 0.35));
+    const saturation = Math.max(0, Math.min(300, colorGrade.saturation + (colorGrade.vibrance ?? 0) * 0.55 + (colorGrade.colorBoost ?? 0) * 0.35 + dehaze * 0.12));
     const tempShift = (colorGrade.temp ?? 0) * 0.035;
     const tintShift = (colorGrade.tint ?? 0) * -0.025;
     const pivot = Math.max(0.1, Math.min(0.9, colorGrade.pivot ?? 0.5));
@@ -725,6 +736,31 @@ function applyDaVinciToneOverlay(
     ctx.globalAlpha = Math.abs(detail) / 700;
     ctx.fillStyle = detail > 0 ? '#FFFFFF' : '#808080';
     ctx.fillRect(-baseW / 2, -baseH / 2, baseW, baseH);
+    ctx.restore();
+  }
+
+  // Lumetri-style optical vignette with independent midpoint, feather and roundness.
+  const vignetteAmount = Math.max(-100, Math.min(100, grade.vignetteAmount ?? 0));
+  if (Math.abs(vignetteAmount) > 0.5) {
+    const midpoint = Math.max(0.05, Math.min(0.95, (grade.vignetteMidpoint ?? 50) / 100));
+    const feather = Math.max(0.05, Math.min(1, (grade.vignetteFeather ?? 70) / 100));
+    const roundness = Math.max(0.45, Math.min(1.8, 1 + (grade.vignetteRoundness ?? 0) / 125));
+    const outerRadius = Math.hypot(baseW / (2 * roundness), baseH / 2) * 1.12;
+    const innerRadius = outerRadius * Math.max(0.05, Math.min(0.92, midpoint - (feather * 0.12)));
+    ctx.save();
+    ctx.scale(roundness, 1);
+    const vignette = ctx.createRadialGradient(0, 0, innerRadius, 0, 0, outerRadius);
+    if (vignetteAmount > 0) {
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, `rgba(0,0,0,${Math.abs(vignetteAmount) / 100 * 0.92})`);
+      ctx.globalCompositeOperation = 'multiply';
+    } else {
+      vignette.addColorStop(0, 'rgba(255,255,255,0)');
+      vignette.addColorStop(1, `rgba(255,255,255,${Math.abs(vignetteAmount) / 100 * 0.72})`);
+      ctx.globalCompositeOperation = 'screen';
+    }
+    ctx.fillStyle = vignette;
+    ctx.fillRect(-baseW / 2 / roundness, -baseH / 2, baseW / roundness, baseH);
     ctx.restore();
   }
 }
@@ -1604,7 +1640,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     transitionClipIds.add(pair.incoming.id);
   });
 
-  const activeCameraView = resolveCameraViewState(activeCamera, clips, playheadTime, width);
+  const activeCameraView = resolveCameraViewState(activeCamera, clips, playheadTime, width, height);
 
   let selectedBox: BoundingBox | null = null;
 
@@ -2226,6 +2262,25 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
       // Apply the imported LUT to the layer's own pixels before alpha masking
       // and compositing, so it remains isolated to the selected clip.
       applyCubeLutToCanvas(renderCtx.canvas, clip.colorGrade.lutData);
+    }
+
+    const hslSecondary = clip.colorGrade?.hslSecondary;
+    const rgbCurves = clip.colorGrade?.rgbCurves;
+    const curveValues = rgbCurves ? [
+      rgbCurves.master.shadows, rgbCurves.master.midtones, rgbCurves.master.highlights,
+      rgbCurves.red.shadows, rgbCurves.red.midtones, rgbCurves.red.highlights,
+      rgbCurves.green.shadows, rgbCurves.green.midtones, rgbCurves.green.highlights,
+      rgbCurves.blue.shadows, rgbCurves.blue.midtones, rgbCurves.blue.highlights,
+    ] : [];
+    const hasRgbCurves = curveValues.some((value) => Math.abs(value) > 0.01);
+    const sharpenAmount = clip.colorGrade?.sharpenAmount ?? 0;
+    if (hslSecondary?.enabled || hasRgbCurves || sharpenAmount > 0.1) {
+      // The pixel buffer is read once for curves, HSL secondary and sharpening.
+      const image = renderCtx.getImageData(0, 0, renderCtx.canvas.width, renderCtx.canvas.height);
+      if (rgbCurves && hasRgbCurves) applyLumetriRgbCurvesToPixels(image.data, rgbCurves);
+      if (hslSecondary?.enabled) applyHslSecondaryToPixels(image.data, hslSecondary);
+      if (sharpenAmount > 0.1) applyLumetriSharpenToPixels(image.data, image.width, image.height, sharpenAmount);
+      renderCtx.putImageData(image, 0, 0);
     }
 
     if (shading.tintAlpha > 0.01) {

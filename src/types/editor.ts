@@ -201,6 +201,29 @@ export interface CubeLut {
   data: [number, number, number][];
 }
 
+export interface HslSecondaryGrade {
+  enabled: boolean;
+  hueCenter: number;
+  hueWidth: number;
+  hueShift: number;
+  saturation: number;
+  luminance: number;
+  softness: number;
+}
+
+export interface LumetriCurveChannel {
+  shadows: number;
+  midtones: number;
+  highlights: number;
+}
+
+export interface LumetriRgbCurves {
+  master: LumetriCurveChannel;
+  red: LumetriCurveChannel;
+  green: LumetriCurveChannel;
+  blue: LumetriCurveChannel;
+}
+
 export interface ColorWheelGrade {
   enabled: boolean;
   lift: ColorWheelChannel;
@@ -220,6 +243,20 @@ export interface ColorWheelGrade {
   shadows?: number; // -50..50
   highlights?: number; // -50..50
   lut: string;
+  blacks?: number;
+  whites?: number;
+  dehaze?: number;
+  clarity?: number;
+  sharpenAmount?: number;
+  curveBlacks?: number;
+  curveMidtones?: number;
+  curveWhites?: number;
+  vignetteAmount?: number;
+  vignetteMidpoint?: number;
+  vignetteFeather?: number;
+  vignetteRoundness?: number;
+  hslSecondary?: HslSecondaryGrade;
+  rgbCurves?: LumetriRgbCurves;
   /** Optional imported .cube 3D LUT. Omitted for built-in or neutral LUTs. */
   lutData?: CubeLut;
 }
@@ -301,6 +338,8 @@ export interface SolidLayerProps {
 
 export interface CameraLayerProps {
   fov: number; // horizontal field of view in degrees
+  lensShiftX?: number; // -20..20 percentage of the frame
+  lensShiftY?: number; // -20..20 percentage of the frame
   focalLength: number; // physical lens focal length in mm
   sensorWidth?: number; // sensor gate width in mm (36 = full frame)
   lookAtX: number;
