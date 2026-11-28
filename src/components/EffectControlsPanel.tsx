@@ -374,7 +374,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                 const kfs = selectedClip.keyframes[row.prop] ?? [];
                 const keyframingActive = kfs.length > 0;
                 const hasKfHere = kfs.some((k) => Math.abs(k.time - localTime) <= 0.05);
-                const val = Number((currentTransform[row.prop] ?? 0).toFixed(1));
+                const val = Number((((currentTransform as unknown as Record<string, number>)[row.prop]) ?? 0).toFixed(1));
                 const expr = selectedClip.expressions?.[row.prop];
 
                 return (
@@ -453,6 +453,7 @@ export const EffectControlsPanel: React.FC<EffectControlsPanelProps> = ({
                         x: [-4000, 4000], y: [-4000, 4000], z: [-10000, 10000], scale: [0, 1000],
                         rotation: [-720, 720], rotationX: [-720, 720], rotationY: [-720, 720], opacity: [0, 100],
                         anchorX: [-4000, 4000], anchorY: [-4000, 4000], shapeWidth: [1, 8192], shapeHeight: [1, 8192], volume: [0, 200],
+                        maskX: [-200, 200], maskY: [-200, 200], maskWidth: [1, 400], maskHeight: [1, 400], maskFeather: [0, 120], maskOpacity: [0, 100],
                       };
                       const [minimum, maximum] = bounds[row.prop];
                       return <input type="range" aria-label={`${row.label} Drag Control`} min={minimum} max={maximum}
