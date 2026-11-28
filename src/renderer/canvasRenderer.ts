@@ -1604,7 +1604,7 @@ export function renderCompositionFrame(options: RenderOptions): BoundingBox | nu
     transitionClipIds.add(pair.incoming.id);
   });
 
-  const activeCameraView = resolveCameraViewState(activeCamera, clips, playheadTime, width);
+  const activeCameraView = resolveCameraViewState(activeCamera, clips, playheadTime, width, height);
 
   let selectedBox: BoundingBox | null = null;
 
