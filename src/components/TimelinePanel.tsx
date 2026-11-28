@@ -55,7 +55,7 @@ interface TimelinePanelProps {
   onSelectionChange?: (clipIds: string[]) => void;
   onMoveClip: (clipId: string, newStart: number, newTrackId?: string) => void;
   onTrimClip: (clipId: string, edge: 'left' | 'right', newEdgeTime: number) => void;
-  onSplitClip: (clipId: string, splitTime: number) => void;
+  onSplitClip: (clipIds: string[], splitTime: number) => void;
   onRippleDeleteClip?: (clipId: string) => void;
   onToggleTrackFlag: (
     trackId: string,
@@ -196,7 +196,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
     if (tool === 'razor') {
       onSelectClip(clip.id);
       setSelectedClipIds([clip.id]);
-      onSplitClip(clip.id, clickTime);
+      onSplitClip([clip.id], clickTime);
       return;
     }
 
@@ -483,12 +483,12 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
               )}
               <button
                 type="button"
-                onClick={() => onSplitClip(selectedClip.id, playheadTime)}
-                title="Split selected clip at playhead"
+                onClick={() => onSplitClip(selectedClipIds.length > 0 ? selectedClipIds : [selectedClip.id], playheadTime)}
+                title={selectedClipIds.length > 1 ? `Split ${selectedClipIds.length} selected clips at playhead` : "Split selected clip at playhead"}
                 className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#232730] hover:bg-[#3B82F6] text-[11px] font-medium text-[#E6E8EC] transition-colors"
               >
                 <Scissors className="w-3 h-3" />
-                <span>Split</span>
+                <span>{selectedClipIds.length > 1 ? `Split ${selectedClipIds.length}` : 'Split'}</span>
               </button>
               <button
                 type="button"
