@@ -323,6 +323,7 @@ export function updateMaskAtTime(
 ): TimelineClip {
   const localTime = getClipTimelineTime(clip, globalTime);
   const currentMask = clip.mask ?? DEFAULT_ANIMATABLE_MASK;
+  const evaluatedMask = evaluateClipMask(clip, globalTime) ?? currentMask;
   let updated: TimelineClip = {
     ...clip,
     mask: {
@@ -343,6 +344,8 @@ export function updateMaskAtTime(
   ] as const;
 
   for (const [prop, field] of animatedFields) {
+    const changed = Math.abs(nextMask[field] - evaluatedMask[field]) > 0.000001;
+    if (!changed) continue;
     if ((updated.keyframes[prop]?.length ?? 0) > 0) {
       updated = upsertKeyframe(updated, prop, localTime, nextMask[field]);
     } else {
